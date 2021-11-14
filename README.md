@@ -1,2 +1,2 @@
 # JFS
-A YSFS Clone, for learnign and fun
+A YSFS Clone, for learning and fun
