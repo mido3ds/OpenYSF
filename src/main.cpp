@@ -15,83 +15,52 @@
 #define WinWidth 400
 #define WinHeight 400
 
-//
-// void _skip_white_space(mn::Str& s) {
-// 	size_t i = 0;
-// 	while (i < s.count && ::isspace(s[i])) {
-// 		i++;
-// 	}
-// 	s.ptr += i;
-// 	s.count -= i;
-// }
-
-//
-// void _skip_till(mn::Str& s, char s2) {
-// 	size_t i;
-// 	for (i = 0; i < s.count && s[i] != s2; i++) { }
-// 	s.ptr += i;
-// 	s.count -= i;
-// }
-
-//
-// mn::Str _token_str(mn::Str& s) {
-// 	const auto pos = s.ptr;
-// 	_skip_till(s, ' ');
-// 	return mn::str_from_substr(pos, s.ptr, mn::memory::tmp());
-// }
-
 double token_double(mn::Str& s) {
 	char* pos;
-	double d = strtod(s.ptr, &pos);
-	if (s.ptr == pos)
+	const double d = strtod(s.ptr, &pos);
+	if (s.ptr == pos) {
 		mn::panic("no double found");
-	if (errno == ERANGE)
-		mn::panic("double out of range");
+	}
 	const size_t diff = pos - s.ptr;
 	s.ptr = pos;
 	s.count -= diff;
 	return d;
 }
 
-int64_t token_long(mn::Str& s) {
+uint64_t token_u64(mn::Str& s) {
+	if (s.count == 0) {
+		mn::panic("end of str");
+	} else if (!::isdigit(s[0])) {
+		mn::panic("doesn't start with digit");
+	}
+
 	char* pos;
-	const int64_t d = strtol(s.ptr, &pos, 10);
-	if (s.ptr == pos)
-		mn::panic("no int64_t found");
-	if (errno == ERANGE)
-		mn::panic("int64_t out of range");
-	const size_t diff = pos - s.ptr;
+	const uint64_t d = strtoull(s.ptr, &pos, 10);
+	if (s.ptr == pos) {
+		mn::panic("no uint64_t found");
+	}
+	const uint64_t diff = pos - s.ptr;
 	s.ptr = pos;
 	s.count -= diff;
 	return d;
 }
 
-uint8_t token_byte(mn::Str& s) {
-	const int64_t i = token_long(s);
-	if (i < 0 || i > 255) {
+uint8_t token_u8(mn::Str& s) {
+	const int64_t i = token_u64(s);
+	if (i > 255) {
 		mn::panic("number is not a byte");
 	}
 	return (uint8_t) i;
 }
 
-// size_t peek(const mn::Str& s1, const char* s2) {
-// 	const size_t len = ::strlen(s2);
-// 	if (len > s1.count+1) {
-// 		return false;
-// 	}
-// 	if (::memcmp(s1.ptr+1, s2, len) == 0) {
-// 		return len;
-// 	}
-// 	return 0;
-// }
-
-// size_t peek(const mn::Str& s, char c) {
-// 	if (s.count > 1 && s[1] == c) {
-// 		return 1;
-// 	}
-
-// 	return 0;
-// }
+mn::Str token_str(mn::Str& s) {
+	const char* a = s.ptr;
+	while (s.count > 0 && s[0] != ' ' && s[0] != '\n') {
+		s.ptr++;
+		s.count--;
+	}
+	return mn::str_from_substr(a, s.ptr);
+}
 
 bool accept(mn::Str& s1, const char* s2) {
 	const size_t len = ::strlen(s2);
@@ -123,22 +92,22 @@ void expect(mn::Str& s1, T s2) {
 	}
 }
 
-// skip comments and whitespaces
-void skip_cws(mn::Str& s) {
-	while (s.count > 0) {
-		if (s[0] == ' ' || s[0] == '\t' || s[0] == '\n') {
-			s.ptr++;
-			s.count--;
-		} else if (s[0] == '#' | accept(s, "REM ")) {
-			while (s.count > 0 && s[0] != '\n') {
-				s.ptr++;
-				s.count--;
-			}
-		} else {
-			return;
-		}
-	}
-}
+// // skip comments and whitespaces
+// void skip_cws(mn::Str& s) {
+// 	while (s.count > 0) {
+// 		if (s[0] == ' ' || s[0] == '\t' || s[0] == '\n') {
+// 			s.ptr++;
+// 			s.count--;
+// 		} else if (s[0] == '#' | accept(s, "REM ")) {
+// 			while (s.count > 0 && s[0] != '\n') {
+// 				s.ptr++;
+// 				s.count--;
+// 			}
+// 		} else {
+// 			return;
+// 		}
+// 	}
+// }
 
 struct Vec3 {
 	double x, y, z;
@@ -197,6 +166,7 @@ struct Face {
 	Color color;
 	Vec3 center, normal;
 	bool unshaded_light_source;
+	uint8_t transparency; // 0=obaque, 255=clear
 };
 
 void face_free(Face &self) {
@@ -212,19 +182,129 @@ namespace fmt {
 		template <typename FormatContext>
 		auto format(const Face &c, FormatContext &ctx) {
 			return format_to(ctx.out(), "Face{{vertices_ids: {}, color: {}, "
-				"center: {}, normal: {}, unshaded_light_source: {}}}", c.vertices_ids, c.color, c.center, c.normal, c.unshaded_light_source);
+				"center: {}, normal: {}, unshaded_light_source: {}, transparency: {}}}", c.vertices_ids, c.color, c.center, c.normal,
+				c.unshaded_light_source, (uint64_t) c.transparency);
+		}
+	};
+}
+
+// class of animation
+enum class CLA {
+	LANDING_GEAR = 0,
+	VARIABLE_GEOMETRY_WING = 1,
+	AFTERBURNER_REHEAT = 2,
+	SPINNER_PROPELLER = 3,
+	AIRBRAKE = 4,
+	FLAPS = 5,
+	ELEVATOR = 6,
+	AILERONS = 7,
+	RUDDER = 8,
+	BOMB_BAY_DOORS = 9,
+	VTOL_NOZZLE = 10,
+	THRUST_REVERSE = 11,
+	THRUST_VECTOR_ANIMATION_LONG = 12, // long time delay (a.k.a. TV-interlock)
+	THRUST_VECTOR_ANIMATION_SHORT = 13, // short time delay (a.k.a. High-speed TV-interlock)
+	GEAR_DOORS_TRANSITION = 14, // open only for transition, close when gear down
+	INSIDE_GEAR_BAY = 15, // shows only when gear is down
+	BRAKE_ARRESTER = 16,
+	GEAR_DOORS = 17, // open when down
+	LOW_THROTTLE = 18, // static object (a.k.a low speed propeller)
+	HIGH_THROTTLE = 20, // static object (a.k.a high speed propeller)
+	TURRET_OBJECTS = 21,
+	ROTATING_WHEELS = 22,
+	STEERING = 23,
+	NAV_LIGHTS = 30,
+	ANTI_COLLISION_LIGHTS = 31,
+	STROBE_LIGHTS = 32,
+	LANDING_LIGHTS = 33,
+	LANDING_GEAR_LIGHTS = 34, // off with gear up
+
+	LEN
+};
+
+namespace fmt {
+	template<>
+	struct formatter<CLA> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const CLA &c, FormatContext &ctx) {
+			mn::Str s {};
+			switch (c) {
+				case CLA::LANDING_GEAR: s = mn::str_lit("CLA::LANDING_GEAR"); break;
+				case CLA::VARIABLE_GEOMETRY_WING: s = mn::str_lit("CLA::VARIABLE_GEOMETRY_WING"); break;
+				case CLA::AFTERBURNER_REHEAT: s = mn::str_lit("CLA::AFTERBURNER_REHEAT"); break;
+				case CLA::SPINNER_PROPELLER: s = mn::str_lit("CLA::SPINNER_PROPELLER"); break;
+				case CLA::AIRBRAKE: s = mn::str_lit("CLA::AIRBRAKE"); break;
+				case CLA::FLAPS: s = mn::str_lit("CLA::FLAPS"); break;
+				case CLA::ELEVATOR: s = mn::str_lit("CLA::ELEVATOR"); break;
+				case CLA::AILERONS: s = mn::str_lit("CLA::AILERONS"); break;
+				case CLA::RUDDER: s = mn::str_lit("CLA::RUDDER"); break;
+				case CLA::BOMB_BAY_DOORS: s = mn::str_lit("CLA::BOMB_BAY_DOORS"); break;
+				case CLA::VTOL_NOZZLE: s = mn::str_lit("CLA::VTOL_NOZZLE"); break;
+				case CLA::THRUST_REVERSE: s = mn::str_lit("CLA::THRUST_REVERSE"); break;
+				case CLA::THRUST_VECTOR_ANIMATION_LONG: s = mn::str_lit("CLA::THRUST_VECTOR_ANIMATION_LONG"); break;
+				case CLA::THRUST_VECTOR_ANIMATION_SHORT: s = mn::str_lit("CLA::THRUST_VECTOR_ANIMATION_SHORT"); break;
+				case CLA::GEAR_DOORS_TRANSITION: s = mn::str_lit("CLA::GEAR_DOORS_TRANSITION"); break;
+				case CLA::INSIDE_GEAR_BAY: s = mn::str_lit("CLA::INSIDE_GEAR_BAY"); break;
+				case CLA::BRAKE_ARRESTER: s = mn::str_lit("CLA::BRAKE_ARRESTER"); break;
+				case CLA::GEAR_DOORS: s = mn::str_lit("CLA::GEAR_DOORS"); break;
+				case CLA::LOW_THROTTLE: s = mn::str_lit("CLA::LOW_THROTTLE"); break;
+				case CLA::HIGH_THROTTLE: s = mn::str_lit("CLA::HIGH_THROTTLE"); break;
+				case CLA::TURRET_OBJECTS: s = mn::str_lit("CLA::TURRET_OBJECTS"); break;
+				case CLA::ROTATING_WHEELS: s = mn::str_lit("CLA::ROTATING_WHEELS"); break;
+				case CLA::STEERING: s = mn::str_lit("CLA::STEERING"); break;
+				case CLA::NAV_LIGHTS: s = mn::str_lit("CLA::NAV_LIGHTS"); break;
+				case CLA::ANTI_COLLISION_LIGHTS: s = mn::str_lit("CLA::ANTI_COLLISION_LIGHTS"); break;
+				case CLA::STROBE_LIGHTS: s = mn::str_lit("CLA::STROBE_LIGHTS"); break;
+				case CLA::LANDING_LIGHTS: s = mn::str_lit("CLA::LANDING_LIGHTS"); break;
+				case CLA::LANDING_GEAR_LIGHTS: s = mn::str_lit("CLA::LANDING_GEAR_LIGHTS"); break;
+				default: mn_unreachable();
+			}
+			return format_to(ctx.out(), "{}", s);
+		}
+	};
+}
+
+struct STA {
+	Vec3 pos, rotation;
+	uint8_t visibility;
+};
+
+namespace fmt {
+	template<>
+	struct formatter<STA> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const STA &s, FormatContext &ctx) {
+			return format_to(ctx.out(), "STA{{pos: {}, rotation: {}, visibility: {}}}", s.pos, s.rotation, s.visibility);
 		}
 	};
 }
 
 struct SURF {
+	mn::Str name; // from SRF not FIL
 	mn::Buf<Vertex> vertices;
 	mn::Buf<Face> faces;
+	mn::Buf<uint64_t> gfs, zls, zzs;
+	CLA cla;
+	mn::Buf<STA> stas; // last one is POS
+	Vec3 cnt;
+	mn::Buf<mn::Str> children;
 };
 
 void surf_free(SURF &self) {
+	mn::str_free(self.name);
 	mn::destruct(self.vertices);
 	mn::destruct(self.faces);
+	mn::destruct(self.gfs);
+	mn::destruct(self.zls);
+	mn::destruct(self.zzs);
+	mn::destruct(self.stas);
+	mn::destruct(self.children);
 }
 
 namespace fmt {
@@ -235,128 +315,17 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const SURF &s, FormatContext &ctx) {
-			return format_to(ctx.out(), "SURF{{vertices: {}, faces: {}}}", s.vertices, s.faces);
+			return format_to(ctx.out(), "SURF{{name: {}, cla: {}, vertices: {}, faces: {}, gfs: {}, zls: {}, zzs: {}, stas: {}, cnt: {}, children: {}}}",
+				s.name, s.cla, s.vertices, s.faces, s.gfs, s.zls, s.zzs, s.stas, s.cnt, s.children);
 		}
 	};
 }
 
-SURF surf_parse(const char* in) {
-	SURF surf {};
-	auto s = mn::str_lit(in);
-
-	expect(s, "SURF");
-	skip_cws(s);
-
-	// V {x} {y} {z}[ R]
-	while (accept(s, "V ")) {
-		Vertex v {};
-
-		v.pos.x = token_double(s);
-		expect(s, ' ');
-		v.pos.y = token_double(s);
-		expect(s, ' ');
-		v.pos.z = token_double(s);
-		v.smooth_shading = accept(s, " R");
-		skip_cws(s);
-
-		mn::buf_push(surf.vertices, v);
-	}
-	if (surf.vertices.count == 0) {
-		mn::panic("must have at least one vertex");
-	}
-
-	while (!accept(s, 'E')) {
-		Face face {};
-		bool parsed_color = false,
-			parsed_normal = false,
-			parsed_vertices = false;
-
-		expect(s, 'F');
-		skip_cws(s);
-		while (!accept(s, 'E')) {
-			if (accept(s, "C ")) {
-				if (parsed_color) {
-					mn::panic("found more than one color");
-				}
-				parsed_color = true;
-
-				face.color.r = token_byte(s);
-				expect(s, ' ');
-				face.color.g = token_byte(s);
-				expect(s, ' ');
-				face.color.b = token_byte(s);
-				skip_cws(s);
-			}
-
-			if (accept(s, "N ")) {
-				if (parsed_normal) {
-					mn::panic("found more than one normal");
-				}
-				parsed_normal = true;
-
-				face.center.x = token_double(s);
-				expect(s, ' ');
-				face.center.y = token_double(s);
-				expect(s, ' ');
-				face.center.z = token_double(s);
-				expect(s, ' ');
-
-				face.normal.x = token_double(s);
-				expect(s, ' ');
-				face.normal.y = token_double(s);
-				expect(s, ' ');
-				face.normal.z = token_double(s);
-				skip_cws(s);
-			}
-
-			// V {x}...
-			if (accept(s, 'V')) {
-				if (parsed_vertices) {
-					mn::panic("found more than one vertices line");
-				}
-				parsed_vertices = true;
-
-				while (accept(s, ' ')) {
-					int64_t id = token_long(s);
-					if (id < 0) {
-						mn::panic("id={} is negative", id);
-					}
-					if (id >= surf.vertices.count) {
-						mn::panic("id={} out of bounds={}", id, surf.vertices.count);
-					}
-					mn::buf_push(face.vertices_ids, (size_t) id);
-				}
-				skip_cws(s);
-			}
-			if (face.vertices_ids.count < 3) {
-				mn::panic("face has count of ids={}, it must be >= 3", face.vertices_ids.count);
-			}
-
-			if (accept(s, 'B')) {
-				if (face.unshaded_light_source) {
-					mn::panic("found more than 1 B");
-				}
-				face.unshaded_light_source = true;
-				skip_cws(s);
-			}
-		}
-		skip_cws(s);
-
-		if (!parsed_color) {
-			mn::panic("face has no color");
-		}
-		if (!parsed_normal) {
-			mn::panic("face has no normal");
-		}
-		if (!parsed_vertices) {
-			mn::panic("face has no vertices");
-		}
-
-		mn::buf_push(surf.faces, face);
-	}
-
-	return surf;
-}
+template<typename T>
+struct Option {
+	T val;
+	bool ok;
+};
 
 constexpr auto SURF_EXAMPLE = R"(SURF
 V 0.000 4.260 0.370 R
@@ -399,38 +368,395 @@ V 5 6 7 8
 N 4.940 2.140 2.330 1.000 0.000 0.000
 C 6 66 127
 E
-E)";
+E
+)";
+
+constexpr auto DNM_EXAMPLE = R"(DYNAMODEL
+DNMVER 1
+PCK habal.srf 25
+SURF
+V 0.000 4.260 0.370 R
+V 0.000 4.260 0.370 R
+V 0.000 0.020 0.350 R
+F
+C 127 127 127
+N 0.000 2.143 2.325 -1.000 0.001 -0.001
+V 0 1 2
+E
+F
+C 107 127 127
+N 0.000 1.143 2.325 -1.000 0.001 -0.001
+V 0 1 1
+E
+
+GF 0 0 0
+GF 1
+GF 0 0 1
+GF 0 0
+
+ZA 0 200 0 200 1 100 0 200 0 200 0 200
+ZA 0 200 0 200 0 250 1 200 0 200
+ZL 0 1 0 1
+ZZ 0 0 1
+
+SRF "Habal"
+FIL habal.srf
+CLA 2
+NST 2
+STA 0.0000 0.0000 0.0000 -32768 -15915 32768 0
+STA 0.0000 0.0000 0.0000 0 0 0 1
+POS 1.1000 -0.8500 -1.8500 32736 0 0 1
+CNT 0.0000 0.0000 0.0000
+REL DEP
+NCH 1
+CLD "Habal"
+END
+END
+)";
+
+using DNM = mn::Map<mn::Str, SURF>;
+DNM expect_dnm(mn::Str& s) {
+	expect(s, "DYNAMODEL\nDNMVER 1\n");
+
+	auto surfs = mn::map_new<mn::Str, SURF>();
+	while (accept(s, "PCK ")) {
+		auto name = token_str(s);
+		expect(s, ' ');
+		const auto expected_lines = token_u64(s);
+		auto lines = expected_lines;
+		expect(s, '\n');
+
+		expect(s, "SURF\n");
+		if (lines-- == 0) {
+			mn::panic("expected {} lines, found more", expected_lines);
+		}
+
+		SURF surf {};
+
+		// V {x} {y} {z}[ R]\n
+		while (accept(s, "V ")) {
+			Vertex v {};
+
+			v.pos.x = token_double(s);
+			expect(s, ' ');
+			v.pos.y = token_double(s);
+			expect(s, ' ');
+			v.pos.z = token_double(s);
+			v.smooth_shading = accept(s, " R");
+			expect(s, '\n');
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+
+			mn::buf_push(surf.vertices, v);
+		}
+		if (surf.vertices.count == 0) {
+			mn::panic("must have at least one vertex");
+		}
+
+		// <Face>+
+		while (!accept(s, '\n')) {
+			Face face {};
+			bool parsed_color = false,
+				parsed_normal = false,
+				parsed_vertices = false;
+
+			expect(s, "F\n");
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+			while (!accept(s, "E\n")) {
+				if (accept(s, "C ")) {
+					if (parsed_color) {
+						mn::panic("found more than one color");
+					}
+					parsed_color = true;
+
+					face.color.r = token_u8(s);
+					expect(s, ' ');
+					face.color.g = token_u8(s);
+					expect(s, ' ');
+					face.color.b = token_u8(s);
+					expect(s, '\n');
+					if (lines-- == 0) {
+						mn::panic("expected {} lines, found more", expected_lines);
+					}
+				}
+
+				if (accept(s, "N ")) {
+					if (parsed_normal) {
+						mn::panic("found more than one normal");
+					}
+					parsed_normal = true;
+
+					face.center.x = token_double(s);
+					expect(s, ' ');
+					face.center.y = token_double(s);
+					expect(s, ' ');
+					face.center.z = token_double(s);
+					expect(s, ' ');
+
+					face.normal.x = token_double(s);
+					expect(s, ' ');
+					face.normal.y = token_double(s);
+					expect(s, ' ');
+					face.normal.z = token_double(s);
+					expect(s, '\n');
+					if (lines-- == 0) {
+						mn::panic("expected {} lines, found more", expected_lines);
+					}
+				}
+
+				// V {x}...
+				if (accept(s, 'V')) {
+					if (parsed_vertices) {
+						mn::panic("found more than one vertices line");
+					}
+					parsed_vertices = true;
+
+					while (accept(s, ' ')) {
+						uint64_t id = token_u64(s);
+						if (id >= surf.vertices.count) {
+							mn::panic("id={} out of bounds={}", id, surf.vertices.count);
+						}
+						mn::buf_push(face.vertices_ids, (size_t) id);
+					}
+					expect(s, '\n');
+					if (lines-- == 0) {
+						mn::panic("expected {} lines, found more", expected_lines);
+					}
+				}
+				if (face.vertices_ids.count < 3) {
+					mn::panic("face has count of ids={}, it must be >= 3", face.vertices_ids.count);
+				}
+
+				if (accept(s, "B\n")) {
+					if (face.unshaded_light_source) {
+						mn::panic("found more than 1 B");
+					}
+					face.unshaded_light_source = true;
+					if (lines-- == 0) {
+						mn::panic("expected {} lines, found more", expected_lines);
+					}
+				}
+			}
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+
+			if (!parsed_color) {
+				mn::panic("face has no color");
+			}
+			if (!parsed_normal) {
+				mn::panic("face has no normal");
+			}
+			if (!parsed_vertices) {
+				mn::panic("face has no vertices");
+			}
+
+			mn::buf_push(surf.faces, face);
+		}
+		if (lines-- == 0) {
+			mn::panic("expected {} lines, found more", expected_lines);
+		}
+
+		// [GF< {u64}>+\n]+
+		while (accept(s, "GF")) {
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= surf.faces.count) {
+					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+				}
+				mn::buf_push(surf.gfs, id);
+			}
+			expect(s, '\n');
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+		}
+		expect(s, '\n');
+		if (lines-- == 0) {
+			mn::panic("expected {} lines, found more", expected_lines);
+		}
+
+		// [ZA< {u64} {u8}>+\n]+
+		while (accept(s, "ZA")) {
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= surf.faces.count) {
+					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+				}
+				expect(s, ' ');
+				surf.faces[id].transparency = token_u8(s);
+			}
+			expect(s, '\n');
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+		}
+
+		// [ZL< {u64}>+\n]
+		size_t zl_count = 0;
+		while (accept(s, "ZL")) {
+			zl_count++;
+			if (zl_count > 1) {
+				mn::panic("found {} > 1 ZLs", zl_count);
+			}
+
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= surf.faces.count) {
+					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+				}
+				mn::buf_push(surf.zls, id);
+			}
+			expect(s, '\n');
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+		}
+
+		// [ZZ< {u64}>+\n]
+		size_t zz_count = 0;
+		while (accept(s, "ZZ")) {
+			zz_count++;
+			if (zz_count > 1) {
+				mn::panic("found {} > 1 ZZs", zz_count);
+			}
+
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= surf.faces.count) {
+					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+				}
+				mn::buf_push(surf.zzs, id);
+			}
+			expect(s, '\n');
+			if (lines-- == 0) {
+				mn::panic("expected {} lines, found more", expected_lines);
+			}
+		}
+
+		expect(s, '\n');
+		// last line
+		lines--;
+		if (lines > 0) {
+			mn::panic("expected {} lines, found less", expected_lines);
+		}
+
+		mn::map_insert(surfs, name, surf);
+	}
+
+	while (accept(s, "SRF ")) {
+		auto name = token_str(s);
+		if (!(mn::str_prefix(name, "\"") && mn::str_suffix(name, "\""))) {
+			mn::panic("name must be in \"\" found={}", name);
+		}
+		mn::str_trim(name, "\"");
+		expect(s, '\n');
+
+		expect(s, "FIL ");
+		auto fil = token_str(s);
+		expect(s, '\n');
+		auto surf = mn::map_lookup(surfs, fil);
+		if (!surf) {
+			mn::panic("line referenced undeclared surf={}", fil);
+		}
+		surf->value.name = name;
+
+		expect(s, "CLA ");
+		auto cla = token_u8(s);
+		if (cla >= (uint8_t) CLA::LEN) {
+			mn::panic("invalid CLA={}", cla);
+		}
+		surf->value.cla = (CLA) cla;
+		expect(s, '\n');
+
+		expect(s, "NST ");
+		auto num_stas = token_u64(s);
+		mn::buf_reserve(surf->value.stas, num_stas);
+		expect(s, '\n');
+		for (size_t i = 0; i < num_stas+1; i++) {
+			if (i == num_stas) {
+				expect(s, "POS ");
+			} else {
+				expect(s, "STA ");
+			}
+
+			STA sta {};
+			sta.pos.x = token_double(s);
+			expect(s, ' ');
+			sta.pos.y = token_double(s);
+			expect(s, ' ');
+			sta.pos.z = token_double(s);
+			expect(s, ' ');
+
+			sta.rotation.x = token_double(s);
+			expect(s, ' ');
+			sta.rotation.y = token_double(s);
+			expect(s, ' ');
+			sta.rotation.z = token_double(s);
+			expect(s, ' ');
+
+			sta.visibility = token_u8(s);
+			expect(s, '\n');
+
+			mn::buf_push(surf->value.stas, sta);
+		}
+
+		expect(s, "CNT ");
+		surf->value.cnt.x = token_double(s);
+		expect(s, ' ');
+		surf->value.cnt.y = token_double(s);
+		expect(s, ' ');
+		surf->value.cnt.z = token_double(s);
+		expect(s, '\n');
+
+		expect(s, "REL DEP\n");
+
+		expect(s, "NCH ");
+		auto num_children = token_u64(s);
+		expect(s, '\n');
+		mn::buf_reserve(surf->value.children, num_children);
+		for (size_t i = 0; i < num_children; i++) {
+			expect(s, "CLD ");
+			auto child_name = token_str(s);
+			if (!(mn::str_prefix(child_name, "\"") && mn::str_suffix(child_name, "\""))) {
+				mn::panic("child_name must be in \"\" found={}", child_name);
+			}
+			mn::str_trim(child_name, "\"");
+			mn::buf_push(surf->value.children, child_name);
+			expect(s, '\n');
+		}
+		// reinsert with name instead of FIL
+		surf = mn::map_insert(surfs, name, surf->value);
+		mn::map_remove(surfs, fil);
+
+		// check children exist
+		for (const auto [_, srf] : surfs.values) {
+			for (const auto child : srf.children) {
+				auto srf2 = mn::map_lookup(surfs, child);
+				if (srf2 == nullptr) {
+					mn::panic("SURF {} contains child {} that doesn't exist", srf.name, child);
+				} else if (srf2->value.name == srf.name) {
+					mn::log_warning("SURF {} references itself", child);
+				}
+			}
+		}
+
+		expect(s, "END\n");
+	}
+	expect(s, "END\n");
+
+	return surfs;
+}
 
 int main() {
-	// float f[3] = {0, 0, 0};
-	// char c[2] = {0, 0};
-	// mn::log_debug("{} {} {} {} {}", ::sscanf("V 0.000 4.260 -0.370 R\nX 5.12 1.2\n", "V %f %f %f %[R]", &f[0], &f[1], &f[2], c), f[0], f[1], f[2], c);
+	auto s = mn::str_lit(DNM_EXAMPLE);
+	auto dnm = expect_dnm(s);
+	mn_defer(mn::destruct(dnm));
+	mn::log_debug("dnm={}", dnm);
 
-	// auto s = mn::str_lit(SURF_EXAMPLE);
-	// expect(s, "SURF\n");
-	// // mn_assert(!accept(s, "sadfwe"));
-	// mn_assert(accept(s, "V "));
-	// mn_assert(token_double(s) == 0);
-	// // mn_assert(_token_str(s) == "0.000");
-	// // _skip_white_space(s);
-	// // mn_assert(!accept(s, "w23r"));
-	// // mn_assert(_token_str(s) == "4.260");
-	// expect(s, ' ');
-	// mn_assert(token_double(s) == 4.260);
-	// // _skip_white_space(s);
-	// // mn_assert(!accept(s, "2eri9h"));
-	// // mn_assert(_token_str(s) == "0.370");
-	// expect(s, ' ');
-	// mn_assert(token_double(s) == 0.370);
-	// // _skip_white_space(s);
-	// mn_assert(accept(s, " R\n"));
-	// // _skip_white_space(s);
-	// mn_assert(accept(s, "V "));
-	// mn::log_debug("ok");
-
-	auto surf = surf_parse(SURF_EXAMPLE);
-	mn_defer(surf_free(surf));
-	mn::log_debug("surf={}", surf);
 	return 0;
 
 	SDL_SetMainReady();
