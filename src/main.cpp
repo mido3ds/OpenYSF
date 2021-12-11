@@ -155,7 +155,7 @@ struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	Color color;
 	Vec3 center, normal;
-	bool unshaded_light_source;
+	bool unshaded_light_source; // ???
 };
 
 void face_free(Face &self) {
@@ -177,119 +177,192 @@ namespace fmt {
 	};
 }
 
-// class of animation
-enum class CLA {
-	LANDING_GEAR = 0,
-	VARIABLE_GEOMETRY_WING = 1,
-	AFTERBURNER_REHEAT = 2,
-	SPINNER_PROPELLER = 3,
-	AIRBRAKE = 4,
-	FLAPS = 5,
-	ELEVATOR = 6,
-	AILERONS = 7,
-	RUDDER = 8,
-	BOMB_BAY_DOORS = 9,
-	VTOL_NOZZLE = 10,
-	THRUST_REVERSE = 11,
-	THRUST_VECTOR_ANIMATION_LONG = 12, // long time delay (a.k.a. TV-interlock)
-	THRUST_VECTOR_ANIMATION_SHORT = 13, // short time delay (a.k.a. High-speed TV-interlock)
-	GEAR_DOORS_TRANSITION = 14, // open only for transition, close when gear down
-	INSIDE_GEAR_BAY = 15, // shows only when gear is down
-	BRAKE_ARRESTER = 16,
-	GEAR_DOORS = 17, // open when down
-	LOW_THROTTLE = 18, // static object (a.k.a low speed propeller)
-	HIGH_THROTTLE = 20, // static object (a.k.a high speed propeller)
-	TURRET_OBJECTS = 21,
-	ROTATING_WHEELS = 22,
-	STEERING = 23,
-	NAV_LIGHTS = 30,
-	ANTI_COLLISION_LIGHTS = 31,
-	STROBE_LIGHTS = 32,
-	LANDING_LIGHTS = 33,
-	LANDING_GEAR_LIGHTS = 34, // off with gear up
+// CLA: class of animation (aircraft or ground object or player controled ground vehicles)
+// The CLA animation, possibly standing for class,
+// defines what aircraft system an .srf is animated to
+// (for example, landing gear, or thrust reverser).
+// There are two different animation channel types, aircraft, and ground objects.
+// Aircraft animations include all flight oriented animations, as well as lights and turrets.
+// Ground object animations are far more simplistic as there are far fewer visual tasks ground objects perform.
+// The CLA is applied to the .srf by the "CLA" line in the .dnm footer.
+// See https://ysflightsim.fandom.com/wiki/CLA
+enum class AnimationClass {
+	AIRCRAFT_LANDING_GEAR = 0,
+	AIRCRAFT_VARIABLE_GEOMETRY_WING = 1,
+	AIRCRAFT_AFTERBURNER_REHEAT = 2,
+	AIRCRAFT_SPINNER_PROPELLER = 3,
+	AIRCRAFT_AIRBRAKE = 4,
+	AIRCRAFT_FLAPS = 5,
+	AIRCRAFT_ELEVATOR = 6,
+	AIRCRAFT_AILERONS = 7,
+	AIRCRAFT_RUDDER = 8,
+	AIRCRAFT_BOMB_BAY_DOORS = 9,
+	AIRCRAFT_VTOL_NOZZLE = 10,
+	AIRCRAFT_THRUST_REVERSE = 11,
+	AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG = 12, // long time delay (a.k.a. TV-interlock)
+	AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT = 13, // short time delay (a.k.a. High-speed TV-interlock)
+	AIRCRAFT_GEAR_DOORS_TRANSITION = 14, // open only for transition, close when gear down
+	AIRCRAFT_INSIDE_GEAR_BAY = 15, // shows only when gear is down
+	AIRCRAFT_BRAKE_ARRESTER = 16,
+	AIRCRAFT_GEAR_DOORS = 17, // open when down
+	AIRCRAFT_LOW_THROTTLE = 18, // static object (a.k.a low speed propeller)
+	AIRCRAFT_HIGH_THROTTLE = 20, // static object (a.k.a high speed propeller)
+	AIRCRAFT_TURRET_OBJECTS = 21,
+	AIRCRAFT_ROTATING_WHEELS = 22,
+	AIRCRAFT_STEERING = 23,
+	AIRCRAFT_NAV_LIGHTS = 30,
+	AIRCRAFT_ANTI_COLLISION_LIGHTS = 31,
+	AIRCRAFT_STROBE_LIGHTS = 32,
+	AIRCRAFT_LANDING_LIGHTS = 33,
+	AIRCRAFT_LANDING_GEAR_LIGHTS = 34, // off with gear up
+
+	GROUND_DEFAULT = 0,
+	GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING = 1, // i.e. the turret
+	GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING = 2, // i.e. the barrel
+	GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING = 3,
+	GROUND_SAM_LAUNCHER_VERTICAL_TRACKING = 4,
+	GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING = 5, // e.g. those default ground object tanks will shoot at other objects, this is the turret
+	GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING = 6,
+	GROUND_SPINNING_RADAR_SLOW = 10, // 3 seconds per revolution
+	GROUND_SPINNING_RADAR_FAST = 11, // 2 seconds per revolution
+
+	PLAYER_GROUND_LEFT_DOOR = 40,
+	PLAYER_GROUND_RIGHT_DOOR = 41,
+    PLAYER_GROUND_REAR_DOOR = 42,
+    PLAYER_GROUND_CARGO_DOOR = 43,
 
 	UNKNOWN,
-	COUNT,
 };
 
 namespace fmt {
 	template<>
-	struct formatter<CLA> {
+	struct formatter<AnimationClass> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const CLA &c, FormatContext &ctx) {
+		auto format(const AnimationClass &c, FormatContext &ctx) {
 			mn::Str s {};
 			switch (c) {
-				case CLA::LANDING_GEAR: s = mn::str_lit("LANDING_GEAR"); break;
-				case CLA::VARIABLE_GEOMETRY_WING: s = mn::str_lit("VARIABLE_GEOMETRY_WING"); break;
-				case CLA::AFTERBURNER_REHEAT: s = mn::str_lit("AFTERBURNER_REHEAT"); break;
-				case CLA::SPINNER_PROPELLER: s = mn::str_lit("SPINNER_PROPELLER"); break;
-				case CLA::AIRBRAKE: s = mn::str_lit("AIRBRAKE"); break;
-				case CLA::FLAPS: s = mn::str_lit("FLAPS"); break;
-				case CLA::ELEVATOR: s = mn::str_lit("ELEVATOR"); break;
-				case CLA::AILERONS: s = mn::str_lit("AILERONS"); break;
-				case CLA::RUDDER: s = mn::str_lit("RUDDER"); break;
-				case CLA::BOMB_BAY_DOORS: s = mn::str_lit("BOMB_BAY_DOORS"); break;
-				case CLA::VTOL_NOZZLE: s = mn::str_lit("VTOL_NOZZLE"); break;
-				case CLA::THRUST_REVERSE: s = mn::str_lit("THRUST_REVERSE"); break;
-				case CLA::THRUST_VECTOR_ANIMATION_LONG: s = mn::str_lit("THRUST_VECTOR_ANIMATION_LONG"); break;
-				case CLA::THRUST_VECTOR_ANIMATION_SHORT: s = mn::str_lit("THRUST_VECTOR_ANIMATION_SHORT"); break;
-				case CLA::GEAR_DOORS_TRANSITION: s = mn::str_lit("GEAR_DOORS_TRANSITION"); break;
-				case CLA::INSIDE_GEAR_BAY: s = mn::str_lit("INSIDE_GEAR_BAY"); break;
-				case CLA::BRAKE_ARRESTER: s = mn::str_lit("BRAKE_ARRESTER"); break;
-				case CLA::GEAR_DOORS: s = mn::str_lit("GEAR_DOORS"); break;
-				case CLA::LOW_THROTTLE: s = mn::str_lit("LOW_THROTTLE"); break;
-				case CLA::HIGH_THROTTLE: s = mn::str_lit("HIGH_THROTTLE"); break;
-				case CLA::TURRET_OBJECTS: s = mn::str_lit("TURRET_OBJECTS"); break;
-				case CLA::ROTATING_WHEELS: s = mn::str_lit("ROTATING_WHEELS"); break;
-				case CLA::STEERING: s = mn::str_lit("STEERING"); break;
-				case CLA::NAV_LIGHTS: s = mn::str_lit("NAV_LIGHTS"); break;
-				case CLA::ANTI_COLLISION_LIGHTS: s = mn::str_lit("ANTI_COLLISION_LIGHTS"); break;
-				case CLA::STROBE_LIGHTS: s = mn::str_lit("STROBE_LIGHTS"); break;
-				case CLA::LANDING_LIGHTS: s = mn::str_lit("LANDING_LIGHTS"); break;
-				case CLA::LANDING_GEAR_LIGHTS: s = mn::str_lit("LANDING_GEAR_LIGHTS"); break;
-				case CLA::UNKNOWN: s = mn::str_lit("UNKNOWN"); break;
-				default: mn_unreachable();
+			case AnimationClass::AIRCRAFT_LANDING_GEAR:
+			case AnimationClass::GROUND_DEFAULT:
+				s = mn::str_lit("(AIRCRAFT_LANDING_GEAR||GROUND_DEFAULT)");
+				break;
+			case AnimationClass::AIRCRAFT_VARIABLE_GEOMETRY_WING:
+			case AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING:
+				s = mn::str_lit("(AIRCRAFT_VARIABLE_GEOMETRY_WING||GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING)");
+				break;
+			case AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT:
+			case AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING:
+				s = mn::str_lit("(AIRCRAFT_AFTERBURNER_REHEAT||GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING)");
+				break;
+			case AnimationClass::AIRCRAFT_SPINNER_PROPELLER:
+			case AnimationClass::GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING:
+				s = mn::str_lit("(AIRCRAFT_SPINNER_PROPELLER||GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING)");
+				break;
+			case AnimationClass::AIRCRAFT_AIRBRAKE:
+			case AnimationClass::GROUND_SAM_LAUNCHER_VERTICAL_TRACKING:
+				s = mn::str_lit("(AIRCRAFT_AIRBRAKE||GROUND_SAM_LAUNCHER_VERTICAL_TRACKING)");
+				break;
+			case AnimationClass::AIRCRAFT_FLAPS:
+			case AnimationClass::GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING:
+				s = mn::str_lit("(AIRCRAFT_FLAPS||GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING)");
+				break;
+			case AnimationClass::AIRCRAFT_ELEVATOR:
+			case AnimationClass::GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING:
+				s = mn::str_lit("(AIRCRAFT_ELEVATOR||GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING)");
+				break;
+			case AnimationClass::AIRCRAFT_VTOL_NOZZLE:
+			case AnimationClass::GROUND_SPINNING_RADAR_SLOW:
+				s = mn::str_lit("(AIRCRAFT_VTOL_NOZZLE||GROUND_SPINNING_RADAR_SLOW)");
+				break;
+			case AnimationClass::AIRCRAFT_THRUST_REVERSE:
+			case AnimationClass::GROUND_SPINNING_RADAR_FAST:
+				s = mn::str_lit("(AIRCRAFT_THRUST_REVERSE||GROUND_SPINNING_RADAR_FAST)");
+				break;
+
+			case AnimationClass::AIRCRAFT_AILERONS: s = mn::str_lit("AIRCRAFT_AILERONS"); break;
+			case AnimationClass::AIRCRAFT_RUDDER: s = mn::str_lit("AIRCRAFT_RUDDER"); break;
+			case AnimationClass::AIRCRAFT_BOMB_BAY_DOORS: s = mn::str_lit("AIRCRAFT_BOMB_BAY_DOORS"); break;
+			case AnimationClass::AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG: s = mn::str_lit("AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG"); break;
+			case AnimationClass::AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT: s = mn::str_lit("AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT"); break;
+			case AnimationClass::AIRCRAFT_GEAR_DOORS_TRANSITION: s = mn::str_lit("AIRCRAFT_GEAR_DOORS_TRANSITION"); break;
+			case AnimationClass::AIRCRAFT_INSIDE_GEAR_BAY: s = mn::str_lit("AIRCRAFT_INSIDE_GEAR_BAY"); break;
+			case AnimationClass::AIRCRAFT_BRAKE_ARRESTER: s = mn::str_lit("AIRCRAFT_BRAKE_ARRESTER"); break;
+			case AnimationClass::AIRCRAFT_GEAR_DOORS: s = mn::str_lit("AIRCRAFT_GEAR_DOORS"); break;
+			case AnimationClass::AIRCRAFT_LOW_THROTTLE: s = mn::str_lit("AIRCRAFT_LOW_THROTTLE"); break;
+			case AnimationClass::AIRCRAFT_HIGH_THROTTLE: s = mn::str_lit("AIRCRAFT_HIGH_THROTTLE"); break;
+			case AnimationClass::AIRCRAFT_TURRET_OBJECTS: s = mn::str_lit("AIRCRAFT_TURRET_OBJECTS"); break;
+			case AnimationClass::AIRCRAFT_ROTATING_WHEELS: s = mn::str_lit("AIRCRAFT_ROTATING_WHEELS"); break;
+			case AnimationClass::AIRCRAFT_STEERING: s = mn::str_lit("AIRCRAFT_STEERING"); break;
+			case AnimationClass::AIRCRAFT_NAV_LIGHTS: s = mn::str_lit("AIRCRAFT_NAV_LIGHTS"); break;
+			case AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS: s = mn::str_lit("AIRCRAFT_ANTI_COLLISION_LIGHTS"); break;
+			case AnimationClass::AIRCRAFT_STROBE_LIGHTS: s = mn::str_lit("AIRCRAFT_STROBE_LIGHTS"); break;
+			case AnimationClass::AIRCRAFT_LANDING_LIGHTS: s = mn::str_lit("AIRCRAFT_LANDING_LIGHTS"); break;
+			case AnimationClass::AIRCRAFT_LANDING_GEAR_LIGHTS: s = mn::str_lit("AIRCRAFT_LANDING_GEAR_LIGHTS"); break;
+
+			case AnimationClass::PLAYER_GROUND_LEFT_DOOR: s = mn::str_lit("PLAYER_GROUND_LEFT_DOOR"); break;
+			case AnimationClass::PLAYER_GROUND_RIGHT_DOOR: s = mn::str_lit("PLAYER_GROUND_RIGHT_DOOR"); break;
+			case AnimationClass::PLAYER_GROUND_REAR_DOOR: s = mn::str_lit("PLAYER_GROUND_REAR_DOOR"); break;
+			case AnimationClass::PLAYER_GROUND_CARGO_DOOR: s = mn::str_lit("PLAYER_GROUND_CARGO_DOOR"); break;
+
+			case AnimationClass::UNKNOWN: s = mn::str_lit("UNKNOWN"); break;
+
+			default: mn_unreachable();
 			}
-			return format_to(ctx.out(), "CLA::{}", s);
+			return format_to(ctx.out(), "AnimationClass::{}", s);
 		}
 	};
 }
 
-struct STA {
+// STA
+// STA's provide boundary conditions for animations to function in YS Flight.
+// For most animations they provide minimum and maximum positions for
+// srf files to be in based on inputs from the user.
+// For example, the flaps require two STAs. One for up, and the other for fully deployed.
+// If the user deploys the flaps to 50%, then YS Flight will display the
+// animation as 50% of the way between the position of the two STAs.
+// STA's can also be used to keep certain elements of the aircraft model from
+// being rendered when not being used. This reduces the lag that can be
+// generated by detailed models. Toggling the visible, non-visible option will keep the srf at that STA visible, or invisible.
+// See https://ysflightsim.fandom.com/wiki/STA
+struct MeshState {
 	Vec3 pos, rotation;
-	uint8_t visibility;
+	bool visible;
 };
 
 namespace fmt {
 	template<>
-	struct formatter<STA> {
+	struct formatter<MeshState> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const STA &s, FormatContext &ctx) {
-			return format_to(ctx.out(), "STA{{pos: {}, rotation: {}, visibility: {}}}", s.pos, s.rotation, s.visibility);
+		auto format(const MeshState &s, FormatContext &ctx) {
+			return format_to(ctx.out(), "MeshState{{pos: {}, rotation: {}, visible: {}}}", s.pos, s.rotation, s.visible);
 		}
 	};
 }
 
-struct SURF {
-	CLA cla = CLA::UNKNOWN;
-	Vec3 cnt;
+// SURF
+struct Mesh {
+	AnimationClass animation_type = AnimationClass::UNKNOWN;
+	Vec3 cnt; // ???
 
-	mn::Str name; // from SRF not FIL
+	mn::Str name; // name in SRF not FIL
 	mn::Buf<Vec3> vertices;
-	mn::Buf<bool> vertices_has_smooth_shading;
+	mn::Buf<bool> vertices_has_smooth_shading; // ???
 	mn::Buf<Face> faces;
-	mn::Buf<uint64_t> gfs, zls, zzs;
-	mn::Buf<STA> stas; // last one is POS
-	mn::Buf<mn::Str> children;
+	mn::Buf<uint64_t> gfs; // ???
+	mn::Buf<uint64_t> zls; // ids of faces to create a sprite at the center of (???)
+	mn::Buf<uint64_t> zzs; // ???
+	mn::Buf<mn::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
+	mn::Buf<MeshState> animation_states;
+
+	MeshState initial_state;
 };
 
-void surf_free(SURF &self) {
+void mesh_free(Mesh &self) {
 	mn::str_free(self.name);
 	mn::destruct(self.vertices);
 	mn::destruct(self.vertices_has_smooth_shading);
@@ -297,29 +370,36 @@ void surf_free(SURF &self) {
 	mn::destruct(self.gfs);
 	mn::destruct(self.zls);
 	mn::destruct(self.zzs);
-	mn::destruct(self.stas);
+	mn::destruct(self.animation_states);
 	mn::destruct(self.children);
+}
+
+void destruct(Mesh &self) {
+	mesh_free(self);
 }
 
 namespace fmt {
 	template<>
-	struct formatter<SURF> {
+	struct formatter<Mesh> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const SURF &s, FormatContext &ctx) {
-			return format_to(ctx.out(), "SURF{{name: {}, cla: {}, vertices: {}, vertices_has_smooth_shading: {}, faces: {}, gfs: {}, zls: {}, zzs: {}, stas: {}, cnt: {}, children: {}}}",
-				s.name, s.cla, s.vertices, s.vertices_has_smooth_shading, s.faces, s.gfs, s.zls, s.zzs, s.stas, s.cnt, s.children);
+		auto format(const Mesh &s, FormatContext &ctx) {
+			return format_to(ctx.out(), "Mesh{{name: {}, animation_type: {}, vertices: {}"
+			", vertices_has_smooth_shading: {}, faces: {}, gfs: {}, zls: {}"
+			", zzs: {}, initial_state:{}, animation_states: {}, cnt: {}, children: {}}}",
+				s.name, s.animation_type, s.vertices, s.vertices_has_smooth_shading,
+				s.faces, s.gfs, s.zls, s.zzs, s.initial_state, s.animation_states, s.cnt, s.children);
 		}
 	};
 }
 
-using DNM = mn::Map<mn::Str, SURF>;
-DNM expect_dnm(mn::Str& s) {
+// See https://ysflightsim.fandom.com/wiki/DynaModel_Files
+mn::Map<mn::Str, Mesh> expect_dnm(mn::Str& s) {
 	expect(s, "DYNAMODEL\nDNMVER 1\n");
 
-	auto surfs = mn::map_new<mn::Str, SURF>();
+	auto surfs = mn::map_new<mn::Str, Mesh>();
 	while (accept(s, "PCK ")) {
 		auto name = token_str(s);
 		expect(s, ' ');
@@ -332,7 +412,7 @@ DNM expect_dnm(mn::Str& s) {
 			mn::panic("expected {} lines, found more", expected_lines);
 		}
 
-		SURF surf {};
+		Mesh surf {};
 
 		// V {x} {y} {z}[ R]\n
 		while (accept(s, "V ")) {
@@ -578,25 +658,18 @@ DNM expect_dnm(mn::Str& s) {
 		surf->value.name = name;
 
 		expect(s, "CLA ");
-		auto cla = token_u8(s);
-		if (cla >= (uint8_t) CLA::COUNT) {
-			mn::panic("invalid CLA={}", cla);
-		}
-		surf->value.cla = (CLA) cla;
+		auto animation_type = token_u8(s);
+		surf->value.animation_type = (AnimationClass) animation_type;
 		expect(s, '\n');
 
 		expect(s, "NST ");
 		auto num_stas = token_u64(s);
-		mn::buf_reserve(surf->value.stas, num_stas);
+		mn::buf_reserve(surf->value.animation_states, num_stas);
 		expect(s, '\n');
-		for (size_t i = 0; i < num_stas+1; i++) {
-			if (i == num_stas) {
-				expect(s, "POS ");
-			} else {
-				expect(s, "STA ");
-			}
+		for (size_t i = 0; i < num_stas; i++) {
+			expect(s, "POS ");
 
-			STA sta {};
+			MeshState sta {};
 			sta.pos.x = token_float(s);
 			expect(s, ' ');
 			sta.pos.y = token_float(s);
@@ -611,11 +684,27 @@ DNM expect_dnm(mn::Str& s) {
 			sta.rotation.z = token_float(s);
 			expect(s, ' ');
 
-			sta.visibility = token_u8(s);
+			sta.visible = token_u8(s) == 1;
 			expect(s, '\n');
 
-			mn::buf_push(surf->value.stas, sta);
+			mn::buf_push(surf->value.animation_states, sta);
 		}
+
+		expect(s, "POS ");
+		surf->value.initial_state.pos.x = token_float(s);
+		expect(s, ' ');
+		surf->value.initial_state.pos.y = token_float(s);
+		expect(s, ' ');
+		surf->value.initial_state.pos.z = token_float(s);
+		expect(s, ' ');
+		surf->value.initial_state.rotation.x = token_float(s);
+		expect(s, ' ');
+		surf->value.initial_state.rotation.y = token_float(s);
+		expect(s, ' ');
+		surf->value.initial_state.rotation.z = token_float(s);
+		expect(s, ' ');
+		surf->value.initial_state.visible = token_u8(s) == 1;
+		expect(s, '\n');
 
 		expect(s, "CNT ");
 		surf->value.cnt.x = token_float(s);

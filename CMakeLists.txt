@@ -29,21 +29,17 @@ CPMAddPackage(
 
 find_package(OpenGL REQUIRED)
 
-add_executable(jfs
-	src/main.cpp
-	extern/glad/src/glad.c
-)
+add_library(_glad STATIC extern/glad/src/glad.c extern/glad/include/glad/glad.h)
+target_include_directories(_glad PUBLIC extern/glad/include)
 
-target_include_directories(jfs
-	PRIVATE
-		extern/glad/include
-)
+add_executable(jfs src/main.cpp)
 
 target_link_libraries(jfs
 	PRIVATE
 		MoustaphaSaad::mn
 		SDL2::SDL2
 		OpenGL::GL
+		_glad
 )
 
 set_property(TARGET jfs
