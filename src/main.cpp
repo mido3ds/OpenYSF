@@ -867,7 +867,7 @@ V 0.500 -0.500 0.000
 V -0.500 -0.500 0.000
 V -0.500 0.500 0.000
 F
-C 255 255 255
+C 255 0 0
 N 0.000 0.000 0.000 0.000 0.000 0.000
 V 0 1 3
 E
@@ -923,7 +923,7 @@ int main() {
     glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
     glCompileShader(vertex_shader);
 
-    int vertex_shader_success;
+    GLint vertex_shader_success;
     glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &vertex_shader_success);
     if (!vertex_shader_success) {
     	char info_log[512];
@@ -936,14 +936,16 @@ int main() {
 	constexpr auto fragment_shader_src = R"GLSL(
 		#version 330 core
 		out vec4 out_fragcolor;
+		uniform sampler1D faces_colors;
 		void main() {
-			out_fragcolor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+			float color_index = (gl_PrimitiveID + 0.5f) / textureSize(faces_colors, 0);
+			out_fragcolor = texture(faces_colors, color_index);
 		}
 	)GLSL";
     glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
     glCompileShader(fragment_shader);
 
-	int fragment_shader_success;
+	GLint fragment_shader_success;
     glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &fragment_shader_success);
     if (!fragment_shader_success) {
     	char info_log[512];
@@ -957,7 +959,7 @@ int main() {
     glAttachShader(shader_program, fragment_shader);
     glLinkProgram(shader_program);
 
-	int shader_program_success;
+	GLint shader_program_success;
     glGetProgramiv(shader_program, GL_LINK_STATUS, &shader_program_success);
     if (!shader_program_success) {
     	char info_log[512];
@@ -1000,6 +1002,24 @@ int main() {
 		glEnableVertexAttribArray(0);
 	glBindVertexArray(0);
 
+	// faces colors
+	glEnable(GL_TEXTURE_1D);
+	GLuint color_texture;
+	glGenTextures(1, &color_texture);
+	glBindTexture(GL_TEXTURE_1D, color_texture);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	auto colors = mn::buf_with_allocator<Color>(mn::memory::tmp());
+	for (const auto& face : srf->value.faces) {
+		mn::buf_push(colors, face.color);
+	}
+	glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, colors.count, 0, GL_RGBA, GL_UNSIGNED_BYTE, colors.ptr);
+	// bind in shader
+	glUseProgram(shader_program);
+	glUniform1i(glGetUniformLocation(shader_program, "faces_colors"), 0);
+
 	glViewport(0, 0, WinWidth, WinHeight);
 
 	bool running = true;
@@ -1014,7 +1034,7 @@ int main() {
 				switch (event.key.keysym.sym) {
 				case 'q':
 				case SDLK_ESCAPE:
-					running = 0;
+					running = false;
 					break;
 				case 'f':
 					fullscreen = !fullscreen;
@@ -1030,7 +1050,7 @@ int main() {
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
 				glViewport(0, 0, WinWidth, WinHeight);
 			} else if (event.type == SDL_QUIT) {
-				running = 0;
+				running = false;
 			}
 		}
 
@@ -1046,3 +1066,8 @@ int main() {
 
 	return 0;
 }
+/*
+TODO:
+- mesh position
+- mesh rotation
+*/
