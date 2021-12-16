@@ -11,8 +11,6 @@
 #include <mn/Defer.h>
 #include <mn/OS.h>
 
-#define WinWidth 400
-#define WinHeight 400
 
 float token_float(mn::Str& s) {
 	char* pos;
@@ -357,8 +355,10 @@ struct Mesh {
 	mn::Buf<uint64_t> zls; // ids of faces to create a sprite at the center of (???)
 	mn::Buf<uint64_t> zzs; // ???
 	mn::Buf<mn::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
-	mn::Buf<MeshState> animation_states;
+	mn::Buf<MeshState> animation_states; // STA
 
+	// POS
+	// TODO: sure it's initial state???
 	MeshState initial_state;
 };
 
@@ -879,8 +879,30 @@ E
 
 
 
+SRF "rectangle"
+FIL rectangle.srf
+CLA 2
+NST 0
+POS 0.0000 0.0000 0.0000 0 0 0 1
+CNT 0.0000 0.0000 0.0000
+REL DEP
+NCH 0
+END
 END
 )";
+
+constexpr int WIN_INIT_WIDTH   = 600;
+constexpr int WIN_INIT_HEIGHT  = 500;
+constexpr Vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
+
+void update_viewport(SDL_Window *wnd) {
+	int w, h;
+	SDL_GetWindowSize(wnd, &w, &h);
+	int d = w<h? w:h;
+	int x = (w - d) / 2;
+	int y = (h - d) / 2;
+	glViewport(x, y, d, d);
+}
 
 int main() {
 	SDL_SetMainReady();
@@ -893,7 +915,7 @@ int main() {
 	auto wnd = SDL_CreateWindow(
 		"JFS",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		WinWidth, WinHeight,
+		WIN_INIT_WIDTH, WIN_INIT_HEIGHT,
 		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
 	);
 	if (!wnd) {
@@ -916,8 +938,9 @@ int main() {
 	constexpr auto vertex_shader_src = R"GLSL(
 		#version 330 core
 		layout (location = 0) in vec3 attr_pos;
+		uniform vec3 position;
 		void main() {
-			gl_Position = vec4(attr_pos.x, attr_pos.y, attr_pos.z, 1.0);
+			gl_Position = vec4(attr_pos + position, 1.0);
 		}
 	)GLSL";
     glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
@@ -973,7 +996,7 @@ int main() {
 	// buffers
 	auto s = mn::str_lit(RECTANGLE_DNM);
 	auto dnm = expect_dnm(s);
-	auto srf = mn::map_lookup(dnm, mn::str_lit("rectangle.srf"));
+	auto srf = mn::map_lookup(dnm, mn::str_lit("rectangle"));
 	mn_defer(mn::destruct(srf));
 	mn_assert(srf);
 
@@ -1020,7 +1043,7 @@ int main() {
 	glUseProgram(shader_program);
 	glUniform1i(glGetUniformLocation(shader_program, "faces_colors"), 0);
 
-	glViewport(0, 0, WinWidth, WinHeight);
+	update_viewport(wnd);
 
 	bool running = true;
 	bool fullscreen = false;
@@ -1036,6 +1059,18 @@ int main() {
 				case SDLK_ESCAPE:
 					running = false;
 					break;
+				case SDLK_RIGHT:
+					srf->value.initial_state.pos.x += 0.1f;
+					break;
+				case SDLK_LEFT:
+					srf->value.initial_state.pos.x -= 0.1f;
+					break;
+				case SDLK_UP:
+					srf->value.initial_state.pos.y += 0.1f;
+					break;
+				case SDLK_DOWN:
+					srf->value.initial_state.pos.y -= 0.1f;
+					break;
 				case 'f':
 					fullscreen = !fullscreen;
 					if (fullscreen) {
@@ -1043,21 +1078,23 @@ int main() {
 					} else {
 						SDL_SetWindowFullscreen(wnd, SDL_WINDOW_OPENGL);
 					}
+					update_viewport(wnd);
 					break;
 				default:
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				glViewport(0, 0, WinWidth, WinHeight);
+				update_viewport(wnd);
 			} else if (event.type == SDL_QUIT) {
 				running = false;
 			}
 		}
 
-		glClearColor(0.f, 0.f, 0.f, 0.f);
+		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(shader_program);
+		glUniform3fv(glGetUniformLocation(shader_program, "position"), 1, (GLfloat*) &srf->value.initial_state.pos); // position (single srf)
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, indices_num_bytes, GL_UNSIGNED_INT, 0);
 
@@ -1068,6 +1105,5 @@ int main() {
 }
 /*
 TODO:
-- mesh position
 - mesh rotation
 */
