@@ -29,9 +29,35 @@ CPMAddPackage(
 
 find_package(OpenGL REQUIRED)
 
+# glad
 add_library(_glad STATIC extern/glad/src/glad.c extern/glad/include/glad/glad.h)
 target_include_directories(_glad PUBLIC extern/glad/include)
 
+# imgui
+add_library(_imgui
+	STATIC
+	extern/imgui-1.85/backends/imgui_impl_opengl3.cpp
+	extern/imgui-1.85/backends/imgui_impl_sdl.cpp
+	extern/imgui-1.85/imgui.cpp
+	extern/imgui-1.85/imgui_demo.cpp
+	extern/imgui-1.85/imgui_draw.cpp
+	extern/imgui-1.85/imgui_tables.cpp
+	extern/imgui-1.85/imgui_widgets.cpp
+
+	extern/imgui-1.85/backends/imgui_impl_opengl3.h
+	extern/imgui-1.85/backends/imgui_impl_opengl3_loader.h
+	extern/imgui-1.85/backends/imgui_impl_sdl.h
+	extern/imgui-1.85/imconfig.h
+	extern/imgui-1.85/imgui.h
+	extern/imgui-1.85/imgui_internal.h
+	extern/imgui-1.85/imstb_rectpack.h
+	extern/imgui-1.85/imstb_textedit.h
+	extern/imgui-1.85/imstb_truetype.h
+)
+target_include_directories(_imgui PUBLIC extern/imgui-1.85)
+target_link_libraries(_imgui PRIVATE SDL2::SDL2)
+
+# jfs
 add_executable(jfs src/main.cpp)
 
 target_link_libraries(jfs
@@ -40,6 +66,7 @@ target_link_libraries(jfs
 		SDL2::SDL2
 		OpenGL::GL
 		_glad
+		_imgui
 )
 
 set_property(TARGET jfs

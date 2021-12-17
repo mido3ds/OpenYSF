@@ -1,16 +1,17 @@
-#include <stdio.h>
-#include <stdint.h>
+#include <cstdio>
+#include <cstdint>
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <glad/glad.h>
 
-#include <cstdio>
+#include <imgui.h>
+#include <backends/imgui_impl_sdl.h>
+#include <backends/imgui_impl_opengl3.h>
 
 #include <mn/Log.h>
 #include <mn/Defer.h>
 #include <mn/OS.h>
-
 
 float token_float(mn::Str& s) {
 	char* pos;
@@ -895,9 +896,9 @@ constexpr int WIN_INIT_WIDTH   = 600;
 constexpr int WIN_INIT_HEIGHT  = 500;
 constexpr Vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
-void update_viewport(SDL_Window *wnd) {
+void update_viewport(SDL_Window *sdl_window) {
 	int w, h;
-	SDL_GetWindowSize(wnd, &w, &h);
+	SDL_GetWindowSize(sdl_window, &w, &h);
 	int d = w<h? w:h;
 	int x = (w - d) / 2;
 	int y = (h - d) / 2;
@@ -912,26 +913,46 @@ int main() {
 	}
 	mn_defer(SDL_Quit());
 
-	auto wnd = SDL_CreateWindow(
+	auto sdl_window = SDL_CreateWindow(
 		"JFS",
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		WIN_INIT_WIDTH, WIN_INIT_HEIGHT,
 		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
 	);
-	if (!wnd) {
+	if (!sdl_window) {
 		mn::log_error("Faield to create window, err: {}", SDL_GetError());
 		return 1;
 	}
-	mn_defer(SDL_DestroyWindow(wnd));
-	SDL_SetWindowBordered(wnd, SDL_TRUE);
+	mn_defer(SDL_DestroyWindow(sdl_window));
+	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
 
-	auto cxt = SDL_GL_CreateContext(wnd);
-	mn_defer(SDL_GL_DeleteContext(cxt));
+	auto gl_context = SDL_GL_CreateContext(sdl_window);
+	mn_defer(SDL_GL_DeleteContext(gl_context));
 
 	// glad: load all OpenGL function pointers
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
 		mn::panic("failed to load GLAD function pointers");
 	}
+
+	// setup imgui
+	IMGUI_CHECKVERSION();
+    if (ImGui::CreateContext() == nullptr) {
+		mn::panic("failed to create imgui context");
+	}
+	mn_defer(ImGui::DestroyContext());
+
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+	// io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // need not to dispatch keyboard controls to app???
+	ImGui::StyleColorsDark();
+
+	if (!ImGui_ImplSDL2_InitForOpenGL(sdl_window, gl_context)) {
+		mn::panic("failed to init imgui implementation for SDL2");
+	}
+	mn_defer(ImGui_ImplSDL2_Shutdown());
+    if (!ImGui_ImplOpenGL3_Init("#version 330")) {
+		mn::panic("failed to init imgui implementation for OpenGL3");
+	}
+	mn_defer(ImGui_ImplOpenGL3_Shutdown());
 
     // vertex shader
     const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
@@ -1043,7 +1064,7 @@ int main() {
 	glUseProgram(shader_program);
 	glUniform1i(glGetUniformLocation(shader_program, "faces_colors"), 0);
 
-	update_viewport(wnd);
+	update_viewport(sdl_window);
 
 	bool running = true;
 	bool fullscreen = false;
@@ -1053,38 +1074,28 @@ int main() {
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
+			ImGui_ImplSDL2_ProcessEvent(&event);
+
 			if (event.type == SDL_KEYDOWN) {
 				switch (event.key.keysym.sym) {
 				case 'q':
 				case SDLK_ESCAPE:
 					running = false;
 					break;
-				case SDLK_RIGHT:
-					srf->value.initial_state.pos.x += 0.1f;
-					break;
-				case SDLK_LEFT:
-					srf->value.initial_state.pos.x -= 0.1f;
-					break;
-				case SDLK_UP:
-					srf->value.initial_state.pos.y += 0.1f;
-					break;
-				case SDLK_DOWN:
-					srf->value.initial_state.pos.y -= 0.1f;
-					break;
 				case 'f':
 					fullscreen = !fullscreen;
 					if (fullscreen) {
-						SDL_SetWindowFullscreen(wnd, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
+						SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
 					} else {
-						SDL_SetWindowFullscreen(wnd, SDL_WINDOW_OPENGL);
+						SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL);
 					}
-					update_viewport(wnd);
+					update_viewport(sdl_window);
 					break;
 				default:
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				update_viewport(wnd);
+				update_viewport(sdl_window);
 			} else if (event.type == SDL_QUIT) {
 				running = false;
 			}
@@ -1098,7 +1109,21 @@ int main() {
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, indices_num_bytes, GL_UNSIGNED_INT, 0);
 
-		SDL_GL_SwapWindow(wnd);
+		// imgui
+		ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::SliderFloat3("pos", (float*) &srf->value.initial_state.pos, -1, 1);
+
+			ImGui::End();
+		}
+
+		ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+		SDL_GL_SwapWindow(sdl_window);
 	}
 
 	return 0;
