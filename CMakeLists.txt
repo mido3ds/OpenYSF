@@ -26,6 +26,12 @@ CPMAddPackage(
 	GIT_TAG          release-2.0.16
 	GIT_SHALLOW      TRUE
 )
+CPMAddPackage(
+	NAME             glm
+	GIT_REPOSITORY   git@github.com:g-truc/glm.git
+	GIT_TAG          0.9.9.8
+	GIT_SHALLOW      TRUE
+)
 
 find_package(OpenGL REQUIRED)
 
@@ -65,6 +71,7 @@ target_link_libraries(jfs
 		MoustaphaSaad::mn
 		SDL2::SDL2
 		OpenGL::GL
+		glm
 		_glad
 		_imgui
 )
