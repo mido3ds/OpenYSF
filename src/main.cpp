@@ -905,6 +905,33 @@ void update_viewport(SDL_Window *sdl_window) {
 	glViewport(x, y, d, d);
 }
 
+#ifdef NDEBUG
+#	define GL_CATCH_ERRS() ((void)0)
+#else
+void glCheckError_(const char *file, int line) {
+	GLenum err_code;
+	int errors = 0;
+    while ((err_code = glGetError()) != GL_NO_ERROR) {
+        std::string error;
+        switch (err_code) {
+		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
+		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
+		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
+		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
+		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
+		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
+        }
+		mn::log_error("GL::{} at {}:{}\n", error, file, line);
+		errors++;
+    }
+	if (errors > 0) {
+		mn::panic("found {} opengl errors");
+	}
+}
+#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
+#endif
+
 int main() {
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -1064,6 +1091,8 @@ int main() {
 	glUseProgram(shader_program);
 	glUniform1i(glGetUniformLocation(shader_program, "faces_colors"), 0);
 
+	GL_CATCH_ERRS();
+
 	update_viewport(sdl_window);
 
 	bool running = true;
@@ -1124,6 +1153,8 @@ int main() {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 		SDL_GL_SwapWindow(sdl_window);
+
+		GL_CATCH_ERRS();
 	}
 
 	return 0;
