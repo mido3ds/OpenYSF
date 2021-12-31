@@ -287,40 +287,31 @@ namespace fmt {
 		auto format(const AnimationClass &c, FormatContext &ctx) {
 			mn::Str s {};
 			switch (c) {
-			case AnimationClass::AIRCRAFT_LANDING_GEAR:
-			case AnimationClass::GROUND_DEFAULT:
+			case AnimationClass::AIRCRAFT_LANDING_GEAR /*| AnimationClass::GROUND_DEFAULT*/:
 				s = mn::str_lit("(AIRCRAFT_LANDING_GEAR||GROUND_DEFAULT)");
 				break;
-			case AnimationClass::AIRCRAFT_VARIABLE_GEOMETRY_WING:
-			case AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING:
+			case AnimationClass::AIRCRAFT_VARIABLE_GEOMETRY_WING /*| AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING*/:
 				s = mn::str_lit("(AIRCRAFT_VARIABLE_GEOMETRY_WING||GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING)");
 				break;
-			case AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT:
-			case AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING:
+			case AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT /*| AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING*/:
 				s = mn::str_lit("(AIRCRAFT_AFTERBURNER_REHEAT||GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING)");
 				break;
-			case AnimationClass::AIRCRAFT_SPINNER_PROPELLER:
-			case AnimationClass::GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING:
+			case AnimationClass::AIRCRAFT_SPINNER_PROPELLER /*| AnimationClass::GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING*/:
 				s = mn::str_lit("(AIRCRAFT_SPINNER_PROPELLER||GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING)");
 				break;
-			case AnimationClass::AIRCRAFT_AIRBRAKE:
-			case AnimationClass::GROUND_SAM_LAUNCHER_VERTICAL_TRACKING:
+			case AnimationClass::AIRCRAFT_AIRBRAKE /*| AnimationClass::GROUND_SAM_LAUNCHER_VERTICAL_TRACKING*/:
 				s = mn::str_lit("(AIRCRAFT_AIRBRAKE||GROUND_SAM_LAUNCHER_VERTICAL_TRACKING)");
 				break;
-			case AnimationClass::AIRCRAFT_FLAPS:
-			case AnimationClass::GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING:
+			case AnimationClass::AIRCRAFT_FLAPS /*| AnimationClass::GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING*/:
 				s = mn::str_lit("(AIRCRAFT_FLAPS||GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING)");
 				break;
-			case AnimationClass::AIRCRAFT_ELEVATOR:
-			case AnimationClass::GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING:
+			case AnimationClass::AIRCRAFT_ELEVATOR /*| AnimationClass::GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING*/:
 				s = mn::str_lit("(AIRCRAFT_ELEVATOR||GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING)");
 				break;
-			case AnimationClass::AIRCRAFT_VTOL_NOZZLE:
-			case AnimationClass::GROUND_SPINNING_RADAR_SLOW:
+			case AnimationClass::AIRCRAFT_VTOL_NOZZLE /*| AnimationClass::GROUND_SPINNING_RADAR_SLOW*/:
 				s = mn::str_lit("(AIRCRAFT_VTOL_NOZZLE||GROUND_SPINNING_RADAR_SLOW)");
 				break;
-			case AnimationClass::AIRCRAFT_THRUST_REVERSE:
-			case AnimationClass::GROUND_SPINNING_RADAR_FAST:
+			case AnimationClass::AIRCRAFT_THRUST_REVERSE /*| AnimationClass::GROUND_SPINNING_RADAR_FAST*/:
 				s = mn::str_lit("(AIRCRAFT_THRUST_REVERSE||GROUND_SPINNING_RADAR_FAST)");
 				break;
 
@@ -388,6 +379,33 @@ namespace fmt {
 	};
 }
 
+#ifdef NDEBUG
+#	define GL_CATCH_ERRS() ((void)0)
+#else
+void glCheckError_(const char *file, int line) {
+	GLenum err_code;
+	int errors = 0;
+    while ((err_code = glGetError()) != GL_NO_ERROR) {
+        std::string error;
+        switch (err_code) {
+		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
+		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
+		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
+		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
+		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
+		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
+        }
+		mn::log_error("GL::{} at {}:{}\n", error, file, line);
+		errors++;
+    }
+	if (errors > 0) {
+		mn::panic("found {} opengl errors");
+	}
+}
+#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
+#endif
+
 // SURF
 struct Mesh {
 	AnimationClass animation_type = AnimationClass::UNKNOWN;
@@ -405,7 +423,16 @@ struct Mesh {
 
 	// POS
 	// TODO: sure it's initial state???
-	MeshState initial_state;
+	MeshState initial_state; // should be kepts const after init
+
+	// GPU
+	GLuint vao, vbo, ebo;
+	size_t indices_count; // sum(face.vertices_ids.count for face in faces)
+	GLuint color_texture;
+
+	// physics
+	glm::mat4 model;
+	MeshState current_state;
 };
 
 void mesh_free(Mesh &self) {
@@ -418,6 +445,11 @@ void mesh_free(Mesh &self) {
 	mn::destruct(self.zzs);
 	mn::destruct(self.animation_states);
 	mn::destruct(self.children);
+
+	glDeleteVertexArrays(1, &self.vao);
+	glDeleteBuffers(1, &self.vbo);
+	glDeleteBuffers(1, &self.ebo);
+	glDeleteTextures(1, &self.color_texture);
 }
 
 void destruct(Mesh &self) {
@@ -441,8 +473,15 @@ namespace fmt {
 	};
 }
 
-// See https://ysflightsim.fandom.com/wiki/DynaModel_Files
-mn::Map<mn::Str, Mesh> expect_dnm(mn::Str& s) {
+// DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
+struct Model {
+	mn::Map<mn::Str, Mesh> tree;
+	mn::Buf<size_t> top_level_indices;
+};
+
+Model expect_dnm(const char* dnm_file) {
+	auto s = mn::str_lit(dnm_file);
+
 	expect(s, "DYNAMODEL\nDNMVER 1\n");
 
 	auto surfs = mn::map_new<mn::Str, Mesh>();
@@ -756,6 +795,7 @@ mn::Map<mn::Str, Mesh> expect_dnm(mn::Str& s) {
 		expect(s, ' ');
 		surf->value.initial_state.visible = token_u8(s) == 1;
 		expect(s, '\n');
+		surf->value.current_state = surf->value.initial_state;
 
 		expect(s, "CNT ");
 		surf->value.cnt.x = token_float(s);
@@ -782,26 +822,52 @@ mn::Map<mn::Str, Mesh> expect_dnm(mn::Str& s) {
 			expect(s, '\n');
 		}
 		// reinsert with name instead of FIL
-		surf = mn::map_insert(surfs, name, surf->value);
+		surf = mn::map_insert(surfs, mn::str_clone(name), surf->value);
 		mn::map_remove(surfs, fil);
-
-		// check children exist
-		for (const auto [_, srf] : surfs.values) {
-			for (const auto child : srf.children) {
-				auto srf2 = mn::map_lookup(surfs, child);
-				if (srf2 == nullptr) {
-					mn::panic("SURF {} contains child {} that doesn't exist", srf.name, child);
-				} else if (srf2->value.name == srf.name) {
-					mn::log_warning("SURF {} references itself", child);
-				}
-			}
-		}
 
 		expect(s, "END\n");
 	}
 	expect(s, "END\n");
 
-	return surfs;
+	// check children exist
+	for (const auto [_, srf] : surfs.values) {
+		for (const auto child : srf.children) {
+			auto srf2 = mn::map_lookup(surfs, child);
+			if (srf2 == nullptr) {
+				mn::panic("SURF {} contains child {} that doesn't exist", srf.name, child);
+			} else if (srf2->value.name == srf.name) {
+				mn::log_warning("SURF {} references itself", child);
+			}
+		}
+	}
+
+	auto model = Model {
+		.tree = surfs,
+	};
+
+	// top level nodes = nodes without parents
+	auto surfs_wth_parents = mn::set_with_allocator<mn::Str>(mn::memory::tmp());
+	for (const auto& [_, surf] : surfs.values) {
+		for (const auto& child : surf.children) {
+			mn::set_insert(surfs_wth_parents, child);
+		}
+	}
+	for (size_t i = 0; i < surfs.values.count; i++) {
+		if (mn::set_lookup(surfs_wth_parents, surfs.values[i].key) == nullptr) {
+			mn::buf_push(model.top_level_indices, i);
+		}
+	}
+
+	return model;
+}
+
+void model_free(Model& self) {
+	mn::destruct(self.tree);
+	mn::destruct(self.top_level_indices);
+}
+
+void destruct(Model& self) {
+	model_free(self);
 }
 
 constexpr auto SURF_EXAMPLE = R"(SURF
@@ -930,6 +996,25 @@ E
 
 
 
+PCK rectangle2.srf 18
+SURF
+V 0.500  0.500 0.000
+V 0.500 -0.500 0.000
+V -0.500 -0.500 0.000
+V -0.500 0.500 0.000
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 0 1 3
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 1 2 3
+E
+
+
+
 SRF "rectangle"
 FIL rectangle.srf
 CLA 2
@@ -937,13 +1022,23 @@ NST 0
 POS 0.0000 0.0000 0.0000 0 0 0 1
 CNT 0.0000 0.0000 0.0000
 REL DEP
+NCH 1
+CLD "rectangle2"
+END
+SRF "rectangle2"
+FIL rectangle2.srf
+CLA 2
+NST 0
+POS 0.6000 0.4000 0.0000 0 0 0 1
+CNT 0.0000 0.0000 0.0000
+REL DEP
 NCH 0
 END
 END
 )";
 
-constexpr int WIN_INIT_WIDTH   = 600;
-constexpr int WIN_INIT_HEIGHT  = 500;
+constexpr int WIN_INIT_WIDTH   = 1028;
+constexpr int WIN_INIT_HEIGHT  = 680;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
 void update_viewport(SDL_Window *sdl_window) {
@@ -954,33 +1049,6 @@ void update_viewport(SDL_Window *sdl_window) {
 	int y = (h - d) / 2;
 	glViewport(x, y, d, d);
 }
-
-#ifdef NDEBUG
-#	define GL_CATCH_ERRS() ((void)0)
-#else
-void glCheckError_(const char *file, int line) {
-	GLenum err_code;
-	int errors = 0;
-    while ((err_code = glGetError()) != GL_NO_ERROR) {
-        std::string error;
-        switch (err_code) {
-		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
-		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
-		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
-		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
-		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
-		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
-		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
-        }
-		mn::log_error("GL::{} at {}:{}\n", error, file, line);
-		errors++;
-    }
-	if (errors > 0) {
-		mn::panic("found {} opengl errors");
-	}
-}
-#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
-#endif
 
 int main() {
 	SDL_SetMainReady();
@@ -1036,9 +1104,9 @@ int main() {
 	constexpr auto vertex_shader_src = R"GLSL(
 		#version 330 core
 		layout (location = 0) in vec3 attr_pos;
-		uniform mat4 model;
+		uniform mat4 projection, view, model;
 		void main() {
-			gl_Position = model * vec4(attr_pos, 1.0);
+			gl_Position = projection * model * vec4(attr_pos, 1.0);
 		}
 	)GLSL";
     glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
@@ -1091,57 +1159,53 @@ int main() {
     glDeleteShader(fragment_shader);
 	mn_defer(glDeleteProgram(shader_program));
 
-	// buffers
-	auto s = mn::str_lit(RECTANGLE_DNM);
-	auto dnm = expect_dnm(s);
-	auto srf = mn::map_lookup(dnm, mn::str_lit("rectangle"));
-	mn_defer(mn::destruct(srf));
-	mn_assert(srf);
+	// model
+	auto model = expect_dnm(RECTANGLE_DNM);
+	mn_defer(model_free(model));
+	for (size_t i = 0; i < model.tree.values.count; i++) {
+		Mesh& mesh = model.tree.values[i].value;
 
-	GLuint vao;
-    glGenVertexArrays(1, &vao);
-	mn_defer(glDeleteVertexArrays(1, &vao));
-	glBindVertexArray(vao);
-		GLuint vbo;
-		glGenBuffers(1, &vbo);
-		mn_defer(glDeleteBuffers(1, &vbo));
-		glBindBuffer(GL_ARRAY_BUFFER, vbo);
-		glBufferData(GL_ARRAY_BUFFER, srf->value.vertices.count * sizeof(glm::vec3) * sizeof(float), srf->value.vertices.ptr, GL_STATIC_DRAW);
+		// buffers
+		glGenVertexArrays(1, &mesh.vao);
+		glBindVertexArray(mesh.vao);
+			glGenBuffers(1, &mesh.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+			glBufferData(GL_ARRAY_BUFFER, mesh.vertices.count * sizeof(glm::vec3) * sizeof(float), mesh.vertices.ptr, GL_STATIC_DRAW);
 
-		GLuint ebo;
-		glGenBuffers(1, &ebo);
-		mn_defer(glDeleteBuffers(1, &ebo));
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-		auto indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
-		for (const auto& face : srf->value.faces) {
-			mn::buf_concat(indices, face.vertices_ids);
-		}
-		const size_t indices_num_bytes = indices.count * sizeof(uint32_t);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices_num_bytes, indices.ptr, GL_STATIC_DRAW);
+			glGenBuffers(1, &mesh.ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
+			auto indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
+			for (const auto& face : mesh.faces) {
+				mn::buf_concat(indices, face.vertices_ids);
+			}
+			mesh.indices_count = indices.count;
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices_count * sizeof(GLuint), indices.ptr, GL_STATIC_DRAW);
 
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(0);
-	glBindVertexArray(0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(0);
+		glBindVertexArray(0);
 
-	// faces colors
-	glEnable(GL_TEXTURE_1D);
-	GLuint color_texture;
-	glGenTextures(1, &color_texture);
-	glBindTexture(GL_TEXTURE_1D, color_texture);
-	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	auto colors = mn::buf_with_allocator<glm::vec4>(mn::memory::tmp());
-	for (const auto& face : srf->value.faces) {
-		mn::buf_push(colors, face.color);
+		GL_CATCH_ERRS();
+
+		// faces colors
+		glEnable(GL_TEXTURE_1D);
+		glGenTextures(1, &mesh.color_texture);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_1D, mesh.color_texture);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+			auto colors = mn::buf_with_allocator<glm::vec4>(mn::memory::tmp());
+			for (const auto& face : mesh.faces) {
+				mn::buf_push(colors, face.color);
+			}
+			glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, colors.count, 0, GL_RGBA, GL_FLOAT, colors.ptr);
+		glBindTexture(GL_TEXTURE_1D, 0);
+
+		GL_CATCH_ERRS();
 	}
-	glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, colors.count, 0, GL_RGBA, GL_FLOAT, colors.ptr);
-	// bind in shader
-	glUseProgram(shader_program);
-	glUniform1i(glGetUniformLocation(shader_program, "faces_colors"), 0);
-
-	GL_CATCH_ERRS();
 
 	update_viewport(sdl_window);
 
@@ -1183,15 +1247,129 @@ int main() {
 		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-        glUseProgram(shader_program);
-		glm::mat4 model = glm::identity<glm::mat4>();
-		model = glm::translate(model, srf->value.initial_state.translation);
-		model = glm::rotate(model, srf->value.initial_state.rotation[0], glm::vec3(1, 0, 0));
-		model = glm::rotate(model, srf->value.initial_state.rotation[1], glm::vec3(0, 1, 0));
-		model = glm::rotate(model, srf->value.initial_state.rotation[2], glm::vec3(0, 0, 1));
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(model)); // (single srf)
-        glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, indices_num_bytes, GL_UNSIGNED_INT, 0);
+		glUseProgram(shader_program);
+
+		// camera
+		constexpr const char* PROJECTION_TYPE_STR[] { "IDENTITY", "ORTHO", "PERSPECTIVE" };
+		enum Projection_Type { IDENTITY, ORTHO, PERSPECTIVE };
+
+		static struct {
+			struct {
+				bool identity   = true;
+
+				glm::vec3 up     = {0.0f, 1.0f, 0.0f};
+				glm::vec3 pos    = {0.0f, 0.0f, 1.0f};
+				glm::vec3 target = {0.0f, 0.0f, 0.0f};
+			} view;
+
+			struct {
+				Projection_Type type = IDENTITY;
+
+				float near = 0.1f;
+				float far  = 100.0f;
+
+				struct {
+					float left   = 0.0f;
+					float right  = 800.0f;
+					float bottom = 0.0f;
+					float top    = 600.0f;
+				} ortho; // orthographic
+
+				struct {
+					float fovy_degrees = 45.0f;
+					float aspect       = (float) WIN_INIT_WIDTH / WIN_INIT_HEIGHT;
+					bool custom_aspect = false;
+				} pers; // perspective
+			} proj; // projection
+		} camera;
+
+		{
+			glm::mat4 view = glm::identity<glm::mat4>();
+			if (!camera.view.identity) {
+				view = glm::lookAt(camera.view.pos, camera.view.target, camera.view.up);
+			}
+			glUseProgram(shader_program);
+			glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, GL_FALSE, glm::value_ptr(view));
+		}
+
+		{
+			glm::mat4 projection {};
+			switch (camera.proj.type) {
+			case IDENTITY:
+				projection = glm::identity<glm::mat4>();
+				break;
+			case ORTHO:
+				projection = glm::ortho(
+					camera.proj.ortho.left,
+					camera.proj.ortho.right,
+					camera.proj.ortho.bottom,
+					camera.proj.ortho.top,
+					camera.proj.near, camera.proj.far
+				);
+				break;
+			case PERSPECTIVE: {
+				float aspect_ratio = camera.proj.pers.aspect;
+				if (!camera.proj.pers.custom_aspect) {
+					int w, h;
+					SDL_GetWindowSize(sdl_window, &w, &h);
+					aspect_ratio = (float) w / h;
+				}
+				projection = glm::perspective(
+					glm::radians(camera.proj.pers.fovy_degrees),
+					aspect_ratio,
+					camera.proj.near,
+					camera.proj.far
+				);
+				break;
+			}
+			default: mn_unreachable();
+			}
+			glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+		}
+
+		// apply transformations
+		{
+			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
+			for (auto i : model.top_level_indices) {
+				Mesh* mesh = &model.tree.values[i].value;
+				mesh->model = glm::identity<glm::mat4>();
+				mn::buf_push(meshes_stack, mesh);
+			}
+
+			while (meshes_stack.count > 0) {
+				Mesh* mesh = mn::buf_top(meshes_stack);
+				mn_assert(mesh);
+				mn::buf_pop(meshes_stack);
+
+				mesh->model = glm::translate(mesh->model, mesh->current_state.translation);
+				mesh->model = glm::rotate(mesh->model, mesh->current_state.rotation[0], glm::vec3(1, 0, 0));
+				mesh->model = glm::rotate(mesh->model, mesh->current_state.rotation[1], glm::vec3(0, 1, 0));
+				mesh->model = glm::rotate(mesh->model, mesh->current_state.rotation[2], glm::vec3(0, 0, 1));
+
+				for (const mn::Str& child_name : mesh->children) {
+					auto* kv = mn::map_lookup(model.tree, child_name);
+					mn_assert(kv);
+					Mesh* child_mesh = &kv->value;
+					child_mesh->model = mesh->model;
+					mn::buf_push(meshes_stack, child_mesh);
+				}
+			}
+		}
+
+		for (size_t i = 0; i < model.tree.values.count; i++) {
+			const Mesh& mesh = model.tree.values[i].value;
+
+			// model
+			glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(mesh.model));
+
+			// texture
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_1D, mesh.color_texture);
+
+			// draw faces
+			glBindVertexArray(mesh.vao);
+			glDrawElements(GL_TRIANGLES, mesh.indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
+		}
 
 		// imgui
 		ImGui_ImplOpenGL3_NewFrame();
@@ -1199,11 +1377,93 @@ int main() {
         ImGui::NewFrame();
 
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			ImGui::SliderFloat3("translation", (float*) &srf->value.initial_state.translation, -1, 1);
-			ImGui::SliderFloat3("rotation", (float*) &srf->value.initial_state.rotation, 0, 360);
+			if (ImGui::TreeNodeEx("Window")) {
+				int size[2];
+				SDL_GetWindowSize(sdl_window, &size[0], &size[1]);
+				const bool width_changed = ImGui::InputInt("Width", &size[0]);
+				const bool height_changed = ImGui::InputInt("Height", &size[1]);
+				if (width_changed || height_changed) {
+					SDL_SetWindowSize(sdl_window, size[0], size[1]);
+				}
 
-			ImGui::End();
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNodeEx("Projection", ImGuiTreeNodeFlags_DefaultOpen)) {
+				if (ImGui::Button("Reset")) {
+					camera.proj = {};
+				}
+
+				if (ImGui::BeginCombo("Type", PROJECTION_TYPE_STR[camera.proj.type])) {
+					for (auto type : {IDENTITY, ORTHO, PERSPECTIVE}) {
+						if (ImGui::Selectable(PROJECTION_TYPE_STR[type], camera.proj.type == type)) {
+							camera.proj.type = type;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				switch (camera.proj.type) {
+				case IDENTITY: break;
+				case ORTHO:
+					ImGui::InputFloat("near", &camera.proj.near, 1, 10);
+					ImGui::InputFloat("far", &camera.proj.far, 1, 10);
+					ImGui::InputFloat("left", &camera.proj.ortho.left, 1, 10);
+					ImGui::InputFloat("right", &camera.proj.ortho.right, 1, 10);
+					ImGui::InputFloat("bottom", &camera.proj.ortho.bottom, 1, 10);
+					ImGui::InputFloat("top", &camera.proj.ortho.top, 1, 10);
+					break;
+				case PERSPECTIVE:
+					ImGui::InputFloat("near", &camera.proj.near, 1, 10);
+					ImGui::InputFloat("far", &camera.proj.far, 1, 10);
+					ImGui::DragFloat("fovy (degrees)", &camera.proj.pers.fovy_degrees, 1, 1, 45);
+
+					ImGui::Checkbox("custom aspect", &camera.proj.pers.custom_aspect);
+					ImGui::BeginDisabled(!camera.proj.pers.custom_aspect);
+					ImGui::InputFloat("aspect", &camera.proj.pers.aspect, 1, 10);
+					ImGui::EndDisabled();
+
+					break;
+				default: mn_unreachable();
+				}
+
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNodeEx("View", ImGuiTreeNodeFlags_DefaultOpen)) {
+				if (ImGui::Button("Reset")) {
+					camera.view = {};
+				}
+
+				ImGui::Checkbox("Identity", &camera.view.identity);
+
+				ImGui::BeginDisabled(camera.view.identity);
+				ImGui::DragFloat3("up", glm::value_ptr(camera.view.up), 0.1, -1, 1);
+				ImGui::DragFloat3("position", glm::value_ptr(camera.view.pos), 1, -100, 100);
+				ImGui::DragFloat3("target", glm::value_ptr(camera.view.target), 1, -100, 100);
+				ImGui::EndDisabled();
+
+				ImGui::TreePop();
+			}
+
+			for (size_t i = 0; i < model.tree.values.count; i++) {
+				Mesh& mesh = model.tree.values[i].value;
+
+				if (ImGui::TreeNode(mn::str_tmpf("{}.current_state", mesh.name).ptr)) {
+					if (ImGui::Button("Reset")) {
+						mesh.current_state = mesh.initial_state;
+					}
+
+					ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation), 0.1, -1, 1);
+					ImGui::DragFloat3("rotation", glm::value_ptr(mesh.current_state.rotation), 5, 0, 360);
+
+					ImGui::TreePop();
+				}
+			}
+
 		}
+		ImGui::End();
 
 		ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -1217,8 +1477,9 @@ int main() {
 }
 /*
 TODO:
-- ortho camera
-- perspective camera
-- draw children
-- generalize draw children
+- camera movement
+- draw 3d
+- debug: https://learnopengl.com/code_viewer_gh.php?code=includes/learnopengl/camera.h https://learnopengl.com/code_viewer_gh.php?code=src/1.getting_started/7.4.camera_class/camera_class.cpp
+	- ortho projection
+	- perspective projection
 */
