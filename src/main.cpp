@@ -138,13 +138,13 @@ uint8_t token_u8(mn::Str& s) {
 	return (uint8_t) b;
 }
 
-mn::Str token_str(mn::Str& s) {
+mn::Str token_str(mn::Str& s, mn::Allocator allocator = mn::allocator_top()) {
 	const char* a = s.ptr;
 	while (s.count > 0 && s[0] != ' ' && s[0] != '\n') {
 		s.ptr++;
 		s.count--;
 	}
-	return mn::str_from_substr(a, s.ptr);
+	return mn::str_from_substr(a, s.ptr, allocator);
 }
 
 bool accept(mn::Str& s1, const char* s2) {
@@ -201,8 +201,12 @@ struct Face {
 	bool unshaded_light_source; // ???
 };
 
-void face_free(Face &self) {
+void face_free(Face& self) {
 	mn::destruct(self.vertices_ids);
+}
+
+void destruct(Face& self) {
+	face_free(self);
 }
 
 namespace fmt {
@@ -486,7 +490,7 @@ Model expect_dnm(const char* dnm_file) {
 
 	auto surfs = mn::map_new<mn::Str, Mesh>();
 	while (accept(s, "PCK ")) {
-		auto name = token_str(s);
+		auto name = token_str(s, mn::memory::tmp());
 		expect(s, ' ');
 		const auto expected_lines = token_u64(s);
 		auto lines = expected_lines;
@@ -737,7 +741,7 @@ Model expect_dnm(const char* dnm_file) {
 		expect(s, '\n');
 
 		expect(s, "FIL ");
-		auto fil = token_str(s);
+		auto fil = token_str(s, mn::memory::tmp());
 		expect(s, '\n');
 		auto surf = mn::map_lookup(surfs, fil);
 		if (!surf) {
@@ -821,9 +825,12 @@ Model expect_dnm(const char* dnm_file) {
 			mn::buf_push(surf->value.children, child_name);
 			expect(s, '\n');
 		}
+
 		// reinsert with name instead of FIL
 		surf = mn::map_insert(surfs, mn::str_clone(name), surf->value);
-		mn::map_remove(surfs, fil);
+		if (!mn::map_remove(surfs, fil)) {
+			mn::panic("must be able to remove {} from tree", fil);
+		}
 
 		expect(s, "END\n");
 	}
