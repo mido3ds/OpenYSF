@@ -13,6 +13,7 @@
 #include <mn/Defer.h>
 #include <mn/OS.h>
 #include <mn/Thread.h>
+#include <mn/Path.h>
 
 #include <glm/vec3.hpp> // glm::vec3
 #include <glm/vec4.hpp> // glm::vec4
@@ -72,6 +73,15 @@ namespace fmt {
 	};
 }
 
+mn::Str smaller_str(const mn::Str& s) {
+	auto s2 = mn::str_clone(s, mn::memory::tmp());
+	if (s2.count > 90) {
+		mn::str_resize(s2, 90);
+		mn::str_push(s2, "....");
+	}
+	return s2;
+}
+
 float token_float(mn::Str& s) {
 	if (s.count == 0) {
 		mn::panic("end of str");
@@ -94,7 +104,7 @@ uint64_t token_u64(mn::Str& s) {
 	if (s.count == 0) {
 		mn::panic("end of str");
 	} else if (!::isdigit(s[0])) {
-		mn::panic("doesn't start with digit");
+		mn::panic("doesn't start with digit, {}", smaller_str(s));
 	}
 
 	char* pos;
@@ -119,8 +129,8 @@ uint32_t token_u32(mn::Str& s) {
 int32_t token_i32(mn::Str& s) {
 	if (s.count == 0) {
 		mn::panic("end of str");
-	} else if (!::isdigit(s[0])) {
-		mn::panic("doesn't start with digit");
+	} else if (!(::isdigit(s[0]) || s[0] == '-')) {
+		mn::panic("doesn't start with digit, {}", smaller_str(s));
 	}
 
 	char* pos;
@@ -180,7 +190,7 @@ bool accept(mn::Str& s, char c) {
 template<typename T>
 void expect(mn::Str& s1, T s2) {
 	if (!accept(s1, s2)) {
-		mn::panic("failed to find '{}' in '{}'", s2, s1);
+		mn::panic("failed to find '{}' in '{}'", s2, smaller_str(s1));
 	}
 }
 
@@ -406,7 +416,6 @@ struct Mesh {
 	mn::Buf<MeshState> animation_states; // STA
 
 	// POS
-	// TODO: sure it's initial state???
 	MeshState initial_state; // should be kepts const after init
 
 	// GPU
@@ -464,7 +473,8 @@ struct Model {
 };
 
 Model expect_dnm(const char* dnm_file) {
-	auto s = mn::str_lit(dnm_file);
+	auto s = mn::str_tmp(dnm_file);
+	mn::str_replace(s, "\r\n", "\n");
 
 	expect(s, "DYNAMODEL\nDNMVER 1\n");
 
@@ -477,10 +487,6 @@ Model expect_dnm(const char* dnm_file) {
 		expect(s, '\n');
 
 		expect(s, "SURF\n");
-		if (lines-- == 0) {
-			mn::panic("expected {} lines, found more", expected_lines);
-		}
-
 		Mesh surf {};
 
 		// V {x} {y} {z}[ R]\n
@@ -517,15 +523,11 @@ Model expect_dnm(const char* dnm_file) {
 				mn::panic("expected {} lines, found more", expected_lines);
 			}
 			while (!accept(s, "E\n")) {
-				// either C or N or V or B, panic on anything else
-				bool parsed = false;
-
 				if (accept(s, "C ")) {
 					if (parsed_color) {
 						mn::panic("found more than one color");
 					}
 					parsed_color = true;
-					parsed = true;
 
 					face.color.r = token_u8(s) / 255.0f;
 					expect(s, ' ');
@@ -537,14 +539,11 @@ Model expect_dnm(const char* dnm_file) {
 					if (lines-- == 0) {
 						mn::panic("expected {} lines, found more", expected_lines);
 					}
-				}
-
-				if (accept(s, "N ")) {
+				} else if (accept(s, "N ")) {
 					if (parsed_normal) {
 						mn::panic("found more than one normal");
 					}
 					parsed_normal = true;
-					parsed = true;
 
 					face.center.x = token_float(s);
 					expect(s, ' ');
@@ -562,15 +561,12 @@ Model expect_dnm(const char* dnm_file) {
 					if (lines-- == 0) {
 						mn::panic("expected {} lines, found more", expected_lines);
 					}
-				}
-
-				// V {x}...
-				if (accept(s, 'V')) {
+				} else if (accept(s, 'V')) {
+					// V {x}...
 					if (parsed_vertices) {
 						mn::panic("found more than one vertices line");
 					}
 					parsed_vertices = true;
-					parsed = true;
 
 					while (accept(s, ' ')) {
 						uint32_t id = token_u32(s);
@@ -583,24 +579,20 @@ Model expect_dnm(const char* dnm_file) {
 					if (lines-- == 0) {
 						mn::panic("expected {} lines, found more", expected_lines);
 					}
-				}
-				if (face.vertices_ids.count < 3) {
-					mn::panic("face has count of ids={}, it must be >= 3", face.vertices_ids.count);
-				}
 
-				if (accept(s, "B\n")) {
+					if (face.vertices_ids.count < 3) {
+						mn::panic("face has count of ids={}, it must be >= 3, {}", face.vertices_ids.count, smaller_str(s));
+					}
+				} else if (accept(s, "B\n")) {
 					if (face.unshaded_light_source) {
 						mn::panic("found more than 1 B");
 					}
 					face.unshaded_light_source = true;
-					parsed = true;
 					if (lines-- == 0) {
 						mn::panic("expected {} lines, found more", expected_lines);
 					}
-				}
-
-				if (!parsed) {
-					mn::panic("unexpected line, '{}'", s);
+				} else {
+					mn::panic("unexpected line, '{}'", smaller_str(s));
 				}
 			}
 			if (lines-- == 0) {
@@ -706,7 +698,7 @@ Model expect_dnm(const char* dnm_file) {
 		// last line
 		lines--;
 		if (lines > 0) {
-			mn::panic("expected {} lines, found {}", expected_lines, expected_lines - lines);
+			mn::log_error("expected {} lines, found {}", expected_lines, expected_lines - lines);
 		}
 
 		mn::map_insert(surfs, name, surf);
@@ -741,7 +733,7 @@ Model expect_dnm(const char* dnm_file) {
 		// YS angle format to degrees, extracted from ys blender scripts
 		constexpr double YSA_TO_DEGREES = 0.005493164;
 		for (size_t i = 0; i < num_stas; i++) {
-			expect(s, "POS ");
+			expect(s, "STA ");
 
 			MeshState sta {};
 			sta.translation.x = token_float(s);
@@ -903,7 +895,7 @@ E
 
 constexpr auto DNM_EXAMPLE = R"(DYNAMODEL
 DNMVER 1
-PCK habal.srf 25
+PCK habal.srf 24
 SURF
 V 0.000 4.260 0.370 R
 V 0.000 4.260 0.370 R
@@ -946,7 +938,7 @@ END
 
 constexpr auto TRIANGLE_DNM = R"(DYNAMODEL
 DNMVER 1
-PCK triangle.srf 12
+PCK triangle.srf 11
 SURF
 V 0.500 0.500 0.000
 V 0.500 -0.500 0.000
@@ -964,7 +956,7 @@ END
 
 constexpr auto RECTANGLE_DNM = R"(DYNAMODEL
 DNMVER 1
-PCK rectangle.srf 18
+PCK rectangle.srf 17
 SURF
 V 0.500 0.500 0.000
 V 0.500 -0.500 0.000
@@ -1026,7 +1018,7 @@ END
 
 constexpr auto BOX_DNM = R"(DYNAMODEL
 DNMVER 1
-PCK box.srf 72
+PCK box.srf 71
 SURF
 V -0.500 -0.500 -0.500
 V 0.500 -0.500 -0.500
@@ -1374,7 +1366,8 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	auto model = expect_dnm(BOX_DNM);
+	auto model = expect_dnm(mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a6.dnm", mn::memory::tmp()).ptr);
+	// auto model = expect_dnm(BOX_DNM);
 	mn_defer(model_free(model));
 	for (size_t i = 0; i < model.tree.values.count; i++) {
 		Mesh& mesh = model.tree.values[i].value;
@@ -1736,5 +1729,8 @@ int main() {
 }
 /*
 TODO:
-- small file from game
+- draw non-triangle faces
+- open dnm file dialog
+
+- strict integers tokenization
 */
