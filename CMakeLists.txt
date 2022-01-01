@@ -32,6 +32,12 @@ CPMAddPackage(
 	GIT_TAG          0.9.9.8
 	GIT_SHALLOW      TRUE
 )
+CPMAddPackage(
+	NAME             portable-file-dialogs
+	GIT_REPOSITORY   git@github.com:samhocevar/portable-file-dialogs.git
+	GIT_TAG          0.1.0
+	GIT_SHALLOW      TRUE
+)
 
 find_package(OpenGL REQUIRED)
 
@@ -42,23 +48,23 @@ target_include_directories(_glad PUBLIC extern/glad/include)
 # imgui
 add_library(_imgui
 	STATIC
-	extern/imgui-1.85/backends/imgui_impl_opengl3.cpp
-	extern/imgui-1.85/backends/imgui_impl_sdl.cpp
-	extern/imgui-1.85/imgui.cpp
-	extern/imgui-1.85/imgui_demo.cpp
-	extern/imgui-1.85/imgui_draw.cpp
-	extern/imgui-1.85/imgui_tables.cpp
-	extern/imgui-1.85/imgui_widgets.cpp
+		extern/imgui-1.85/backends/imgui_impl_opengl3.cpp
+		extern/imgui-1.85/backends/imgui_impl_sdl.cpp
+		extern/imgui-1.85/imgui.cpp
+		extern/imgui-1.85/imgui_demo.cpp
+		extern/imgui-1.85/imgui_draw.cpp
+		extern/imgui-1.85/imgui_tables.cpp
+		extern/imgui-1.85/imgui_widgets.cpp
 
-	extern/imgui-1.85/backends/imgui_impl_opengl3.h
-	extern/imgui-1.85/backends/imgui_impl_opengl3_loader.h
-	extern/imgui-1.85/backends/imgui_impl_sdl.h
-	extern/imgui-1.85/imconfig.h
-	extern/imgui-1.85/imgui.h
-	extern/imgui-1.85/imgui_internal.h
-	extern/imgui-1.85/imstb_rectpack.h
-	extern/imgui-1.85/imstb_textedit.h
-	extern/imgui-1.85/imstb_truetype.h
+		extern/imgui-1.85/backends/imgui_impl_opengl3.h
+		extern/imgui-1.85/backends/imgui_impl_opengl3_loader.h
+		extern/imgui-1.85/backends/imgui_impl_sdl.h
+		extern/imgui-1.85/imconfig.h
+		extern/imgui-1.85/imgui.h
+		extern/imgui-1.85/imgui_internal.h
+		extern/imgui-1.85/imstb_rectpack.h
+		extern/imgui-1.85/imstb_textedit.h
+		extern/imgui-1.85/imstb_truetype.h
 )
 target_include_directories(_imgui PUBLIC extern/imgui-1.85)
 target_link_libraries(_imgui PRIVATE SDL2::SDL2)
@@ -74,6 +80,7 @@ target_link_libraries(jfs
 		glm
 		_glad
 		_imgui
+		portable_file_dialogs
 )
 
 set_property(TARGET jfs

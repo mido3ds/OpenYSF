@@ -9,6 +9,12 @@
 #include <backends/imgui_impl_sdl.h>
 #include <backends/imgui_impl_opengl3.h>
 
+// don't export min/max/near/far definitions with windows.h otherwise other includes might break
+#define NOMINMAX
+#include <portable-file-dialogs.h>
+#undef near
+#undef far
+
 #include <mn/Log.h>
 #include <mn/Defer.h>
 #include <mn/OS.h>
@@ -466,17 +472,93 @@ namespace fmt {
 	};
 }
 
+#ifdef NDEBUG
+#	define GL_CATCH_ERRS() ((void)0)
+#else
+void glCheckError_(const char *file, int line) {
+	GLenum err_code;
+	int errors = 0;
+    while ((err_code = glGetError()) != GL_NO_ERROR) {
+        std::string error;
+        switch (err_code) {
+		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
+		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
+		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
+		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
+		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
+		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
+        }
+		mn::log_error("GL::{} at {}:{}\n", error, file, line);
+		errors++;
+    }
+	if (errors > 0) {
+		mn::panic("found {} opengl errors");
+	}
+}
+#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
+#endif
+
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	mn::Map<mn::Str, Mesh> tree;
 	mn::Buf<size_t> root_meshes_indices;
 
-	glm::vec3 translation;
-	glm::vec3 rotation; // (degrees) roll, pitch, yaw
-	bool visible = true;
+	struct {
+		glm::vec3 translation;
+		glm::vec3 rotation; // (degrees) roll, pitch, yaw
+		bool visible = true;
+	} current_state;
 };
 
-Model expect_dnm(const char* dnm_file) {
+void model_load_to_gpu(Model& self) {
+	for (size_t i = 0; i < self.tree.values.count; i++) {
+		Mesh& mesh = self.tree.values[i].value;
+
+		// buffers
+		glGenVertexArrays(1, &mesh.vao);
+		glBindVertexArray(mesh.vao);
+			glGenBuffers(1, &mesh.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+			glBufferData(GL_ARRAY_BUFFER, mesh.vertices.count * sizeof(glm::vec3) * sizeof(float), mesh.vertices.ptr, GL_STATIC_DRAW);
+
+			glGenBuffers(1, &mesh.ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
+			auto indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
+			for (const auto& face : mesh.faces) {
+				mn::buf_concat(indices, face.vertices_ids);
+			}
+			mesh.indices_count = indices.count;
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices_count * sizeof(GLuint), indices.ptr, GL_STATIC_DRAW);
+
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(0);
+		glBindVertexArray(0);
+
+		GL_CATCH_ERRS();
+
+		// faces colors
+		glEnable(GL_TEXTURE_1D);
+		glGenTextures(1, &mesh.color_texture);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_1D, mesh.color_texture);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+			auto colors = mn::buf_with_allocator<glm::vec4>(mn::memory::tmp());
+			for (const auto& face : mesh.faces) {
+				mn::buf_push(colors, face.color);
+			}
+			glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, colors.count, 0, GL_RGBA, GL_FLOAT, colors.ptr);
+		glBindTexture(GL_TEXTURE_1D, 0);
+
+		GL_CATCH_ERRS();
+	}
+}
+
+Model model_from_dnm(const char* dnm_file) {
 	auto s = mn::str_tmp(dnm_file);
 	mn::str_replace(s, "\r\n", "\n");
 
@@ -1112,33 +1194,6 @@ constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
-#ifdef NDEBUG
-#	define GL_CATCH_ERRS() ((void)0)
-#else
-void glCheckError_(const char *file, int line) {
-	GLenum err_code;
-	int errors = 0;
-    while ((err_code = glGetError()) != GL_NO_ERROR) {
-        std::string error;
-        switch (err_code) {
-		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
-		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
-		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
-		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
-		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
-		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
-		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
-        }
-		mn::log_error("GL::{} at {}:{}\n", error, file, line);
-		errors++;
-    }
-	if (errors > 0) {
-		mn::panic("found {} opengl errors");
-	}
-}
-#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
-#endif
-
 const char* PROJECTION_KIND_STR[] { "PROJECTION_KIND_IDENTITY", "PROJECTION_KIND_ORTHO", "PROJECTION_KIND_PERSPECTIVE" };
 enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE };
 
@@ -1162,7 +1217,7 @@ struct Camera {
 		PROJECTION_KIND kind = PROJECTION_KIND_PERSPECTIVE;
 
 		struct {
-			float near   = 0.0f;
+			float near   = 0.1f;
 			float far    = 1000.0f;
 			float left   = -1.0f;
 			float right  = +1.0f;
@@ -1172,7 +1227,7 @@ struct Camera {
 
 		struct {
 			float near         = 0.1f;
-			float far          = 100.0f;
+			float far          = 1000.0f;
 			float fovy         = 45.0f; // degrees
 			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
 			bool custom_aspect = false;
@@ -1370,53 +1425,14 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	auto model = expect_dnm(mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a10.dnm", mn::memory::tmp()).ptr);
-	// auto model = expect_dnm(BOX_DNM);
+	bool should_load_model = false;
+
+	auto model = model_from_dnm(BOX_DNM);
 	mn_defer(model_free(model));
-	for (size_t i = 0; i < model.tree.values.count; i++) {
-		Mesh& mesh = model.tree.values[i].value;
+	model_load_to_gpu(model);
 
-		// buffers
-		glGenVertexArrays(1, &mesh.vao);
-		glBindVertexArray(mesh.vao);
-			glGenBuffers(1, &mesh.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-			glBufferData(GL_ARRAY_BUFFER, mesh.vertices.count * sizeof(glm::vec3) * sizeof(float), mesh.vertices.ptr, GL_STATIC_DRAW);
-
-			glGenBuffers(1, &mesh.ebo);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
-			auto indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
-			for (const auto& face : mesh.faces) {
-				mn::buf_concat(indices, face.vertices_ids);
-			}
-			mesh.indices_count = indices.count;
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices_count * sizeof(GLuint), indices.ptr, GL_STATIC_DRAW);
-
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-			glEnableVertexAttribArray(0);
-		glBindVertexArray(0);
-
-		GL_CATCH_ERRS();
-
-		// faces colors
-		glEnable(GL_TEXTURE_1D);
-		glGenTextures(1, &mesh.color_texture);
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_1D, mesh.color_texture);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-			auto colors = mn::buf_with_allocator<glm::vec4>(mn::memory::tmp());
-			for (const auto& face : mesh.faces) {
-				mn::buf_push(colors, face.color);
-			}
-			glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, colors.count, 0, GL_RGBA, GL_FLOAT, colors.ptr);
-		glBindTexture(GL_TEXTURE_1D, 0);
-
-		GL_CATCH_ERRS();
-	}
+	auto model_file_path = mn::str_from_c("Internal::Box");
+	mn_defer(mn::str_free(model_file_path));
 
 	Camera camera {};
 
@@ -1536,6 +1552,20 @@ int main() {
 			}
 		}
 
+		if (should_load_model) {
+			should_load_model = false;
+
+			auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
+			if (result.size() == 1) {
+				mn::str_free(model_file_path);
+				model_file_path = mn::str_from_c(result[0].c_str());
+
+				model_free(model);
+				model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
+				model_load_to_gpu(model);
+			}
+		}
+
 		glEnable(GL_DEPTH_TEST);
 		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1544,13 +1574,13 @@ int main() {
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
-		if (model.visible) {
+		if (model.current_state.visible) {
 			// apply model transformation
 			auto model_transformation = glm::identity<glm::mat4>();
-			model_transformation = glm::translate(model_transformation, model.translation);
-			model_transformation = glm::rotate(model_transformation, glm::radians(model.rotation[0]), glm::vec3(1, 0, 0));
-			model_transformation = glm::rotate(model_transformation, glm::radians(model.rotation[1]), glm::vec3(0, 1, 0));
-			model_transformation = glm::rotate(model_transformation, glm::radians(model.rotation[2]), glm::vec3(0, 0, 1));
+			model_transformation = glm::translate(model_transformation, model.current_state.translation);
+			model_transformation = glm::rotate(model_transformation, glm::radians(model.current_state.rotation[0]), glm::vec3(1, 0, 0));
+			model_transformation = glm::rotate(model_transformation, glm::radians(model.current_state.rotation[1]), glm::vec3(0, 1, 0));
+			model_transformation = glm::rotate(model_transformation, glm::radians(model.current_state.rotation[2]), glm::vec3(0, 0, 1));
 
 			// start with root meshes
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -1600,6 +1630,11 @@ int main() {
         ImGui::NewFrame();
 
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			mn::log_debug("model: '{}'", model_file_path);
+			if (ImGui::Button("Load DNM")) {
+				should_load_model = true;
+			}
+
 			if (ImGui::TreeNodeEx("Window")) {
 				ImGui::Checkbox("Limit FPS", &should_limit_fps);
 				ImGui::BeginDisabled(!should_limit_fps); {
@@ -1693,6 +1728,10 @@ int main() {
 			}
 
 			if (ImGui::TreeNode("Model")) {
+				if (ImGui::Button("Reset State")) {
+					model.current_state = {};
+				}
+
 				ImGui::Checkbox("Transpose", &transpose_model);
 
 				const char* PRIMITIVE_TYPE_STR[] {
@@ -1714,9 +1753,9 @@ int main() {
 					ImGui::EndCombo();
 				}
 
-				ImGui::Checkbox("visible", &model.visible);
-				ImGui::DragFloat3("translation", glm::value_ptr(model.translation), 0.1, -1, 1);
-				ImGui::DragFloat3("rotation", glm::value_ptr(model.rotation), 5, 0, 180);
+				ImGui::Checkbox("visible", &model.current_state.visible);
+				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation), 0.1, -1, 1);
+				ImGui::DragFloat3("rotation", glm::value_ptr(model.current_state.rotation), 5, 0, 180);
 
 				ImGui::BulletText(mn::str_tmpf("Meshes: (root: {}, total: {})", model.root_meshes_indices.count, model.tree.count).ptr);
 
@@ -1778,7 +1817,6 @@ int main() {
 }
 /*
 TODO:
-- open dnm file dialog
 - find smaller game file
 - debug draw
 
