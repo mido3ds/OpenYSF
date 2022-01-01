@@ -459,7 +459,7 @@ namespace fmt {
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	mn::Map<mn::Str, Mesh> tree;
-	mn::Buf<size_t> top_level_indices;
+	mn::Buf<size_t> root_meshes_indices;
 };
 
 Model expect_dnm(const char* dnm_file) {
@@ -840,7 +840,7 @@ Model expect_dnm(const char* dnm_file) {
 	}
 	for (size_t i = 0; i < surfs.values.count; i++) {
 		if (mn::set_lookup(surfs_wth_parents, surfs.values[i].key) == nullptr) {
-			mn::buf_push(model.top_level_indices, i);
+			mn::buf_push(model.root_meshes_indices, i);
 		}
 	}
 
@@ -849,7 +849,7 @@ Model expect_dnm(const char* dnm_file) {
 
 void model_free(Model& self) {
 	mn::destruct(self.tree);
-	mn::destruct(self.top_level_indices);
+	mn::destruct(self.root_meshes_indices);
 }
 
 void destruct(Model& self) {
@@ -1112,8 +1112,7 @@ END
 
 constexpr auto WND_TITLE        = "JFS";
 constexpr int  WND_INIT_WIDTH   = 1028;
-constexpr int  WDN_INIT_HEIGHT  = 680;
-constexpr float ASPECT_RATIO    = (float) WND_INIT_WIDTH / WDN_INIT_HEIGHT;
+constexpr int  WND_INIT_HEIGHT  = 680;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
 #ifdef NDEBUG
@@ -1158,26 +1157,27 @@ struct Camera {
 		glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
 		glm::vec3 up       = world_up;
 
-		float yaw   = -90.0f;
-		float pitch = 0.0f;
+		float yaw   = -90.0f; // degrees
+		float pitch = 0.0f; // degrees
 	} view;
 
 	struct {
 		PROJECTION_KIND kind = PROJECTION_KIND_PERSPECTIVE;
 
-		float near = 0.1f;
-		float far  = 100.0f;
-
 		struct {
-			float left   = 0.0f;
-			float right  = 800.0f;
-			float bottom = 0.0f;
-			float top    = 600.0f;
+			float near   = 0.0f;
+			float far    = 1000.0f;
+			float left   = -1.0f;
+			float right  = +1.0f;
+			float bottom = -1.0f;
+			float top    = +1.0f;
 		} ortho; // orthographic
 
 		struct {
-			float fovy_degrees = 45.0f;
-			float aspect       = (float) WND_INIT_WIDTH / WDN_INIT_HEIGHT;
+			float near         = 0.1f;
+			float far          = 100.0f;
+			float fovy         = 45.0f; // degrees
+			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
 			bool custom_aspect = false;
 		} pers; // perspective
 	} proj; // projection
@@ -1195,19 +1195,19 @@ glm::mat4 camera_get_projection_matrix(const Camera& self) {
 	case PROJECTION_KIND_IDENTITY:
 		return glm::identity<glm::mat4>();
 	case PROJECTION_KIND_ORTHO:
-		return glm::ortho(
+		return glm::transpose(glm::ortho(
 			self.proj.ortho.left,
 			self.proj.ortho.right,
 			self.proj.ortho.bottom,
 			self.proj.ortho.top,
-			self.proj.near, self.proj.far
-		);
+			self.proj.ortho.near, self.proj.ortho.far
+		));
 	case PROJECTION_KIND_PERSPECTIVE: {
 		return glm::perspective(
-			glm::radians(self.proj.pers.fovy_degrees),
+			glm::radians(self.proj.pers.fovy),
 			self.proj.pers.aspect,
-			self.proj.near,
-			self.proj.far
+			self.proj.pers.near,
+			self.proj.pers.far
 		);
 	}
 	default: mn_unreachable();
@@ -1240,13 +1240,15 @@ void camera_update(Camera& self, const SDL_Event &event, float delta_time) {
 		default: break;
 		}
 	} else if (event.type == SDL_MOUSEMOTION && (SDL_GetMouseState(0,0) & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
-		self.view.yaw   -= event.motion.xrel * self.view.mouse_sensitivity;
-		self.view.pitch += event.motion.yrel * self.view.mouse_sensitivity;
+		if (SDL_GetModState() & KMOD_SHIFT) {
+			self.proj.pers.fovy = clamp(self.proj.pers.fovy - event.motion.yrel * self.view.mouse_sensitivity, 1.0f, 45.0f);
+		} else {
+			self.view.yaw   -= event.motion.xrel * self.view.mouse_sensitivity;
+			self.view.pitch += event.motion.yrel * self.view.mouse_sensitivity;
 
-		// make sure that when pitch is out of bounds, screen doesn't get flipped
-		self.view.pitch = clamp(self.view.pitch, -89.0f, 89.0f);
-	} else if (event.type == SDL_MOUSEWHEEL) {
-		self.proj.pers.fovy_degrees = clamp(self.proj.pers.fovy_degrees - event.wheel.y, 1.0f, 45.0f);
+			// make sure that when pitch is out of bounds, screen doesn't get flipped
+			self.view.pitch = clamp(self.view.pitch, -89.0f, 89.0f);
+		}
 	}
 
 	// update front, right and up Vectors using the updated Euler angles
@@ -1272,7 +1274,7 @@ int main() {
 	auto sdl_window = SDL_CreateWindow(
 		WND_TITLE,
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		WND_INIT_WIDTH, WDN_INIT_HEIGHT,
+		WND_INIT_WIDTH, WND_INIT_HEIGHT,
 		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
 	);
 	if (!sdl_window) {
@@ -1426,8 +1428,35 @@ int main() {
 	Uint32 time_millis = SDL_GetTicks();
 	double delta_time; // 1/seconds
 
+	mn::Str logs {};
+	mn_defer(mn::str_free(logs));
+	auto old_log_interface = mn::log_interface_set(mn::Log_Interface{
+		// pointer to user data
+		.self = &logs,
+		.debug = +[](void* self, const char* msg) {
+			auto logs = (mn::Str*) self;
+			*logs = mn::strf(*logs, "> {}\n", msg);
+		},
+		.info = +[](void* self, const char* msg) {
+			auto logs = (mn::Str*) self;
+			*logs = mn::strf(*logs, "[info] {}\n", msg);
+		},
+		.warning = +[](void* self, const char* msg) {
+			auto logs = (mn::Str*) self;
+			*logs = mn::strf(*logs, "[warning] {}\n", msg);
+		},
+		.error = +[](void* self, const char* msg) {
+			auto logs = (mn::Str*) self;
+			*logs = mn::strf(*logs, "[error] {}\n", msg);
+		},
+		.critical = +[](void* self, const char* msg) {
+			mn::panic("{}", msg);
+		},
+	});
+
 	while (running) {
 		mn::memory::tmp()->clear_all();
+		mn::str_free(logs);
 
 		{
 			Uint32 delta_time_millis = SDL_GetTicks() - time_millis;
@@ -1486,13 +1515,15 @@ int main() {
 
 		glUseProgram(shader_program);
 
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, GL_FALSE, glm::value_ptr(camera_get_view_matrix(camera)));
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, GL_FALSE, glm::value_ptr(camera_get_projection_matrix(camera)));
+		static bool transpose_view = false, transpose_projection = false, transpose_model = false;
+
+		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
 		// apply transformations
 		{
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
-			for (auto i : model.top_level_indices) {
+			for (auto i : model.root_meshes_indices) {
 				Mesh* mesh = &model.tree.values[i].value;
 				mesh->transformation = glm::identity<glm::mat4>();
 				mn::buf_push(meshes_stack, mesh);
@@ -1521,7 +1552,7 @@ int main() {
 		// render meshes for model
 		for (const auto& [_, mesh] : model.tree.values) {
 			// model
-			glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(mesh.transformation));
+			glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, transpose_model, glm::value_ptr(mesh.transformation));
 
 			// texture
 			glActiveTexture(GL_TEXTURE0);
@@ -1550,11 +1581,13 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNodeEx("Projection", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
 					camera.proj = {};
 					wnd_size_changed = true;
 				}
+
+				ImGui::Checkbox("Transpose", &transpose_projection);
 
 				if (ImGui::BeginCombo("Type", PROJECTION_KIND_STR[camera.proj.kind])) {
 					for (auto type : {PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE}) {
@@ -1569,17 +1602,17 @@ int main() {
 				switch (camera.proj.kind) {
 				case PROJECTION_KIND_IDENTITY: break;
 				case PROJECTION_KIND_ORTHO:
-					ImGui::InputFloat("near", &camera.proj.near, 1, 10);
-					ImGui::InputFloat("far", &camera.proj.far, 1, 10);
+					ImGui::InputFloat("near", &camera.proj.ortho.near, 1, 10);
+					ImGui::InputFloat("far", &camera.proj.ortho.far, 1, 10);
 					ImGui::InputFloat("left", &camera.proj.ortho.left, 1, 10);
 					ImGui::InputFloat("right", &camera.proj.ortho.right, 1, 10);
 					ImGui::InputFloat("bottom", &camera.proj.ortho.bottom, 1, 10);
 					ImGui::InputFloat("top", &camera.proj.ortho.top, 1, 10);
 					break;
 				case PROJECTION_KIND_PERSPECTIVE:
-					ImGui::InputFloat("near", &camera.proj.near, 1, 10);
-					ImGui::InputFloat("far", &camera.proj.far, 1, 10);
-					ImGui::DragFloat("fovy (degrees)/zoom", &camera.proj.pers.fovy_degrees, 1, 1, 45);
+					ImGui::InputFloat("near", &camera.proj.pers.near, 1, 10);
+					ImGui::InputFloat("far", &camera.proj.pers.far, 1, 10);
+					ImGui::DragFloat("fovy (1/zoom)", &camera.proj.pers.fovy, 1, 1, 45);
 
 					if (ImGui::Checkbox("custom aspect", &camera.proj.pers.custom_aspect) && !camera.proj.pers.custom_aspect) {
 						wnd_size_changed = true;
@@ -1595,10 +1628,12 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNodeEx("View", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (ImGui::TreeNode("View")) {
 				if (ImGui::Button("Reset")) {
 					camera.view = {};
 				}
+
+				ImGui::Checkbox("Transpose", &transpose_view);
 
 				ImGui::Checkbox("Identity", &camera.view.identity);
 
@@ -1620,21 +1655,39 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			for (size_t i = 0; i < model.tree.values.count; i++) {
-				Mesh& mesh = model.tree.values[i].value;
+			if (ImGui::TreeNode("Model")) {
+				ImGui::Checkbox("Transpose", &transpose_model);
 
-				if (ImGui::TreeNode(mn::str_tmpf("{}.current_state", mesh.name).ptr)) {
-					if (ImGui::Button("Reset")) {
-						mesh.current_state = mesh.initial_state;
+				ImGui::BulletText(mn::str_tmpf("Meshes: ({}, {} Root)", model.tree.count, model.root_meshes_indices.count).ptr);
+
+				for (auto& [_, mesh] : model.tree.values) {
+					if (ImGui::TreeNode(mn::str_tmpf("{}.current_state", mesh.name).ptr)) {
+						if (ImGui::Button("Reset")) {
+							mesh.current_state = mesh.initial_state;
+						}
+
+						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation), 0.1, -1, 1);
+						ImGui::DragFloat3("rotation", glm::value_ptr(mesh.current_state.rotation), 5, 0, 180);
+
+						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
+						for (const auto& child_name : mesh.children) {
+							ImGui::Text(child_name.ptr);
+						}
+
+						ImGui::TreePop();
 					}
-
-					ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation), 0.1, -1, 1);
-					ImGui::DragFloat3("rotation", glm::value_ptr(mesh.current_state.rotation), 5, 0, 180);
-
-					ImGui::TreePop();
 				}
-			}
 
+				ImGui::TreePop();
+			}
+		}
+		ImGui::End();
+
+		if (ImGui::Begin("Logs")) {
+			if (ImGui::Button("Switch")) {
+				old_log_interface = mn::log_interface_set(old_log_interface);
+			}
+			ImGui::Text("%s", logs.ptr);
 		}
 		ImGui::End();
 
@@ -1650,6 +1703,6 @@ int main() {
 }
 /*
 TODO:
-- debug ortho projection
 - limit fps
+- small file from game
 */
