@@ -470,6 +470,10 @@ namespace fmt {
 struct Model {
 	mn::Map<mn::Str, Mesh> tree;
 	mn::Buf<size_t> root_meshes_indices;
+
+	glm::vec3 translation;
+	glm::vec3 rotation; // (degrees) roll, pitch, yaw
+	bool visible = true;
 };
 
 Model expect_dnm(const char* dnm_file) {
@@ -1135,7 +1139,7 @@ void glCheckError_(const char *file, int line) {
 #	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
 #endif
 
-constexpr const char* PROJECTION_KIND_STR[] { "PROJECTION_KIND_IDENTITY", "PROJECTION_KIND_ORTHO", "PROJECTION_KIND_PERSPECTIVE" };
+const char* PROJECTION_KIND_STR[] { "PROJECTION_KIND_IDENTITY", "PROJECTION_KIND_ORTHO", "PROJECTION_KIND_PERSPECTIVE" };
 enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE };
 
 struct Camera {
@@ -1366,7 +1370,7 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	auto model = expect_dnm(mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a6.dnm", mn::memory::tmp()).ptr);
+	auto model = expect_dnm(mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a10.dnm", mn::memory::tmp()).ptr);
 	// auto model = expect_dnm(BOX_DNM);
 	mn_defer(model_free(model));
 	for (size_t i = 0; i < model.tree.values.count; i++) {
@@ -1454,6 +1458,11 @@ int main() {
 		},
 	});
 
+	bool transpose_view = false;
+	bool transpose_projection = false;
+	bool transpose_model = false;
+	GLenum primitives_type = GL_TRIANGLES;
+
 	while (running) {
 		mn::memory::tmp()->clear_all();
 		mn::str_free(logs);
@@ -1532,18 +1541,22 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glUseProgram(shader_program);
-
-		static bool transpose_view = false, transpose_projection = false, transpose_model = false;
-
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
-		// apply transformations
-		{
+		if (model.visible) {
+			// apply model transformation
+			auto model_transformation = glm::identity<glm::mat4>();
+			model_transformation = glm::translate(model_transformation, model.translation);
+			model_transformation = glm::rotate(model_transformation, glm::radians(model.rotation[0]), glm::vec3(1, 0, 0));
+			model_transformation = glm::rotate(model_transformation, glm::radians(model.rotation[1]), glm::vec3(0, 1, 0));
+			model_transformation = glm::rotate(model_transformation, glm::radians(model.rotation[2]), glm::vec3(0, 0, 1));
+
+			// start with root meshes
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
 			for (auto i : model.root_meshes_indices) {
 				Mesh* mesh = &model.tree.values[i].value;
-				mesh->transformation = glm::identity<glm::mat4>();
+				mesh->transformation = model_transformation;
 				mn::buf_push(meshes_stack, mesh);
 			}
 
@@ -1552,33 +1565,33 @@ int main() {
 				mn_assert(mesh);
 				mn::buf_pop(meshes_stack);
 
-				mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-				mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[0]), glm::vec3(1, 0, 0));
-				mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[1]), glm::vec3(0, 1, 0));
-				mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[2]), glm::vec3(0, 0, 1));
+				if (mesh->current_state.visible) {
+					// apply mesh transformation
+					mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
+					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[0]), glm::vec3(1, 0, 0));
+					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[1]), glm::vec3(0, 1, 0));
+					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[2]), glm::vec3(0, 0, 1));
 
-				for (const mn::Str& child_name : mesh->children) {
-					auto* kv = mn::map_lookup(model.tree, child_name);
-					mn_assert(kv);
-					Mesh* child_mesh = &kv->value;
-					child_mesh->transformation = mesh->transformation;
-					mn::buf_push(meshes_stack, child_mesh);
+					// upload transofmation model
+					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, transpose_model, glm::value_ptr(mesh->transformation));
+
+					// upload texture
+					glActiveTexture(GL_TEXTURE0);
+					glBindTexture(GL_TEXTURE_1D, mesh->color_texture);
+
+					// draw faces
+					glBindVertexArray(mesh->vao);
+					glDrawElements(primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
+
+					for (const mn::Str& child_name : mesh->children) {
+						auto* kv = mn::map_lookup(model.tree, child_name);
+						mn_assert(kv);
+						Mesh* child_mesh = &kv->value;
+						child_mesh->transformation = mesh->transformation;
+						mn::buf_push(meshes_stack, child_mesh);
+					}
 				}
 			}
-		}
-
-		// render meshes for model
-		for (const auto& [_, mesh] : model.tree.values) {
-			// model
-			glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, transpose_model, glm::value_ptr(mesh.transformation));
-
-			// texture
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_1D, mesh.color_texture);
-
-			// draw faces
-			glBindVertexArray(mesh.vao);
-			glDrawElements(GL_TRIANGLES, mesh.indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
 		}
 
 		// imgui
@@ -1682,24 +1695,60 @@ int main() {
 			if (ImGui::TreeNode("Model")) {
 				ImGui::Checkbox("Transpose", &transpose_model);
 
-				ImGui::BulletText(mn::str_tmpf("Meshes: ({}, {} Root)", model.tree.count, model.root_meshes_indices.count).ptr);
+				const char* PRIMITIVE_TYPE_STR[] {
+					"GL_POINTS",
+					"GL_LINES",
+					"GL_LINE_LOOP",
+					"GL_LINE_STRIP",
+					"GL_TRIANGLES",
+					"GL_TRIANGLE_STRIP",
+					"GL_TRIANGLE_FAN"
+				};
+				if (ImGui::BeginCombo("Primitives Type", PRIMITIVE_TYPE_STR[(int) primitives_type])) {
+					for (auto type : {GL_POINTS, GL_LINES, GL_LINE_LOOP, GL_LINE_STRIP, GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN}) {
+						if (ImGui::Selectable(PRIMITIVE_TYPE_STR[(int)type], primitives_type == type)) {
+							primitives_type = type;
+						}
+					}
 
-				for (auto& [_, mesh] : model.tree.values) {
-					if (ImGui::TreeNode(mn::str_tmpf("{}.current_state", mesh.name).ptr)) {
+					ImGui::EndCombo();
+				}
+
+				ImGui::Checkbox("visible", &model.visible);
+				ImGui::DragFloat3("translation", glm::value_ptr(model.translation), 0.1, -1, 1);
+				ImGui::DragFloat3("rotation", glm::value_ptr(model.rotation), 5, 0, 180);
+
+				ImGui::BulletText(mn::str_tmpf("Meshes: (root: {}, total: {})", model.root_meshes_indices.count, model.tree.count).ptr);
+
+				std::function<void(Mesh&)> render_mesh_ui;
+				render_mesh_ui = [&model, &render_mesh_ui](Mesh& mesh) {
+					if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
 						if (ImGui::Button("Reset")) {
 							mesh.current_state = mesh.initial_state;
 						}
+						ImGui::Checkbox("visible", &mesh.current_state.visible);
+
+						ImGui::BeginDisabled();
+							ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
+						ImGui::EndDisabled();
 
 						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation), 0.1, -1, 1);
 						ImGui::DragFloat3("rotation", glm::value_ptr(mesh.current_state.rotation), 5, 0, 180);
 
 						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
 						for (const auto& child_name : mesh.children) {
-							ImGui::Text(child_name.ptr);
+							auto kv = mn::map_lookup(model.tree, child_name);
+							mn_assert(kv);
+							render_mesh_ui(kv->value);
 						}
 
 						ImGui::TreePop();
 					}
+				};
+
+				for (auto i : model.root_meshes_indices) {
+					Mesh& mesh = model.tree.values[i].value;
+					render_mesh_ui(mesh);
 				}
 
 				ImGui::TreePop();
@@ -1729,8 +1778,9 @@ int main() {
 }
 /*
 TODO:
-- draw non-triangle faces
 - open dnm file dialog
+- find smaller game file
+- debug draw
 
 - strict integers tokenization
 */
