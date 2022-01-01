@@ -12,6 +12,7 @@
 #include <mn/Log.h>
 #include <mn/Defer.h>
 #include <mn/OS.h>
+#include <mn/Thread.h>
 
 #include <glm/vec3.hpp> // glm::vec3
 #include <glm/vec4.hpp> // glm::vec4
@@ -1425,11 +1426,17 @@ int main() {
 	bool wnd_size_changed = true;
 	bool running = true;
 	bool fullscreen = false;
+
 	Uint32 time_millis = SDL_GetTicks();
 	double delta_time; // 1/seconds
 
+	bool should_limit_fps = true;
+	int fps_limit = 60;
+	int millis_till_render = 0;
+
 	mn::Str logs {};
 	mn_defer(mn::str_free(logs));
+	bool enable_window_logs = true;
 	auto old_log_interface = mn::log_interface_set(mn::Log_Interface{
 		// pointer to user data
 		.self = &logs,
@@ -1458,13 +1465,31 @@ int main() {
 		mn::memory::tmp()->clear_all();
 		mn::str_free(logs);
 
+		// time
 		{
 			Uint32 delta_time_millis = SDL_GetTicks() - time_millis;
 			time_millis += delta_time_millis;
-			delta_time = (double) delta_time_millis / 1000;
-		}
 
-		// SDL_SetWindowTitle(sdl_window, mn::str_tmpf("{} | {:.2f} FPS", WND_TITLE, 1/delta_time).ptr);
+			if (should_limit_fps) {
+				int millis_diff = (1000 / fps_limit) - delta_time_millis;
+				millis_till_render = clamp(millis_till_render - millis_diff, 0, 1000);
+				if (millis_till_render > 0) {
+					mn::thread_sleep(2);
+					continue;
+				} else {
+					millis_till_render = 1000 / fps_limit;
+					delta_time = 1.0f/ fps_limit;
+				}
+			} else {
+				delta_time = (double) delta_time_millis / 1000;
+			}
+
+			if (delta_time < 0.0001f) {
+				delta_time = 0.0001f;
+			}
+
+			mn::log_debug("fps: {:.2f}", 1.0f/delta_time);
+		}
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -1570,6 +1595,12 @@ int main() {
 
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			if (ImGui::TreeNodeEx("Window")) {
+				ImGui::Checkbox("Limit FPS", &should_limit_fps);
+				ImGui::BeginDisabled(!should_limit_fps); {
+					ImGui::InputInt("FPS", &fps_limit, 1, 5);
+				}
+				ImGui::EndDisabled();
+
 				int size[2];
 				SDL_GetWindowSize(sdl_window, &size[0], &size[1]);
 				const bool width_changed = ImGui::InputInt("Width", &size[0]);
@@ -1684,10 +1715,12 @@ int main() {
 		ImGui::End();
 
 		if (ImGui::Begin("Logs")) {
-			if (ImGui::Button("Switch")) {
+			if (ImGui::Checkbox("Enable", &enable_window_logs)) {
 				old_log_interface = mn::log_interface_set(old_log_interface);
 			}
-			ImGui::Text("%s", logs.ptr);
+			if (logs.count > 0) {
+				ImGui::TextUnformatted(logs.ptr);
+			}
 		}
 		ImGui::End();
 
@@ -1703,6 +1736,5 @@ int main() {
 }
 /*
 TODO:
-- limit fps
 - small file from game
 */
