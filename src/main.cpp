@@ -72,6 +72,12 @@ namespace fmt {
 }
 
 float token_float(mn::Str& s) {
+	if (s.count == 0) {
+		mn::panic("end of str");
+	} else if (!(::isdigit(s[0]) || s[0] == '-')) {
+		mn::panic("doesn't start with digit or -");
+	}
+
 	char* pos;
 	const float d = strtod(s.ptr, &pos);
 	if (s.ptr == pos) {
@@ -408,7 +414,7 @@ struct Mesh {
 	GLuint color_texture;
 
 	// physics
-	glm::mat4 model;
+	glm::mat4 transformation;
 	MeshState current_state;
 };
 
@@ -941,7 +947,7 @@ constexpr auto TRIANGLE_DNM = R"(DYNAMODEL
 DNMVER 1
 PCK triangle.srf 12
 SURF
-V 0.500  0.500 0.000
+V 0.500 0.500 0.000
 V 0.500 -0.500 0.000
 V -0.500 -0.500 0.000
 F
@@ -959,7 +965,7 @@ constexpr auto RECTANGLE_DNM = R"(DYNAMODEL
 DNMVER 1
 PCK rectangle.srf 18
 SURF
-V 0.500  0.500 0.000
+V 0.500 0.500 0.000
 V 0.500 -0.500 0.000
 V -0.500 -0.500 0.000
 V -0.500 0.500 0.000
@@ -978,7 +984,7 @@ E
 
 PCK rectangle2.srf 18
 SURF
-V 0.500  0.500 0.000
+V 0.500 0.500 0.000
 V 0.500 -0.500 0.000
 V -0.500 -0.500 0.000
 V -0.500 0.500 0.000
@@ -1010,6 +1016,93 @@ FIL rectangle2.srf
 CLA 2
 NST 0
 POS 0.6000 0.4000 0.0000 0 0 0 1
+CNT 0.0000 0.0000 0.0000
+REL DEP
+NCH 0
+END
+END
+)";
+
+constexpr auto BOX_DNM = R"(DYNAMODEL
+DNMVER 1
+PCK box.srf 72
+SURF
+V -0.500 -0.500 -0.500
+V 0.500 -0.500 -0.500
+V 0.500 0.500 -0.500
+V -0.500 0.500 -0.500
+V -0.500 -0.500 0.500
+V 0.500 -0.500 0.500
+V 0.500 0.500 0.500
+V -0.500 0.500 0.500
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 0 1 2
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 2 3 0
+E
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 4 5 6
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 6 7 4
+E
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 7 3 0
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 0 4 7
+E
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 6 2 1
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 1 5 6
+E
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 0 1 5
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 5 4 0
+E
+F
+C 255 0 0
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 3 2 6
+E
+F
+C 255 255 255
+N 0.000 0.000 0.000 0.000 0.000 0.000
+V 6 7 3
+E
+
+
+
+SRF "box"
+FIL box.srf
+CLA 2
+NST 0
+POS 0.0000 0.0000 0.0000 0 0 0 1
 CNT 0.0000 0.0000 0.0000
 REL DEP
 NCH 0
@@ -1153,7 +1246,7 @@ void camera_update(Camera& self, const SDL_Event &event, float delta_time) {
 		// make sure that when pitch is out of bounds, screen doesn't get flipped
 		self.view.pitch = clamp(self.view.pitch, -89.0f, 89.0f);
 	} else if (event.type == SDL_MOUSEWHEEL) {
-		self.proj.pers.fovy_degrees = clamp(self.proj.pers.fovy_degrees - event.wheel.x, 1.0f, 45.0f);
+		self.proj.pers.fovy_degrees = clamp(self.proj.pers.fovy_degrees - event.wheel.y, 1.0f, 45.0f);
 	}
 
 	// update front, right and up Vectors using the updated Euler angles
@@ -1278,7 +1371,7 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	auto model = expect_dnm(RECTANGLE_DNM);
+	auto model = expect_dnm(BOX_DNM);
 	mn_defer(model_free(model));
 	for (size_t i = 0; i < model.tree.values.count; i++) {
 		Mesh& mesh = model.tree.values[i].value;
@@ -1401,7 +1494,7 @@ int main() {
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
 			for (auto i : model.top_level_indices) {
 				Mesh* mesh = &model.tree.values[i].value;
-				mesh->model = glm::identity<glm::mat4>();
+				mesh->transformation = glm::identity<glm::mat4>();
 				mn::buf_push(meshes_stack, mesh);
 			}
 
@@ -1410,16 +1503,16 @@ int main() {
 				mn_assert(mesh);
 				mn::buf_pop(meshes_stack);
 
-				mesh->model = glm::translate(mesh->model, mesh->current_state.translation);
-				mesh->model = glm::rotate(mesh->model, glm::radians(mesh->current_state.rotation[0]), glm::vec3(1, 0, 0));
-				mesh->model = glm::rotate(mesh->model, glm::radians(mesh->current_state.rotation[1]), glm::vec3(0, 1, 0));
-				mesh->model = glm::rotate(mesh->model, glm::radians(mesh->current_state.rotation[2]), glm::vec3(0, 0, 1));
+				mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
+				mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[0]), glm::vec3(1, 0, 0));
+				mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[1]), glm::vec3(0, 1, 0));
+				mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[2]), glm::vec3(0, 0, 1));
 
 				for (const mn::Str& child_name : mesh->children) {
 					auto* kv = mn::map_lookup(model.tree, child_name);
 					mn_assert(kv);
 					Mesh* child_mesh = &kv->value;
-					child_mesh->model = mesh->model;
+					child_mesh->transformation = mesh->transformation;
 					mn::buf_push(meshes_stack, child_mesh);
 				}
 			}
@@ -1428,7 +1521,7 @@ int main() {
 		// render meshes for model
 		for (const auto& [_, mesh] : model.tree.values) {
 			// model
-			glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(mesh.model));
+			glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm::value_ptr(mesh.transformation));
 
 			// texture
 			glActiveTexture(GL_TEXTURE0);
@@ -1557,9 +1650,6 @@ int main() {
 }
 /*
 TODO:
-- draw 3d box
-- debug: https://learnopengl.com/code_viewer_gh.php?code=includes/learnopengl/camera.h https://learnopengl.com/code_viewer_gh.php?code=src/1.getting_started/7.4.camera_class/camera_class.cpp
-	- ortho projection
+- debug ortho projection
 - limit fps
-- camera controls imgui
 */
