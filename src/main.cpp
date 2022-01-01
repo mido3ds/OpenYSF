@@ -1387,8 +1387,9 @@ int main() {
 			}
 		}
 
+		glEnable(GL_DEPTH_TEST);
 		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glUseProgram(shader_program);
 
@@ -1556,7 +1557,6 @@ int main() {
 }
 /*
 TODO:
-- z order
 - draw 3d box
 - debug: https://learnopengl.com/code_viewer_gh.php?code=includes/learnopengl/camera.h https://learnopengl.com/code_viewer_gh.php?code=src/1.getting_started/7.4.camera_class/camera_class.cpp
 	- ortho projection
