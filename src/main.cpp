@@ -1020,7 +1020,7 @@ END
 constexpr auto WND_TITLE        = "JFS";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WDN_INIT_HEIGHT  = 680;
-constexpr float ASPECT_RATIO    = 1.0f; // we don't draw all over the screen
+constexpr float ASPECT_RATIO    = (float) WND_INIT_WIDTH / WDN_INIT_HEIGHT;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
 #ifdef NDEBUG
@@ -1084,7 +1084,7 @@ struct Camera {
 
 		struct {
 			float fovy_degrees = 45.0f;
-			float aspect       = ASPECT_RATIO;
+			float aspect       = (float) WND_INIT_WIDTH / WDN_INIT_HEIGHT;
 			bool custom_aspect = false;
 		} pers; // perspective
 	} proj; // projection
@@ -1166,20 +1166,6 @@ void camera_update(Camera& self, const SDL_Event &event, float delta_time) {
 	// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
 	self.view.right = glm::normalize(glm::cross(self.view.front, self.view.world_up));
 	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
-
-	if (!self.proj.pers.custom_aspect) {
-		self.proj.pers.aspect = ASPECT_RATIO;
-	}
-}
-
-void on_wnd_size_change(SDL_Window *sdl_window) {
-	int w, h;
-	SDL_GetWindowSize(sdl_window, &w, &h);
-
-	int d = w<h? w:h;
-	int x = (w - d) / 2;
-	int y = (h - d) / 2;
-	glViewport(x, y, d, d);
 }
 
 int main() {
@@ -1341,12 +1327,11 @@ int main() {
 
 	Camera camera {};
 
+	bool wnd_size_changed = true;
 	bool running = true;
 	bool fullscreen = false;
 	Uint32 time_millis = SDL_GetTicks();
 	double delta_time; // 1/seconds
-
-	on_wnd_size_change(sdl_window);
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1372,20 +1357,33 @@ int main() {
 					break;
 				case 'f':
 					fullscreen = !fullscreen;
+					wnd_size_changed = true;
 					if (fullscreen) {
 						SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
 					} else {
 						SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL);
 					}
-					on_wnd_size_change(sdl_window);
 					break;
 				default:
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				on_wnd_size_change(sdl_window);
+				wnd_size_changed = true;
 			} else if (event.type == SDL_QUIT) {
 				running = false;
+			}
+		}
+
+		if (wnd_size_changed) {
+			wnd_size_changed = false;
+
+			int w, h;
+			SDL_GetWindowSize(sdl_window, &w, &h);
+
+			glViewport(0, 0, w, h);
+
+			if (!camera.proj.pers.custom_aspect) {
+				camera.proj.pers.aspect = (float) w / h;
 			}
 		}
 
@@ -1461,6 +1459,7 @@ int main() {
 			if (ImGui::TreeNodeEx("Projection", ImGuiTreeNodeFlags_DefaultOpen)) {
 				if (ImGui::Button("Reset")) {
 					camera.proj = {};
+					wnd_size_changed = true;
 				}
 
 				if (ImGui::BeginCombo("Type", PROJECTION_KIND_STR[camera.proj.kind])) {
@@ -1488,9 +1487,11 @@ int main() {
 					ImGui::InputFloat("far", &camera.proj.far, 1, 10);
 					ImGui::DragFloat("fovy (degrees)/zoom", &camera.proj.pers.fovy_degrees, 1, 1, 45);
 
-					ImGui::Checkbox("custom aspect", &camera.proj.pers.custom_aspect);
+					if (ImGui::Checkbox("custom aspect", &camera.proj.pers.custom_aspect) && !camera.proj.pers.custom_aspect) {
+						wnd_size_changed = true;
+					}
 					ImGui::BeginDisabled(!camera.proj.pers.custom_aspect);
-					ImGui::InputFloat("aspect", &camera.proj.pers.aspect, 1, 10);
+						ImGui::InputFloat("aspect", &camera.proj.pers.aspect, 1, 10);
 					ImGui::EndDisabled();
 
 					break;
@@ -1555,7 +1556,6 @@ int main() {
 }
 /*
 TODO:
-- draw all over window
 - z order
 - draw 3d box
 - debug: https://learnopengl.com/code_viewer_gh.php?code=includes/learnopengl/camera.h https://learnopengl.com/code_viewer_gh.php?code=src/1.getting_started/7.4.camera_class/camera_class.cpp
