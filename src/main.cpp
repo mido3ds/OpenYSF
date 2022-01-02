@@ -221,7 +221,6 @@ struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
 	glm::vec3 center, normal;
-	bool unshaded_light_source; // ???
 };
 
 void face_free(Face& self) {
@@ -241,8 +240,7 @@ namespace fmt {
 		template <typename FormatContext>
 		auto format(const Face &c, FormatContext &ctx) {
 			return format_to(ctx.out(), "Face{{vertices_ids: {}, color: {}, "
-				"center: {}, normal: {}, unshaded_light_source: {}}}", c.vertices_ids, c.color, c.center, c.normal,
-				c.unshaded_light_source);
+				"center: {}, normal: {}}}", c.vertices_ids, c.color, c.center, c.normal);
 		}
 	};
 }
@@ -408,6 +406,7 @@ namespace fmt {
 
 // SURF
 struct Mesh {
+	bool is_light_source = false;
 	AnimationClass animation_type = AnimationClass::UNKNOWN;
 	glm::vec3 cnt; // ???
 
@@ -470,9 +469,9 @@ namespace fmt {
 		auto format(const Mesh &s, FormatContext &ctx) {
 			return format_to(ctx.out(), "Mesh{{name: {}, animation_type: {}, vertices: {}"
 			", vertices_has_smooth_shading: {}, faces: {}, gfs: {}, zls: {}"
-			", zzs: {}, initial_state:{}, animation_states: {}, cnt: {}, children: {}}}",
+			", zzs: {}, initial_state:{}, animation_states: {}, cnt: {}, children: {}, is_light_source: {}}}",
 				s.name, s.animation_type, s.vertices, s.vertices_has_smooth_shading,
-				s.faces, s.gfs, s.zls, s.zzs, s.initial_state, s.animation_states, s.cnt, s.children);
+				s.faces, s.gfs, s.zls, s.zzs, s.initial_state, s.animation_states, s.cnt, s.children, s.is_light_source);
 		}
 	};
 }
@@ -607,11 +606,13 @@ Model model_from_dnm(const char* dnm_file) {
 		}
 
 		// <Face>+
+		auto faces_unshaded_light_source = mn::buf_with_allocator<bool>(mn::memory::tmp());
 		while (!accept(s, '\n')) {
 			Face face {};
 			bool parsed_color = false,
 				parsed_normal = false,
-				parsed_vertices = false;
+				parsed_vertices = false,
+				is_light_source = false;
 
 			expect(s, "F\n");
 			if (lines-- == 0) {
@@ -679,10 +680,10 @@ Model model_from_dnm(const char* dnm_file) {
 						mn::panic("face has count of ids={}, it must be >= 3, {}", face.vertices_ids.count, smaller_str(s));
 					}
 				} else if (accept(s, "B\n")) {
-					if (face.unshaded_light_source) {
+					if (is_light_source) {
 						mn::panic("found more than 1 B");
 					}
-					face.unshaded_light_source = true;
+					is_light_source = true;
 					if (lines-- == 0) {
 						mn::panic("expected {} lines, found more", expected_lines);
 					}
@@ -704,6 +705,7 @@ Model model_from_dnm(const char* dnm_file) {
 				mn::panic("face has no vertices");
 			}
 
+			mn::buf_push(faces_unshaded_light_source, is_light_source);
 			mn::buf_push(surf.faces, face);
 		}
 		if (lines-- == 0) {
@@ -795,6 +797,14 @@ Model model_from_dnm(const char* dnm_file) {
 		if (lines > 0) {
 			mn::log_error("expected {} lines, found {}", expected_lines, expected_lines - lines);
 		}
+
+		size_t unshaded_count = 0;
+		for (auto unshaded : faces_unshaded_light_source) {
+			if (unshaded) {
+				unshaded_count++;
+			}
+		}
+		surf.is_light_source = (unshaded_count == faces_unshaded_light_source.count);
 
 		mn::map_insert(surfs, name, surf);
 	}
@@ -1397,6 +1407,7 @@ int main() {
 		#version 330 core
 		out vec4 out_fragcolor;
 		uniform sampler1D faces_colors;
+		uniform bool is_light_source;
 		void main() {
 			float color_index = (gl_PrimitiveID + 0.5f) / textureSize(faces_colors, 0);
 			out_fragcolor = texture(faces_colors, color_index);
@@ -1485,8 +1496,10 @@ int main() {
 		bool transpose_view       = false;
 		bool transpose_projection = false;
 		bool transpose_model      = false;
-		GLenum primitives_type    = GL_TRIANGLES;
-		GLenum polygon_mode       = GL_FILL;
+
+		GLenum regular_primitives_type = GL_TRIANGLES;
+		GLenum light_primitives_type   = GL_LINES;
+		GLenum polygon_mode            = GL_FILL;
 	} rendering;
 
 	while (running) {
@@ -1619,13 +1632,20 @@ int main() {
 					// upload transofmation model
 					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
 
-					// upload texture
-					glActiveTexture(GL_TEXTURE0);
-					glBindTexture(GL_TEXTURE_1D, mesh->gpu_handles.color_texture);
+					glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), (GLint) mesh->is_light_source);
 
-					// draw faces
 					glBindVertexArray(mesh->gpu_handles.vao);
-					glDrawElements(rendering.primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
+
+					if (mesh->is_light_source) {
+						glDrawElements(rendering.light_primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
+					} else {
+						// upload texture
+						glActiveTexture(GL_TEXTURE0);
+						glBindTexture(GL_TEXTURE_1D, mesh->gpu_handles.color_texture);
+
+						// draw faces
+						glDrawElements(rendering.regular_primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
+					}
 
 					for (const mn::Str& child_name : mesh->children) {
 						auto* kv = mn::map_lookup(model.tree, child_name);
@@ -1716,7 +1736,6 @@ int main() {
 					camera.view = {};
 				}
 
-
 				ImGui::Checkbox("Identity", &camera.view.identity);
 
 				ImGui::BeginDisabled(camera.view.identity);
@@ -1738,28 +1757,13 @@ int main() {
 			}
 
 			if (ImGui::TreeNode("Rendering")) {
+				if (ImGui::Button("Reset")) {
+					rendering = {};
+				}
+
 				ImGui::Checkbox("Transpose View", &rendering.transpose_view);
 				ImGui::Checkbox("Transpose Projection", &rendering.transpose_projection);
 				ImGui::Checkbox("Transpose Model", &rendering.transpose_model);
-
-				const char* PRIMITIVE_TYPE_STR[] {
-					"GL_POINTS",
-					"GL_LINES",
-					"GL_LINE_LOOP",
-					"GL_LINE_STRIP",
-					"GL_TRIANGLES",
-					"GL_TRIANGLE_STRIP",
-					"GL_TRIANGLE_FAN"
-				};
-				if (ImGui::BeginCombo("Primitives Type", PRIMITIVE_TYPE_STR[(int) rendering.primitives_type])) {
-					for (auto type : {GL_POINTS, GL_LINES, GL_LINE_LOOP, GL_LINE_STRIP, GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN}) {
-						if (ImGui::Selectable(PRIMITIVE_TYPE_STR[(int)type], rendering.primitives_type == type)) {
-							rendering.primitives_type = type;
-						}
-					}
-
-					ImGui::EndCombo();
-				}
 
 				constexpr auto polygon_mode_to_str = +[](GLenum m) {
 					switch (m) {
@@ -1780,6 +1784,30 @@ int main() {
 					ImGui::EndCombo();
 				}
 
+				for (auto [text, var] : {
+					std::pair{"Regular Mesh Primitives", &rendering.regular_primitives_type},
+					std::pair{"Light Mesh Primitives", &rendering.light_primitives_type},
+				}) {
+					const char* PRIMITIVE_TYPE_STR[] {
+						"GL_POINTS",
+						"GL_LINES",
+						"GL_LINE_LOOP",
+						"GL_LINE_STRIP",
+						"GL_TRIANGLES",
+						"GL_TRIANGLE_STRIP",
+						"GL_TRIANGLE_FAN"
+					};
+					if (ImGui::BeginCombo(text, PRIMITIVE_TYPE_STR[(int) *var])) {
+						for (auto type : {GL_POINTS, GL_LINES, GL_LINE_LOOP, GL_LINE_STRIP, GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN}) {
+							if (ImGui::Selectable(PRIMITIVE_TYPE_STR[(int)type], *var == type)) {
+								*var = type;
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+				}
+
 				ImGui::TreePop();
 			}
 
@@ -1792,7 +1820,15 @@ int main() {
 				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation), 0.1, -1, 1);
 				ImGui::DragFloat3("rotation", glm::value_ptr(model.current_state.rotation), 5, 0, 180);
 
-				ImGui::BulletText(mn::str_tmpf("Meshes: (root: {}, total: {})", model.root_meshes_indices.count, model.tree.count).ptr);
+				size_t light_sources_count = 0;
+				for (const auto& [_, mesh] : model.tree.values) {
+					if (mesh.is_light_source) {
+						light_sources_count++;
+					}
+				}
+
+				ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.tree.count,
+					model.root_meshes_indices.count, light_sources_count).ptr);
 
 				std::function<void(Mesh&)> render_mesh_ui;
 				render_mesh_ui = [&model, &render_mesh_ui](Mesh& mesh) {
@@ -1800,6 +1836,8 @@ int main() {
 						if (ImGui::Button("Reset")) {
 							mesh.current_state = mesh.initial_state;
 						}
+
+						ImGui::Checkbox("light source", &mesh.is_light_source);
 						ImGui::Checkbox("visible", &mesh.current_state.visible);
 
 						ImGui::BeginDisabled();
@@ -1810,20 +1848,18 @@ int main() {
 						ImGui::DragFloat3("rotation", glm::value_ptr(mesh.current_state.rotation), 5, 0, 180);
 
 						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
+						ImGui::Indent();
 						for (const auto& child_name : mesh.children) {
 							auto kv = mn::map_lookup(model.tree, child_name);
 							mn_assert(kv);
 							render_mesh_ui(kv->value);
 						}
+						ImGui::Unindent();
 
 						if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.count).ptr)) {
 							for (size_t i = 0; i < mesh.faces.count; i++) {
 								if (ImGui::TreeNode(mn::str_tmpf("{}", i).ptr)) {
 									ImGui::TextWrapped("Vertices: %s", mn::str_tmpf("{}", mesh.faces[i].vertices_ids).ptr);
-
-									ImGui::BeginDisabled();
-										ImGui::Checkbox("unshaded light source", &mesh.faces[i].unshaded_light_source);
-									ImGui::EndDisabled();
 
 									bool changed = false;
 									changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
@@ -1845,9 +1881,11 @@ int main() {
 					}
 				};
 
+				ImGui::Indent();
 				for (auto i : model.root_meshes_indices) {
 					render_mesh_ui(model.tree.values[i].value);
 				}
+				ImGui::Unindent();
 
 				ImGui::TreePop();
 			}
