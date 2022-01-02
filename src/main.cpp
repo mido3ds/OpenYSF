@@ -677,7 +677,7 @@ Model model_from_dnm(const char* dnm_file) {
 					}
 
 					if (face.vertices_ids.count < 3) {
-						mn::panic("face has count of ids={}, it must be >= 3, {}", face.vertices_ids.count, smaller_str(s));
+						mn::log_warning("face has count of ids={}, it should be >= 3, {}", face.vertices_ids.count, smaller_str(s));
 					}
 				} else if (accept(s, "B\n")) {
 					if (is_light_source) {
@@ -1297,6 +1297,7 @@ END
 constexpr auto WND_TITLE        = "JFS";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
+constexpr float IMGUI_WNDS_BG_ALPHA = 0.8f;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
 const char* PROJECTION_KIND_STR[] { "PROJECTION_KIND_IDENTITY", "PROJECTION_KIND_ORTHO", "PROJECTION_KIND_PERSPECTIVE" };
@@ -1540,6 +1541,7 @@ int main() {
 	mn_defer(model_unload_from_gpu(model));
 
 	bool should_load_model = false;
+	bool should_reload_model = false;
 
 	auto model_file_path = mn::str_from_c("Internal::Box");
 	mn_defer(mn::str_free(model_file_path));
@@ -1600,6 +1602,14 @@ int main() {
 
 	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = _glGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
 	const GLfloat POINT_SIZE_GRANULARITY        = _glGetFloat(GL_POINT_SIZE_GRANULARITY);
+
+	struct {
+		bool enabled = true;
+
+		float check_rate_secs = 1.0f;
+		float last_check_time = 0; // when checked file
+		int64_t last_write_time = 0; // when file was written to (by some other progrem)
+	} dnm_hotreload;
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1688,6 +1698,30 @@ int main() {
 			}
 		}
 
+		if (dnm_hotreload.enabled) {
+			dnm_hotreload.last_check_time += delta_time;
+			if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
+				dnm_hotreload.last_check_time = 0;
+				if (mn::str_prefix(model_file_path, "Internal::") == false) {
+					int64_t write_time = mn::file_last_write_time(model_file_path);
+					if (write_time > dnm_hotreload.last_write_time) {
+						dnm_hotreload.last_write_time = write_time;
+						should_reload_model = true;
+					}
+				}
+			}
+		}
+
+		if (should_reload_model) {
+			should_reload_model = false;
+
+			model_unload_from_gpu(model);
+			model_free(model);
+
+			model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
+			model_load_to_gpu(model);
+		}
+
 		glEnable(GL_DEPTH_TEST);
 		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1769,9 +1803,20 @@ int main() {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
+		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			if (ImGui::Button("Load DNM")) {
 				should_load_model = true;
+			}
+			if (ImGui::Button("Reload")) {
+				should_reload_model = true;
+			}
+
+			if (ImGui::TreeNode("DNM Hotreload")) {
+				ImGui::Checkbox("Enabled", &dnm_hotreload.enabled);
+				ImGui::InputFloat("Check Rate (secs)", &dnm_hotreload.check_rate_secs, 0.5f, 2.0f);
+
+				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNodeEx("Window")) {
@@ -2011,6 +2056,7 @@ int main() {
 		}
 		ImGui::End();
 
+		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
 			if (ImGui::Checkbox("Enable", &enable_window_logs)) {
 				old_log_interface = mn::log_interface_set(old_log_interface);
