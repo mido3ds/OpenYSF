@@ -425,9 +425,10 @@ struct Mesh {
 	MeshState initial_state; // should be kepts const after init
 
 	// GPU
-	GLuint vao, vbo, ebo;
+	struct {
+		GLuint vao, vbo, ebo, color_texture;
+	} gpu_handles;
 	size_t indices_count; // sum(face.vertices_ids.count for face in faces)
-	GLuint color_texture;
 
 	// physics
 	glm::mat4 transformation;
@@ -444,15 +445,19 @@ void mesh_free(Mesh &self) {
 	mn::destruct(self.zzs);
 	mn::destruct(self.animation_states);
 	mn::destruct(self.children);
-
-	glDeleteVertexArrays(1, &self.vao);
-	glDeleteBuffers(1, &self.vbo);
-	glDeleteBuffers(1, &self.ebo);
-	glDeleteTextures(1, &self.color_texture);
 }
 
 void destruct(Mesh &self) {
 	mesh_free(self);
+}
+
+void mesh_unload_from_gpu(Mesh& self) {
+	glDeleteVertexArrays(1, &self.gpu_handles.vao);
+	glDeleteBuffers(1, &self.gpu_handles.vbo);
+	glDeleteBuffers(1, &self.gpu_handles.ebo);
+	glDeleteTextures(1, &self.gpu_handles.color_texture);
+
+	self.gpu_handles = {};
 }
 
 namespace fmt {
@@ -512,18 +517,16 @@ struct Model {
 };
 
 void model_load_to_gpu(Model& self) {
-	for (size_t i = 0; i < self.tree.values.count; i++) {
-		Mesh& mesh = self.tree.values[i].value;
-
+	for (auto& [_, mesh] : self.tree.values) {
 		// buffers
-		glGenVertexArrays(1, &mesh.vao);
-		glBindVertexArray(mesh.vao);
-			glGenBuffers(1, &mesh.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+		glGenVertexArrays(1, &mesh.gpu_handles.vao);
+		glBindVertexArray(mesh.gpu_handles.vao);
+			glGenBuffers(1, &mesh.gpu_handles.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.gpu_handles.vbo);
 			glBufferData(GL_ARRAY_BUFFER, mesh.vertices.count * sizeof(glm::vec3) * sizeof(float), mesh.vertices.ptr, GL_STATIC_DRAW);
 
-			glGenBuffers(1, &mesh.ebo);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
+			glGenBuffers(1, &mesh.gpu_handles.ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.gpu_handles.ebo);
 			auto indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
 			for (const auto& face : mesh.faces) {
 				mn::buf_concat(indices, face.vertices_ids);
@@ -539,9 +542,9 @@ void model_load_to_gpu(Model& self) {
 
 		// faces colors
 		glEnable(GL_TEXTURE_1D);
-		glGenTextures(1, &mesh.color_texture);
+		glGenTextures(1, &mesh.gpu_handles.color_texture);
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_1D, mesh.color_texture);
+		glBindTexture(GL_TEXTURE_1D, mesh.gpu_handles.color_texture);
 			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -555,6 +558,12 @@ void model_load_to_gpu(Model& self) {
 		glBindTexture(GL_TEXTURE_1D, 0);
 
 		GL_CATCH_ERRS();
+	}
+}
+
+void model_unload_from_gpu(Model& self) {
+	for (auto& [_, mesh] : self.tree.values) {
+		mesh_unload_from_gpu(mesh);
 	}
 }
 
@@ -1425,11 +1434,12 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	bool should_load_model = false;
-
-	auto model = model_from_dnm(BOX_DNM);
+	Model model = model_from_dnm(BOX_DNM);
 	mn_defer(model_free(model));
 	model_load_to_gpu(model);
+	mn_defer(model_unload_from_gpu(model));
+
+	bool should_load_model = false;
 
 	auto model_file_path = mn::str_from_c("Internal::Box");
 	mn_defer(mn::str_free(model_file_path));
@@ -1478,6 +1488,7 @@ int main() {
 	bool transpose_projection = false;
 	bool transpose_model = false;
 	GLenum primitives_type = GL_TRIANGLES;
+	GLenum polygon_mode = GL_FILL;
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1558,9 +1569,10 @@ int main() {
 			auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
 			if (result.size() == 1) {
 				mn::str_free(model_file_path);
-				model_file_path = mn::str_from_c(result[0].c_str());
-
+				model_unload_from_gpu(model);
 				model_free(model);
+
+				model_file_path = mn::str_from_c(result[0].c_str());
 				model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
 				model_load_to_gpu(model);
 			}
@@ -1573,6 +1585,10 @@ int main() {
 		glUseProgram(shader_program);
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
+
+		glPolygonMode(GL_FRONT_AND_BACK, polygon_mode);
+
+		mn::log_debug("model: '{}'", model_file_path);
 
 		if (model.current_state.visible) {
 			// apply model transformation
@@ -1607,10 +1623,10 @@ int main() {
 
 					// upload texture
 					glActiveTexture(GL_TEXTURE0);
-					glBindTexture(GL_TEXTURE_1D, mesh->color_texture);
+					glBindTexture(GL_TEXTURE_1D, mesh->gpu_handles.color_texture);
 
 					// draw faces
-					glBindVertexArray(mesh->vao);
+					glBindVertexArray(mesh->gpu_handles.vao);
 					glDrawElements(primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
 
 					for (const mn::Str& child_name : mesh->children) {
@@ -1630,7 +1646,6 @@ int main() {
         ImGui::NewFrame();
 
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			mn::log_debug("model: '{}'", model_file_path);
 			if (ImGui::Button("Load DNM")) {
 				should_load_model = true;
 			}
@@ -1753,6 +1768,25 @@ int main() {
 					ImGui::EndCombo();
 				}
 
+				constexpr auto polygon_mode_to_str = +[](GLenum m) {
+					switch (m) {
+					case GL_POINT: return "GL_POINT";
+					case GL_LINE: return "GL_LINE";
+					case GL_FILL: return "GL_FILL";
+					default: mn_unreachable();
+					}
+					return "????";
+				};
+				if (ImGui::BeginCombo("Polygon Mode", polygon_mode_to_str((int) polygon_mode))) {
+					for (auto type : {GL_POINT, GL_LINE, GL_FILL}) {
+						if (ImGui::Selectable(polygon_mode_to_str((int)type), polygon_mode == type)) {
+							polygon_mode = type;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
 				ImGui::Checkbox("visible", &model.current_state.visible);
 				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation), 0.1, -1, 1);
 				ImGui::DragFloat3("rotation", glm::value_ptr(model.current_state.rotation), 5, 0, 180);
@@ -1781,13 +1815,37 @@ int main() {
 							render_mesh_ui(kv->value);
 						}
 
+						if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.count).ptr)) {
+							for (size_t i = 0; i < mesh.faces.count; i++) {
+								if (ImGui::TreeNode(mn::str_tmpf("{}", i).ptr)) {
+									ImGui::TextWrapped("Vertices: %s", mn::str_tmpf("{}", mesh.faces[i].vertices_ids).ptr);
+
+									ImGui::BeginDisabled();
+										ImGui::Checkbox("unshaded light source", &mesh.faces[i].unshaded_light_source);
+									ImGui::EndDisabled();
+
+									bool changed = false;
+									changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
+									changed = changed || ImGui::DragFloat3("normal", glm::value_ptr(mesh.faces[i].normal), 0.1, -1, 1);
+									changed = changed || ImGui::ColorEdit4("color", glm::value_ptr(mesh.faces[i].color));
+									if (changed) {
+										model_unload_from_gpu(model);
+										model_load_to_gpu(model);
+									}
+
+									ImGui::TreePop();
+								}
+							}
+
+							ImGui::TreePop();
+						}
+
 						ImGui::TreePop();
 					}
 				};
 
 				for (auto i : model.root_meshes_indices) {
-					Mesh& mesh = model.tree.values[i].value;
-					render_mesh_ui(mesh);
+					render_mesh_ui(model.tree.values[i].value);
 				}
 
 				ImGui::TreePop();
@@ -1800,7 +1858,7 @@ int main() {
 				old_log_interface = mn::log_interface_set(old_log_interface);
 			}
 			if (logs.count > 0) {
-				ImGui::TextUnformatted(logs.ptr);
+				ImGui::TextWrapped("%s", logs.ptr);
 			}
 		}
 		ImGui::End();
