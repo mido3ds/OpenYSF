@@ -1208,6 +1208,92 @@ END
 END
 )";
 
+// smaller ground/vasi.dnm
+constexpr auto VASI_DNM = R"(DYNAMODEL
+DNMVER 1
+PCK 00000006.srf 69
+SURF
+V -3.525 0 -0.625
+V -2.475 0 -0.625
+V -2.475 1.05 -0.625
+V -3.525 1.05 -0.625
+V 3.525 0 -0.625
+V 2.475 0 -0.625
+V 2.475 1.05 -0.625
+V 3.525 1.05 -0.625
+V -3.525 1.05 0.375
+V -3.525 0 0.375
+V -2.475 0 0.375
+V -2.475 1.05 0.375
+V 2.475 1.05 0.375
+V 2.475 0 0.375
+V 3.525 0 0.375
+V 3.525 1.05 0.375
+F
+V 1 0 3 2
+N -3 0.525 -0.625 -0 -0 -1
+C 255 255 0
+E
+F
+V 6 7 4 5
+N 3 0.525 -0.625 -0 -0 -1
+C 255 255 0
+E
+F
+V 3 0 9 8
+N -3.525 0.525 -0.125 -1 -0 -0
+C 255 255 0
+E
+F
+V 0 1 10 9
+N -3 0 -0.125 0 -1 0
+C 255 255 0
+E
+F
+V 1 2 11 10
+N -2.475 0.525 -0.125 1 0 0
+C 255 255 0
+E
+F
+V 2 3 8 11
+N -3 1.05 -0.125 0 1 0
+C 255 255 0
+E
+F
+V 6 5 13 12
+N 2.475 0.525 -0.125 -1 -0 -0
+C 255 255 0
+E
+F
+V 5 4 14 13
+N 3 0 -0.125 0 -1 0
+C 255 255 0
+E
+F
+V 4 7 15 14
+N 3.525 0.525 -0.125 1 0 0
+C 255 255 0
+E
+F
+V 7 6 12 15
+N 3 1.05 -0.125 0 1 0
+C 255 255 0
+E
+
+
+
+SRF "Boxes"
+FIL 00000006.srf
+CLA 0
+NST 0
+POS 0.0000 0.0000 0.0000 0 0 0 1
+CNT 0.0000 0.0000 0.0000
+REL DEP
+NCH 0
+END
+END
+)";
+
 constexpr auto WND_TITLE        = "JFS";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
@@ -1442,7 +1528,7 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	Model model = model_from_dnm(BOX_DNM);
+	Model model = model_from_dnm(VASI_DNM);
 	mn_defer(model_free(model));
 	model_load_to_gpu(model);
 	mn_defer(model_unload_from_gpu(model));
@@ -1497,10 +1583,16 @@ int main() {
 		bool transpose_projection = false;
 		bool transpose_model      = false;
 
+		bool smooth_lines = true;
+		GLfloat line_width = 3.0f;
+
 		GLenum regular_primitives_type = GL_TRIANGLES;
 		GLenum light_primitives_type   = GL_LINES;
 		GLenum polygon_mode            = GL_FILL;
 	} rendering {};
+
+	GLfloat SMOOTH_LINE_WIDTH_GRANULARITY;
+	glGetFloatv(GL_SMOOTH_LINE_WIDTH_GRANULARITY, &SMOOTH_LINE_WIDTH_GRANULARITY);
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1597,6 +1689,12 @@ int main() {
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
+		if (rendering.smooth_lines) {
+			glEnable(GL_LINE_SMOOTH);
+			glLineWidth(rendering.line_width);
+		} else {
+			glDisable(GL_LINE_SMOOTH);
+		}
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
 		mn::log_debug("model: '{}'", model_file_path);
@@ -1808,6 +1906,11 @@ int main() {
 					}
 				}
 
+				ImGui::Checkbox("Smooth Lines", &rendering.smooth_lines);
+				ImGui::BeginDisabled(!rendering.smooth_lines);
+					ImGui::DragFloat("Line Width", &rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+				ImGui::EndDisabled();
+
 				ImGui::TreePop();
 			}
 
@@ -1920,7 +2023,6 @@ int main() {
 }
 /*
 TODO:
-- find smaller game file
 - debug draw
 
 - strict integers tokenization
