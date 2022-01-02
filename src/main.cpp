@@ -1359,9 +1359,6 @@ int main() {
 		mn::panic("failed to create imgui context");
 	}
 	mn_defer(ImGui::DestroyContext());
-
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-	// io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // need not to dispatch keyboard controls to app???
 	ImGui::StyleColorsDark();
 
 	if (!ImGui_ImplSDL2_InitForOpenGL(sdl_window, gl_context)) {
@@ -1484,11 +1481,13 @@ int main() {
 		},
 	});
 
-	bool transpose_view = false;
-	bool transpose_projection = false;
-	bool transpose_model = false;
-	GLenum primitives_type = GL_TRIANGLES;
-	GLenum polygon_mode = GL_FILL;
+	struct {
+		bool transpose_view       = false;
+		bool transpose_projection = false;
+		bool transpose_model      = false;
+		GLenum primitives_type    = GL_TRIANGLES;
+		GLenum polygon_mode       = GL_FILL;
+	} rendering;
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1527,7 +1526,6 @@ int main() {
 
 			if (event.type == SDL_KEYDOWN) {
 				switch (event.key.keysym.sym) {
-				case 'q':
 				case SDLK_ESCAPE:
 					running = false;
 					break;
@@ -1583,10 +1581,10 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glUseProgram(shader_program);
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
-		glPolygonMode(GL_FRONT_AND_BACK, polygon_mode);
+		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
 		mn::log_debug("model: '{}'", model_file_path);
 
@@ -1619,7 +1617,7 @@ int main() {
 					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[2]), glm::vec3(0, 0, 1));
 
 					// upload transofmation model
-					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, transpose_model, glm::value_ptr(mesh->transformation));
+					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
 
 					// upload texture
 					glActiveTexture(GL_TEXTURE0);
@@ -1627,7 +1625,7 @@ int main() {
 
 					// draw faces
 					glBindVertexArray(mesh->gpu_handles.vao);
-					glDrawElements(primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
+					glDrawElements(rendering.primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
 
 					for (const mn::Str& child_name : mesh->children) {
 						auto* kv = mn::map_lookup(model.tree, child_name);
@@ -1674,8 +1672,6 @@ int main() {
 					wnd_size_changed = true;
 				}
 
-				ImGui::Checkbox("Transpose", &transpose_projection);
-
 				if (ImGui::BeginCombo("Type", PROJECTION_KIND_STR[camera.proj.kind])) {
 					for (auto type : {PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE}) {
 						if (ImGui::Selectable(PROJECTION_KIND_STR[type], camera.proj.kind == type)) {
@@ -1720,7 +1716,6 @@ int main() {
 					camera.view = {};
 				}
 
-				ImGui::Checkbox("Transpose", &transpose_view);
 
 				ImGui::Checkbox("Identity", &camera.view.identity);
 
@@ -1742,12 +1737,10 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Model")) {
-				if (ImGui::Button("Reset State")) {
-					model.current_state = {};
-				}
-
-				ImGui::Checkbox("Transpose", &transpose_model);
+			if (ImGui::TreeNode("Rendering")) {
+				ImGui::Checkbox("Transpose View", &rendering.transpose_view);
+				ImGui::Checkbox("Transpose Projection", &rendering.transpose_projection);
+				ImGui::Checkbox("Transpose Model", &rendering.transpose_model);
 
 				const char* PRIMITIVE_TYPE_STR[] {
 					"GL_POINTS",
@@ -1758,10 +1751,10 @@ int main() {
 					"GL_TRIANGLE_STRIP",
 					"GL_TRIANGLE_FAN"
 				};
-				if (ImGui::BeginCombo("Primitives Type", PRIMITIVE_TYPE_STR[(int) primitives_type])) {
+				if (ImGui::BeginCombo("Primitives Type", PRIMITIVE_TYPE_STR[(int) rendering.primitives_type])) {
 					for (auto type : {GL_POINTS, GL_LINES, GL_LINE_LOOP, GL_LINE_STRIP, GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN}) {
-						if (ImGui::Selectable(PRIMITIVE_TYPE_STR[(int)type], primitives_type == type)) {
-							primitives_type = type;
+						if (ImGui::Selectable(PRIMITIVE_TYPE_STR[(int)type], rendering.primitives_type == type)) {
+							rendering.primitives_type = type;
 						}
 					}
 
@@ -1777,14 +1770,22 @@ int main() {
 					}
 					return "????";
 				};
-				if (ImGui::BeginCombo("Polygon Mode", polygon_mode_to_str((int) polygon_mode))) {
+				if (ImGui::BeginCombo("Polygon Mode", polygon_mode_to_str((int) rendering.polygon_mode))) {
 					for (auto type : {GL_POINT, GL_LINE, GL_FILL}) {
-						if (ImGui::Selectable(polygon_mode_to_str((int)type), polygon_mode == type)) {
-							polygon_mode = type;
+						if (ImGui::Selectable(polygon_mode_to_str((int)type), rendering.polygon_mode == type)) {
+							rendering.polygon_mode = type;
 						}
 					}
 
 					ImGui::EndCombo();
+				}
+
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Model")) {
+				if (ImGui::Button("Reset State")) {
+					model.current_state = {};
 				}
 
 				ImGui::Checkbox("visible", &model.current_state.visible);
