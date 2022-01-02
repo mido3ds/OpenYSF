@@ -1323,7 +1323,7 @@ void camera_update(Camera& self, const SDL_Event &event, float delta_time) {
 	}
 
 	// update front, right and up Vectors using the updated Euler angles
-	glm::vec3 front {};
+	glm::vec3 front;
 	front.x = cos(glm::radians(self.view.yaw)) * cos(glm::radians(self.view.pitch));
 	front.y = sin(glm::radians(self.view.pitch));
 	front.z = sin(glm::radians(self.view.yaw)) * cos(glm::radians(self.view.pitch));
@@ -1500,7 +1500,7 @@ int main() {
 		GLenum regular_primitives_type = GL_TRIANGLES;
 		GLenum light_primitives_type   = GL_LINES;
 		GLenum polygon_mode            = GL_FILL;
-	} rendering;
+	} rendering {};
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1814,6 +1814,12 @@ int main() {
 			if (ImGui::TreeNode("Model")) {
 				if (ImGui::Button("Reset State")) {
 					model.current_state = {};
+				}
+				if (ImGui::Button("Reset All")) {
+					model.current_state = {};
+					for (auto& [_, mesh] : model.tree.values) {
+						mesh.current_state = mesh.initial_state;
+					}
 				}
 
 				ImGui::Checkbox("visible", &model.current_state.visible);
