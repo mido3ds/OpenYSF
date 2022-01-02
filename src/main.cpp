@@ -1420,6 +1420,12 @@ void camera_update(Camera& self, const SDL_Event &event, float delta_time) {
 	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
 }
 
+GLfloat _glGetFloat(GLenum e) {
+	GLfloat out;
+	glGetFloatv(e, &out);
+	return out;
+}
+
 int main() {
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -1585,14 +1591,15 @@ int main() {
 
 		bool smooth_lines = true;
 		GLfloat line_width = 3.0f;
+		GLfloat point_size = 3.0f;
 
 		GLenum regular_primitives_type = GL_TRIANGLES;
 		GLenum light_primitives_type   = GL_LINES;
 		GLenum polygon_mode            = GL_FILL;
 	} rendering {};
 
-	GLfloat SMOOTH_LINE_WIDTH_GRANULARITY;
-	glGetFloatv(GL_SMOOTH_LINE_WIDTH_GRANULARITY, &SMOOTH_LINE_WIDTH_GRANULARITY);
+	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = _glGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
+	const GLfloat POINT_SIZE_GRANULARITY        = _glGetFloat(GL_POINT_SIZE_GRANULARITY);
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -1695,6 +1702,7 @@ int main() {
 		} else {
 			glDisable(GL_LINE_SMOOTH);
 		}
+		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
 		mn::log_debug("model: '{}'", model_file_path);
@@ -1910,6 +1918,8 @@ int main() {
 				ImGui::BeginDisabled(!rendering.smooth_lines);
 					ImGui::DragFloat("Line Width", &rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
 				ImGui::EndDisabled();
+
+				ImGui::DragFloat("Point Size", &rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
 
 				ImGui::TreePop();
 			}
