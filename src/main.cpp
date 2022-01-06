@@ -30,6 +30,19 @@
 
 namespace fmt {
 	template<>
+	struct formatter<glm::vec2> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::vec2 &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "glm::vec2{{{}, {}}}", v.x, v.y);
+		}
+	};
+}
+
+namespace fmt {
+	template<>
 	struct formatter<glm::vec3> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
@@ -78,6 +91,23 @@ namespace fmt {
 		}
 	};
 }
+
+// euclidean modulo (https://stackoverflow.com/a/52529440)
+// always positive
+constexpr
+auto mod(auto a, auto b) {
+	const auto r = a % b;
+	if (r < 0) {
+		// return r + (b < 0) ? -b : b; // avoid this form: it is UB when b == INT_MIN
+		return (b < 0) ? r - b : r + b;
+	}
+	return r;
+}
+
+static_assert(mod(+7, +3) == 1);
+static_assert(mod(+7, -3) == 1);
+static_assert(mod(-7, +3) == 2);
+static_assert(mod(-7, -3) == 2);
 
 mn::Str smaller_str(const mn::Str& s) {
 	auto s2 = mn::str_clone(s, mn::memory::tmp());
@@ -540,7 +570,7 @@ void model_load_to_gpu(Model& self) {
 		GL_CATCH_ERRS();
 
 		// faces colors
-		glEnable(GL_TEXTURE_1D);
+		// glEnable(GL_TEXTURE_1D); // crashes with gl3.3
 		glGenTextures(1, &mesh.gpu_handles.color_texture);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_1D, mesh.gpu_handles.color_texture);
@@ -563,6 +593,237 @@ void model_load_to_gpu(Model& self) {
 void model_unload_from_gpu(Model& self) {
 	for (auto& [_, mesh] : self.tree.values) {
 		mesh_unload_from_gpu(mesh);
+	}
+}
+
+bool lines_intersect(glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d) {
+	const auto ab = b-a;
+	const auto ac = c-a;
+	const auto ad = d-a;
+	return glm::normalize(glm::cross(ab, ac)) == (- glm::normalize(glm::cross(ab, ad)));
+}
+
+bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &indices, int i) {
+	// indices
+	const uint32_t iv0 = indices[mod(i-2, indices.count)];
+	const uint32_t iv1 = indices[mod(i-1, indices.count)];
+	const uint32_t iv2 = indices[i];
+	const uint32_t iv3 = indices[mod(i+1, indices.count)];
+	const uint32_t iv4 = indices[mod(i+2, indices.count)];
+
+	// vertices
+	const glm::vec3 v1v0 = glm::normalize(vertices[iv0] - vertices[iv1]);
+	const glm::vec3 v1v2 = glm::normalize(vertices[iv2] - vertices[iv1]);
+	const glm::vec3 v1v3 = glm::normalize(vertices[iv3] - vertices[iv1]);
+	const glm::vec3 v3v2 = glm::normalize(vertices[iv2] - vertices[iv3]);
+	const glm::vec3 v3v4 = glm::normalize(vertices[iv4] - vertices[iv3]);
+	const glm::vec3 v3v1 = -v1v3;
+
+	// v1v3 must be in Sector(v1v2, v1v0)
+	{
+		const float phi = glm::acos(glm::dot(v1v2, v1v0));
+		if (glm::acos(glm::dot(v1v2, v1v3)) >= phi || glm::acos(glm::dot(v1v0, v1v3)) >= phi) {
+			return false;
+		}
+	}
+
+	// v3v1 must be in Sector(v3v4, v3v2)
+	{
+		const float phi = glm::acos(glm::dot(v3v4, v3v2));
+		if (glm::acos(glm::dot(v3v4, v3v1)) >= phi || glm::acos(glm::dot(v3v2, v3v1)) >= phi) {
+			return false;
+		}
+	}
+
+	// edge_i: (v1, v3) must not intersect with any other edge in polygon
+
+	// for edge_j in edges:
+	//   if not share_vertex(edge_i, edge_j):
+	//     if intersects(edge_i, edge_j): return false
+	for (size_t j = 0; j < indices.count; j++) {
+		// edge_j
+		const uint32_t jv0 = indices[j];
+		const uint32_t jv1 = indices[mod(j+1, indices.count)];
+
+		// don't test the edge if it shares a vertex with it
+		if ((jv0 != iv1 && jv0 != iv3) && (jv1 != iv1 && jv1 != iv3)) {
+			// intersects(jv0 -> jv1, iv2 -> iv3)?
+			const auto ab = vertices[jv1] - vertices[jv0];
+			// TODO: probably wrong algorithm
+			if (glm::cross(ab, (vertices[iv2] - vertices[jv0])) == -1.0f * glm::cross(ab, (vertices[iv3] - vertices[jv0]))) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+mn::Buf<uint32_t>
+polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices) {
+	mn::Buf<uint32_t> out {};
+
+	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
+	size_t k = 0;
+	while (indices.count > 3) {
+		k++;
+		// mn_assert_msg(k <= orig_indices.count, "can't tesselate");
+		if (k > orig_indices.count) {
+			mn::log_error("can't tesselate");
+			return orig_indices;
+		}
+
+		for (size_t i = 0; i < indices.count; i++) {
+			if (vertex_is_ear(vertices, indices, i)) {
+				mn::buf_push(out, indices[mod(i-1, indices.count)]);
+				mn::buf_push(out, indices[i]);
+				mn::buf_push(out, indices[mod(i+1, indices.count)]);
+
+				mn::buf_remove_ordered(indices, i);
+
+				// exit the loop so that we check again the first vertex of the loop, maybe it became now a convex one
+				break;
+			}
+		}
+	}
+
+	mn_assert(indices.count == 3);
+	mn::buf_concat(out, indices);
+	return out;
+}
+
+template<typename T>
+bool buf_equal(const mn::Buf<T>& a, const mn::Buf<T> b) {
+	if (a.count != b.count) {
+		return false;
+	}
+	for (size_t i = 0; i < a.count; i++) {
+		if (a[i] != b[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void test_polygons_to_triangles() {
+	mn::allocator_push(mn::memory::tmp());
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,3,0},
+			glm::vec3{3,2,0},
+			glm::vec3{4,3,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,3,0},
+			glm::vec3{3,-200,0},
+			glm::vec3{4,3,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,3,0},
+			glm::vec3{3,200,0},
+			glm::vec3{4,3,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,2,0},
+			glm::vec3{3,2,0},
+			glm::vec3{4,3,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,1,0},
+			glm::vec3{3,2,0},
+			glm::vec3{4,3,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,3,0},
+			glm::vec3{3,2,0},
+			glm::vec3{4,2,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,3,0},
+			glm::vec3{3,2,0},
+			glm::vec3{4,1,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{4,4,0},
+			glm::vec3{5,3,0},
+			glm::vec3{4,2,0},
+			glm::vec3{3,3,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
+		mn_assert(vertex_is_ear(vertices, indices, 0) == true);
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{4,4,0},
+			glm::vec3{5,3,0},
+			glm::vec3{4,2,0},
+			glm::vec3{3,3,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
+		mn_assert(buf_equal(polygons_to_triangles(vertices, indices), mn::buf_lit<uint32_t>({3, 0, 1, 1, 2, 3})));
+	}
+
+	{
+		auto vertices = mn::buf_lit({
+			glm::vec3{2,4,0},
+			glm::vec3{2,2,0},
+			glm::vec3{3,2,0},
+			glm::vec3{4,3,0},
+			glm::vec3{4,4,0},
+		});
+		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		mn_assert(buf_equal(polygons_to_triangles(vertices, indices), mn::buf_lit<uint32_t>({0, 1, 2, 4, 0, 2, 2, 3, 4})));
 	}
 }
 
@@ -664,20 +925,31 @@ Model model_from_dnm(const char* dnm_file) {
 					}
 					parsed_vertices = true;
 
+					auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
 					while (accept(s, ' ')) {
 						uint32_t id = token_u32(s);
 						if (id >= surf.vertices.count) {
 							mn::panic("id={} out of bounds={}", id, surf.vertices.count);
 						}
-						mn::buf_push(face.vertices_ids, (uint32_t) id);
+						mn::buf_push(polygon_vertices_ids, (uint32_t) id);
 					}
 					expect(s, '\n');
 					if (lines-- == 0) {
 						mn::panic("expected {} lines, found more", expected_lines);
 					}
 
-					if (face.vertices_ids.count < 3) {
-						mn::log_warning("face has count of ids={}, it should be >= 3, {}", face.vertices_ids.count, smaller_str(s));
+					if (polygon_vertices_ids.count < 3) {
+						mn::log_warning("face has count of ids={}, it should be >= 3, {}", polygon_vertices_ids.count, smaller_str(s));
+					}
+
+					// if (polygon_vertices_ids.count == 4) {
+					// 	mn::buf_push(polygon_vertices_ids, polygon_vertices_ids[3]);
+					// 	polygon_vertices_ids[3] = polygon_vertices_ids[2];
+					// 	mn::buf_push(polygon_vertices_ids, polygon_vertices_ids[0]);
+					// }
+					face.vertices_ids = polygons_to_triangles(surf.vertices, polygon_vertices_ids);
+					if (face.vertices_ids.count % 3 != 0) {
+						mn::log_error("must have been divisble by 3, but found {}", face.vertices_ids.count);
 					}
 				} else if (accept(s, "B\n")) {
 					if (is_light_source) {
@@ -1300,6 +1572,11 @@ constexpr int  WND_INIT_HEIGHT  = 680;
 constexpr float IMGUI_WNDS_BG_ALPHA = 0.8f;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
+constexpr auto GL_CONTEXT_PROFILE = SDL_GL_CONTEXT_PROFILE_CORE;
+constexpr int  GL_CONTEXT_MAJOR = 3;
+constexpr int  GL_CONTEXT_MINOR = 3;
+constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
+
 const char* PROJECTION_KIND_STR[] { "PROJECTION_KIND_IDENTITY", "PROJECTION_KIND_ORTHO", "PROJECTION_KIND_PERSPECTIVE" };
 enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE };
 
@@ -1447,6 +1724,11 @@ int main() {
 	}
 	mn_defer(SDL_DestroyWindow(sdl_window));
 	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
+
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER);
 
 	auto gl_context = SDL_GL_CreateContext(sdl_window);
 	mn_defer(SDL_GL_DeleteContext(gl_context));
@@ -2079,7 +2361,11 @@ int main() {
 }
 /*
 TODO:
-- debug draw
+- fix tesselate
+- fix positions
+- what is CNT?
+- don't clear logs
+- overlay infos (fps, model path)
 
 - strict integers tokenization
 */
