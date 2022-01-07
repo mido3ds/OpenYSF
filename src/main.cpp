@@ -1569,6 +1569,7 @@ END
 constexpr auto WND_TITLE        = "JFS";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
+constexpr Uint32 WND_FLAGS      = SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED;
 constexpr float IMGUI_WNDS_BG_ALPHA = 0.8f;
 constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
 
@@ -1716,7 +1717,7 @@ int main() {
 		WND_TITLE,
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		WND_INIT_WIDTH, WND_INIT_HEIGHT,
-		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | WND_FLAGS
 	);
 	if (!sdl_window) {
 		mn::log_error("Faield to create window, err: {}", SDL_GetError());
@@ -1895,7 +1896,6 @@ int main() {
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
-		mn::str_free(logs);
 
 		// time
 		{
@@ -1919,8 +1919,6 @@ int main() {
 			if (delta_time < 0.0001f) {
 				delta_time = 0.0001f;
 			}
-
-			mn::log_debug("fps: {:.2f}", 1.0f/delta_time);
 		}
 
 		SDL_Event event;
@@ -1977,6 +1975,8 @@ int main() {
 				model_file_path = mn::str_from_c(result[0].c_str());
 				model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
 				model_load_to_gpu(model);
+
+				mn::log_debug("loaded '{}'", model_file_path);
 			}
 		}
 
@@ -1989,6 +1989,7 @@ int main() {
 					if (write_time > dnm_hotreload.last_write_time) {
 						dnm_hotreload.last_write_time = write_time;
 						should_reload_model = true;
+						mn::log_debug("file '{}' changed, will reload", model_file_path);
 					}
 				}
 			}
@@ -2002,6 +2003,8 @@ int main() {
 
 			model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
 			model_load_to_gpu(model);
+
+			mn::log_debug("reloaded '{}'", model_file_path);
 		}
 
 		glEnable(GL_DEPTH_TEST);
@@ -2020,8 +2023,6 @@ int main() {
 		}
 		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
-
-		mn::log_debug("model: '{}'", model_file_path);
 
 		if (model.current_state.visible) {
 			// apply model transformation
@@ -2349,6 +2350,32 @@ int main() {
 		}
 		ImGui::End();
 
+		{
+			const float PAD = 10.0f;
+			const ImGuiViewport* viewport = ImGui::GetMainViewport();
+			ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
+			const ImVec2 window_pos {
+				work_pos.x + viewport->WorkSize.x - PAD,
+				work_pos.y + PAD,
+			};
+			const ImVec2 window_pos_pivot { 1.0f, 0.0f };
+			ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+			ImGui::SetNextWindowSize(ImVec2 {220, 0}, ImGuiCond_Always);
+			ImGui::SetNextWindowBgAlpha(0.35f);
+		}
+		if (ImGui::Begin("Overlay Info", nullptr, ImGuiWindowFlags_NoDecoration
+			| ImGuiWindowFlags_NoSavedSettings
+			| ImGuiWindowFlags_NoFocusOnAppearing
+			| ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoMove))
+		{
+			ImGui::TextWrapped(mn::str_tmpf("fps: {:.2f}", 1.0f/delta_time).ptr);
+			ImGui::TextWrapped(mn::str_tmpf("model: '{}'", model_file_path).ptr);
+		}
+		ImGui::End();
+
+		// ImGui::ShowDemoWindow();
+
 		ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -2362,10 +2389,15 @@ int main() {
 /*
 TODO:
 - fix tesselate
+	- line intersect
+	- some faces can't tesselate (a10.dnm)
+	- orientation of triangles is flipped (Ground/t64.dnm)
 - fix positions
 - what is CNT?
-- don't clear logs
-- overlay infos (fps, model path)
+
+- move internal DNMs to resources dir
+- smooth camera movement
+- imgui: positions: bigger ranges
 
 - strict integers tokenization
 */
