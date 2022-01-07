@@ -1148,7 +1148,6 @@ Model model_from_dnm(const char* dnm_file) {
 		expect(s, ' ');
 		surf->value.initial_state.visible = token_u8(s) == 1;
 		expect(s, '\n');
-		surf->value.current_state = surf->value.initial_state;
 
 		expect(s, "CNT ");
 		surf->value.cnt.x = token_float(s);
@@ -1157,6 +1156,9 @@ Model model_from_dnm(const char* dnm_file) {
 		expect(s, ' ');
 		surf->value.cnt.z = token_float(s);
 		expect(s, '\n');
+
+		surf->value.initial_state.translation -= surf->value.cnt;
+		surf->value.current_state = surf->value.initial_state;
 
 		expect(s, "REL DEP\n");
 
@@ -1845,6 +1847,7 @@ int main() {
 	mn::Str logs {};
 	mn_defer(mn::str_free(logs));
 	bool enable_window_logs = true;
+	mn::log_debug("logs will be forwarded from stdout to logs window");
 	auto old_log_interface = mn::log_interface_set(mn::Log_Interface{
 		// pointer to user data
 		.self = &logs,
@@ -1973,8 +1976,13 @@ int main() {
 				model_free(model);
 
 				model_file_path = mn::str_from_c(result[0].c_str());
+				mn::log_debug("loading '{}'", model_file_path);
+
 				model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
 				model_load_to_gpu(model);
+
+				// so we don't hot reload it again
+				dnm_hotreload.last_write_time = mn::file_last_write_time(model_file_path);
 
 				mn::log_debug("loaded '{}'", model_file_path);
 			}
@@ -2392,7 +2400,7 @@ TODO:
 	- line intersect
 	- some faces can't tesselate (a10.dnm)
 	- orientation of triangles is flipped (Ground/t64.dnm)
-- fix positions
+- fix rotations (a10.dnm:000005 why rotated different from 000004?)
 - what is CNT?
 
 - move internal DNMs to resources dir
