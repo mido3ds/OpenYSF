@@ -1734,8 +1734,7 @@ namespace MyImGui {
 int main() {
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-		mn::log_error("Failed to init video, err: {}", SDL_GetError());
-		return 1;
+		mn::panic(SDL_GetError());
 	}
 	mn_defer(SDL_Quit());
 
@@ -1746,18 +1745,20 @@ int main() {
 		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | WND_FLAGS
 	);
 	if (!sdl_window) {
-		mn::log_error("Faield to create window, err: {}", SDL_GetError());
-		return 1;
+		mn::panic(SDL_GetError());
 	}
 	mn_defer(SDL_DestroyWindow(sdl_window));
 	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
 
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER);
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR)) { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR)) { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER)) { mn::panic(SDL_GetError()); }
 
 	auto gl_context = SDL_GL_CreateContext(sdl_window);
+	if (!gl_context) {
+		mn::panic(SDL_GetError());
+	}
 	mn_defer(SDL_GL_DeleteContext(gl_context));
 
 	// glad: load all OpenGL function pointers
@@ -1966,9 +1967,13 @@ int main() {
 					fullscreen = !fullscreen;
 					wnd_size_changed = true;
 					if (fullscreen) {
-						SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
+						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
+							mn::panic(SDL_GetError());
+						}
 					} else {
-						SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL);
+						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL)) {
+							mn::panic(SDL_GetError());
+						}
 					}
 					break;
 				default:
@@ -2430,6 +2435,9 @@ TODO:
 	- orientation of triangles is flipped (Ground/t64.dnm)
 - fix rotations (a10.dnm:000005 why rotated different from 000004?)
 - what is CNT?
+
+- send normals
+- view normals (geometry shader)
 
 - move internal DNMs to resources dir
 - smooth camera movement
