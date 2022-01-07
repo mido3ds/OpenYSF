@@ -1580,7 +1580,6 @@ constexpr int  GL_CONTEXT_MAJOR = 3;
 constexpr int  GL_CONTEXT_MINOR = 3;
 constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 
-const char* PROJECTION_KIND_STR[] { "PROJECTION_KIND_IDENTITY", "PROJECTION_KIND_ORTHO", "PROJECTION_KIND_PERSPECTIVE" };
 enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE };
 
 struct Camera {
@@ -1705,6 +1704,31 @@ GLfloat _glGetFloat(GLenum e) {
 	GLfloat out;
 	glGetFloatv(e, &out);
 	return out;
+}
+
+namespace MyImGui {
+	template<typename T>
+	void EnumsCombo(const char* title, T* p_enum, const std::initializer_list<std::pair<T, const char*>>& enums) {
+		int var_i = -1;
+		const char* preview = "- Invalid Value -";
+		for (const auto& [type, type_str] : enums) {
+			var_i++;
+			if (type == *p_enum) {
+				preview = type_str;
+				break;
+			}
+		}
+
+		if (ImGui::BeginCombo(title, preview)) {
+			for (const auto& [type, type_str] : enums) {
+				if (ImGui::Selectable(type_str,  type == *p_enum)) {
+					*p_enum = type;
+				}
+			}
+
+			ImGui::EndCombo();
+		}
+	}
 }
 
 int main() {
@@ -1884,6 +1908,10 @@ int main() {
 		GLenum regular_primitives_type = GL_TRIANGLES;
 		GLenum light_primitives_type   = GL_LINES;
 		GLenum polygon_mode            = GL_FILL;
+
+		bool culling_enabled = true;
+		GLenum culling_face_type = GL_FRONT;
+		GLenum culling_front_face_type = GL_CCW;
 	} rendering {};
 
 	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = _glGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
@@ -2032,6 +2060,14 @@ int main() {
 		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
+		if (rendering.culling_enabled) {
+			glCullFace(rendering.culling_face_type);
+			glFrontFace(rendering.culling_front_face_type);
+			glEnable(GL_CULL_FACE);
+		} else {
+			glDisable(GL_CULL_FACE);
+		}
+
 		if (model.current_state.visible) {
 			// apply model transformation
 			auto model_transformation = glm::identity<glm::mat4>();
@@ -2134,15 +2170,11 @@ int main() {
 					wnd_size_changed = true;
 				}
 
-				if (ImGui::BeginCombo("Type", PROJECTION_KIND_STR[camera.proj.kind])) {
-					for (auto type : {PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE}) {
-						if (ImGui::Selectable(PROJECTION_KIND_STR[type], camera.proj.kind == type)) {
-							camera.proj.kind = type;
-						}
-					}
-
-					ImGui::EndCombo();
-				}
+				MyImGui::EnumsCombo("Type", &camera.proj.kind, {
+					{PROJECTION_KIND_IDENTITY,    "Identity"},
+					{PROJECTION_KIND_ORTHO,       "Ortho"},
+					{PROJECTION_KIND_PERSPECTIVE, "Perpective"},
+				});
 
 				switch (camera.proj.kind) {
 				case PROJECTION_KIND_IDENTITY: break;
@@ -2207,48 +2239,31 @@ int main() {
 				ImGui::Checkbox("Transpose Projection", &rendering.transpose_projection);
 				ImGui::Checkbox("Transpose Model", &rendering.transpose_model);
 
-				constexpr auto polygon_mode_to_str = +[](GLenum m) {
-					switch (m) {
-					case GL_POINT: return "GL_POINT";
-					case GL_LINE: return "GL_LINE";
-					case GL_FILL: return "GL_FILL";
-					default: mn_unreachable();
-					}
-					return "????";
-				};
-				if (ImGui::BeginCombo("Polygon Mode", polygon_mode_to_str((int) rendering.polygon_mode))) {
-					for (auto type : {GL_POINT, GL_LINE, GL_FILL}) {
-						if (ImGui::Selectable(polygon_mode_to_str((int)type), rendering.polygon_mode == type)) {
-							rendering.polygon_mode = type;
-						}
-					}
+				MyImGui::EnumsCombo("Polygon Mode", &rendering.polygon_mode, {
+					{GL_POINT, "GL_POINT"},
+					{GL_LINE,  "GL_LINE"},
+					{GL_FILL,  "GL_FILL"},
+				});
 
-					ImGui::EndCombo();
-				}
+				MyImGui::EnumsCombo("Regular Mesh Primitives", &rendering.regular_primitives_type, {
+					{GL_POINTS,          "GL_POINTS"},
+					{GL_LINES,           "GL_LINES"},
+					{GL_LINE_LOOP,       "GL_LINE_LOOP"},
+					{GL_LINE_STRIP,      "GL_LINE_STRIP"},
+					{GL_TRIANGLES,       "GL_TRIANGLES"},
+					{GL_TRIANGLE_STRIP,  "GL_TRIANGLE_STRIP"},
+					{GL_TRIANGLE_FAN,    "GL_TRIANGLE_FAN"},
+				});
 
-				for (auto [text, var] : {
-					std::pair{"Regular Mesh Primitives", &rendering.regular_primitives_type},
-					std::pair{"Light Mesh Primitives", &rendering.light_primitives_type},
-				}) {
-					const char* PRIMITIVE_TYPE_STR[] {
-						"GL_POINTS",
-						"GL_LINES",
-						"GL_LINE_LOOP",
-						"GL_LINE_STRIP",
-						"GL_TRIANGLES",
-						"GL_TRIANGLE_STRIP",
-						"GL_TRIANGLE_FAN"
-					};
-					if (ImGui::BeginCombo(text, PRIMITIVE_TYPE_STR[(int) *var])) {
-						for (auto type : {GL_POINTS, GL_LINES, GL_LINE_LOOP, GL_LINE_STRIP, GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN}) {
-							if (ImGui::Selectable(PRIMITIVE_TYPE_STR[(int)type], *var == type)) {
-								*var = type;
-							}
-						}
-
-						ImGui::EndCombo();
-					}
-				}
+				MyImGui::EnumsCombo("Light Mesh Primitives", &rendering.light_primitives_type, {
+					{GL_POINTS,          "GL_POINTS"},
+					{GL_LINES,           "GL_LINES"},
+					{GL_LINE_LOOP,       "GL_LINE_LOOP"},
+					{GL_LINE_STRIP,      "GL_LINE_STRIP"},
+					{GL_TRIANGLES,       "GL_TRIANGLES"},
+					{GL_TRIANGLE_STRIP,  "GL_TRIANGLE_STRIP"},
+					{GL_TRIANGLE_FAN,    "GL_TRIANGLE_FAN"},
+				});
 
 				ImGui::Checkbox("Smooth Lines", &rendering.smooth_lines);
 				ImGui::BeginDisabled(!rendering.smooth_lines);
@@ -2256,6 +2271,19 @@ int main() {
 				ImGui::EndDisabled();
 
 				ImGui::DragFloat("Point Size", &rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
+
+				ImGui::Checkbox("Culling", &rendering.culling_enabled);
+				ImGui::BeginDisabled(!rendering.culling_enabled);
+					MyImGui::EnumsCombo("Face To Cull", &rendering.culling_face_type, {
+						{GL_FRONT,          "GL_FRONT"},
+						{GL_BACK,           "GL_BACK"},
+						{GL_FRONT_AND_BACK, "GL_FRONT_AND_BACK"},
+					});
+					MyImGui::EnumsCombo("Front Face Orientation", &rendering.culling_front_face_type, {
+						{GL_CCW, "GL_CCW"},
+						{GL_CW,  "GL_CW"},
+					});
+				ImGui::EndDisabled();
 
 				ImGui::TreePop();
 			}
