@@ -684,10 +684,8 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 	size_t k = 0;
 	while (indices.count > 3) {
 		k++;
-		// mn_assert_msg(k <= orig_indices.count, "can't tesselate");
 		if (k > orig_indices.count) {
-			mn::log_error("can't tesselate");
-			return orig_indices;
+			break;
 		}
 
 		for (size_t i = 0; i < indices.count; i++) {
@@ -704,7 +702,9 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 		}
 	}
 
-	mn_assert(indices.count == 3);
+	if (indices.count != 3) {
+		mn::log_error("failed to tesselate");
+	}
 	mn::buf_concat(out, indices);
 	return out;
 }
@@ -873,14 +873,14 @@ Model model_from_dnm(const char* dnm_file) {
 			bool smooth_shading = accept(s, " R");
 			expect(s, '\n');
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 
 			mn::buf_push(surf.vertices, v);
 			mn::buf_push(surf.vertices_has_smooth_shading, smooth_shading);
 		}
 		if (surf.vertices.count == 0) {
-			mn::panic("must have at least one vertex");
+			mn::log_error("'{}': doesn't have any vertices!", name);
 		}
 
 		// <Face>+
@@ -894,12 +894,12 @@ Model model_from_dnm(const char* dnm_file) {
 
 			expect(s, "F\n");
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 			while (!accept(s, "E\n")) {
 				if (accept(s, "C ")) {
 					if (parsed_color) {
-						mn::panic("found more than one color");
+						mn::panic("'{}': found more than one color", name);
 					}
 					parsed_color = true;
 
@@ -911,11 +911,11 @@ Model model_from_dnm(const char* dnm_file) {
 					expect(s, '\n');
 					face.color.a = 1.0f; // maybe overwritten in ZA line
 					if (lines-- == 0) {
-						mn::panic("expected {} lines, found more", expected_lines);
+						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 					}
 				} else if (accept(s, "N ")) {
 					if (parsed_normal) {
-						mn::panic("found more than one normal");
+						mn::panic("'{}': found more than one normal", name);
 					}
 					parsed_normal = true;
 
@@ -933,72 +933,68 @@ Model model_from_dnm(const char* dnm_file) {
 					face.normal.z = token_float(s);
 					expect(s, '\n');
 					if (lines-- == 0) {
-						mn::panic("expected {} lines, found more", expected_lines);
+						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 					}
 				} else if (accept(s, 'V')) {
 					// V {x}...
-					if (parsed_vertices) {
-						mn::panic("found more than one vertices line");
-					}
-					parsed_vertices = true;
-
 					auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
 					while (accept(s, ' ')) {
 						uint32_t id = token_u32(s);
 						if (id >= surf.vertices.count) {
-							mn::panic("id={} out of bounds={}", id, surf.vertices.count);
+							mn::panic("'{}': id={} out of bounds={}", name, id, surf.vertices.count);
 						}
 						mn::buf_push(polygon_vertices_ids, (uint32_t) id);
 					}
 					expect(s, '\n');
 					if (lines-- == 0) {
-						mn::panic("expected {} lines, found more", expected_lines);
+						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 					}
 
-					if (polygon_vertices_ids.count < 3) {
-						mn::log_warning("face has count of ids={}, it should be >= 3, {}", polygon_vertices_ids.count, smaller_str(s));
-					}
+					if (parsed_vertices) {
+						mn::log_error("'{}': found more than one vertices line, ignore others", name);
+					} else {
+						parsed_vertices = true;
 
-					// if (polygon_vertices_ids.count == 4) {
-					// 	mn::buf_push(polygon_vertices_ids, polygon_vertices_ids[3]);
-					// 	polygon_vertices_ids[3] = polygon_vertices_ids[2];
-					// 	mn::buf_push(polygon_vertices_ids, polygon_vertices_ids[0]);
-					// }
-					face.vertices_ids = polygons_to_triangles(surf.vertices, polygon_vertices_ids);
-					if (face.vertices_ids.count % 3 != 0) {
-						mn::log_error("must have been divisble by 3, but found {}", face.vertices_ids.count);
+						if (polygon_vertices_ids.count < 3) {
+							mn::log_error("'{}': face has count of ids={}, it should be >= 3, {}", name, polygon_vertices_ids.count, smaller_str(s));
+						}
+
+						face.vertices_ids = polygons_to_triangles(surf.vertices, polygon_vertices_ids);
+						if (face.vertices_ids.count % 3 != 0) {
+							mn::log_error("'{}': num of vertices_ids must have been divisble by 3 to be triangles, but found {}", name, face.vertices_ids.count);
+						}
 					}
 				} else if (accept(s, "B\n")) {
 					if (is_light_source) {
-						mn::panic("found more than 1 B");
+						mn::log_error("'{}': found more than 1 B for same face", name);
 					}
 					is_light_source = true;
 					if (lines-- == 0) {
-						mn::panic("expected {} lines, found more", expected_lines);
+						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 					}
 				} else {
-					mn::panic("unexpected line, '{}'", smaller_str(s));
+					mn::panic("'{}': unexpected line, '{}'", name, smaller_str(s));
 				}
 			}
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 
 			if (!parsed_color) {
-				mn::panic("face has no color");
+				mn::log_error("'{}': face has no color", name);
 			}
 			if (!parsed_normal) {
-				mn::panic("face has no normal");
+				mn::log_error("'{}': face has no normal", name);
 			}
 			if (!parsed_vertices) {
-				mn::panic("face has no vertices");
+				mn::log_error("'{}': face has no vertices", name);
 			}
 
 			mn::buf_push(faces_unshaded_light_source, is_light_source);
 			mn::buf_push(surf.faces, face);
 		}
 		if (lines-- == 0) {
-			mn::panic("expected {} lines, found more", expected_lines);
+			mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 		}
 
 		// [GF< {u64}>+\n]+
@@ -1006,18 +1002,18 @@ Model model_from_dnm(const char* dnm_file) {
 			while (accept(s, ' ')) {
 				auto id = token_u64(s);
 				if (id >= surf.faces.count) {
-					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
 				}
 				mn::buf_push(surf.gfs, id);
 			}
 			expect(s, '\n');
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 		}
 		expect(s, '\n');
 		if (lines-- == 0) {
-			mn::panic("expected {} lines, found more", expected_lines);
+			mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 		}
 
 		// [ZA< {u64} {u8}>+\n]+
@@ -1025,7 +1021,7 @@ Model model_from_dnm(const char* dnm_file) {
 			while (accept(s, ' ')) {
 				auto id = token_u64(s);
 				if (id >= surf.faces.count) {
-					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
 				}
 				expect(s, ' ');
 				surf.faces[id].color.a = (255 - token_u8(s)) / 255.0f;
@@ -1034,7 +1030,7 @@ Model model_from_dnm(const char* dnm_file) {
 			}
 			expect(s, '\n');
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 		}
 
@@ -1043,19 +1039,19 @@ Model model_from_dnm(const char* dnm_file) {
 		while (accept(s, "ZL")) {
 			zl_count++;
 			if (zl_count > 1) {
-				mn::panic("found {} > 1 ZLs", zl_count);
+				mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
 			}
 
 			while (accept(s, ' ')) {
 				auto id = token_u64(s);
 				if (id >= surf.faces.count) {
-					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
 				}
 				mn::buf_push(surf.zls, id);
 			}
 			expect(s, '\n');
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 		}
 
@@ -1064,19 +1060,19 @@ Model model_from_dnm(const char* dnm_file) {
 		while (accept(s, "ZZ")) {
 			zz_count++;
 			if (zz_count > 1) {
-				mn::panic("found {} > 1 ZZs", zz_count);
+				mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
 			}
 
 			while (accept(s, ' ')) {
 				auto id = token_u64(s);
 				if (id >= surf.faces.count) {
-					mn::panic("out of range faceid={}, range={}", id, surf.faces.count);
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
 				}
 				mn::buf_push(surf.zzs, id);
 			}
 			expect(s, '\n');
 			if (lines-- == 0) {
-				mn::panic("expected {} lines, found more", expected_lines);
+				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 		}
 
@@ -1084,7 +1080,7 @@ Model model_from_dnm(const char* dnm_file) {
 		// last line
 		lines--;
 		if (lines > 0) {
-			mn::log_error("expected {} lines, found {}", expected_lines, expected_lines - lines);
+			mn::log_error("'{}': expected {} lines, found {}", name, expected_lines, expected_lines - lines);
 		}
 
 		size_t unshaded_count = 0;
@@ -1111,7 +1107,7 @@ Model model_from_dnm(const char* dnm_file) {
 		expect(s, '\n');
 		auto surf = mn::map_lookup(surfs, fil);
 		if (!surf) {
-			mn::panic("line referenced undeclared surf={}", fil);
+			mn::panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
 		surf->value.name = name;
 
@@ -1187,7 +1183,7 @@ Model model_from_dnm(const char* dnm_file) {
 			expect(s, "CLD ");
 			auto child_name = token_str(s);
 			if (!(mn::str_prefix(child_name, "\"") && mn::str_suffix(child_name, "\""))) {
-				mn::panic("child_name must be in \"\" found={}", child_name);
+				mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 			}
 			mn::str_trim(child_name, "\"");
 			mn::buf_push(surf->value.children, child_name);
@@ -1197,7 +1193,7 @@ Model model_from_dnm(const char* dnm_file) {
 		// reinsert with name instead of FIL
 		surf = mn::map_insert(surfs, mn::str_clone(name), surf->value);
 		if (!mn::map_remove(surfs, fil)) {
-			mn::panic("must be able to remove {} from meshes", fil);
+			mn::panic("'{}': must be able to remove {} from meshes", name, fil);
 		}
 
 		expect(s, "END\n");
@@ -1903,25 +1899,33 @@ int main() {
 	mn::Str logs {};
 	mn_defer(mn::str_free(logs));
 	bool enable_window_logs = true;
-	mn::log_debug("logs will be forwarded from stdout to logs window");
+	mn::log_debug("logs will be copied to logs window");
 	auto old_log_interface = mn::log_interface_set(mn::Log_Interface{
 		// pointer to user data
 		.self = &logs,
 		.debug = +[](void* self, const char* msg) {
 			auto logs = (mn::Str*) self;
-			*logs = mn::strf(*logs, "> {}\n", msg);
+			auto formatted = mn::str_tmpf("> {}\n", msg);
+			mn::str_push(*logs, formatted);
+			::fprintf(stdout, "%s", formatted.ptr);
 		},
 		.info = +[](void* self, const char* msg) {
 			auto logs = (mn::Str*) self;
-			*logs = mn::strf(*logs, "[info] {}\n", msg);
+			auto formatted = mn::str_tmpf("[info] {}\n", msg);
+			mn::str_push(*logs, formatted);
+			::fprintf(stdout, "%s", formatted.ptr);
 		},
 		.warning = +[](void* self, const char* msg) {
 			auto logs = (mn::Str*) self;
-			*logs = mn::strf(*logs, "[warning] {}\n", msg);
+			auto formatted = mn::str_tmpf("[warning] {}\n", msg);
+			mn::str_push(*logs, formatted);
+			::fprintf(stderr, "%s", formatted.ptr);
 		},
 		.error = +[](void* self, const char* msg) {
 			auto logs = (mn::Str*) self;
-			*logs = mn::strf(*logs, "[error] {}\n", msg);
+			auto formatted = mn::str_tmpf("[error] {}\n", msg);
+			mn::str_push(*logs, formatted);
+			::fprintf(stderr, "%s", formatted.ptr);
 		},
 		.critical = +[](void* self, const char* msg) {
 			mn::panic("{}", msg);
@@ -2403,8 +2407,8 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
-			if (ImGui::Checkbox("Enable", &enable_window_logs)) {
-				old_log_interface = mn::log_interface_set(old_log_interface);
+			if (ImGui::Button("Clear")) {
+				mn::str_clear(logs);
 			}
 			if (logs.count > 0) {
 				ImGui::TextWrapped("%s", logs.ptr);
@@ -2457,6 +2461,7 @@ TODO:
 	- orientation of triangles is flipped (Ground/t64.dnm)
 
 - why a10.dnm:000005 rotated different from 000004?
+- why ys11:00002 (and 00001) have mixed x/y rotations?
 - what is CNT?
 
 - move internal DNMs to resources dir
