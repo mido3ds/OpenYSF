@@ -535,7 +535,7 @@ void glCheckError_(const char *file, int line) {
 
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
-	mn::Map<mn::Str, Mesh> tree;
+	mn::Map<mn::Str, Mesh> meshes;
 	mn::Buf<size_t> root_meshes_indices;
 
 	struct {
@@ -546,7 +546,7 @@ struct Model {
 };
 
 void model_load_to_gpu(Model& self) {
-	for (auto& [_, mesh] : self.tree.values) {
+	for (auto& [_, mesh] : self.meshes.values) {
 		// buffers
 		glGenVertexArrays(1, &mesh.gpu_handles.vao);
 		glBindVertexArray(mesh.gpu_handles.vao);
@@ -580,6 +580,7 @@ void model_load_to_gpu(Model& self) {
 			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
 			auto colors = mn::buf_with_allocator<glm::vec4>(mn::memory::tmp());
+			// TODO: this is wrong, #colors == #elements, not #faces
 			for (const auto& face : mesh.faces) {
 				mn::buf_push(colors, face.color);
 			}
@@ -591,7 +592,7 @@ void model_load_to_gpu(Model& self) {
 }
 
 void model_unload_from_gpu(Model& self) {
-	for (auto& [_, mesh] : self.tree.values) {
+	for (auto& [_, mesh] : self.meshes.values) {
 		mesh_unload_from_gpu(mesh);
 	}
 }
@@ -1180,7 +1181,7 @@ Model model_from_dnm(const char* dnm_file) {
 		// reinsert with name instead of FIL
 		surf = mn::map_insert(surfs, mn::str_clone(name), surf->value);
 		if (!mn::map_remove(surfs, fil)) {
-			mn::panic("must be able to remove {} from tree", fil);
+			mn::panic("must be able to remove {} from meshes", fil);
 		}
 
 		expect(s, "END\n");
@@ -1200,7 +1201,7 @@ Model model_from_dnm(const char* dnm_file) {
 	}
 
 	auto model = Model {
-		.tree = surfs,
+		.meshes = surfs,
 	};
 
 	// top level nodes = nodes without parents
@@ -1220,7 +1221,7 @@ Model model_from_dnm(const char* dnm_file) {
 }
 
 void model_free(Model& self) {
-	mn::destruct(self.tree);
+	mn::destruct(self.meshes);
 	mn::destruct(self.root_meshes_indices);
 }
 
@@ -1788,6 +1789,7 @@ int main() {
 	constexpr auto vertex_shader_src = R"GLSL(
 		#version 330 core
 		layout (location = 0) in vec3 attr_pos;
+		// TODO: pass MVP instead of 3 uniforms for perf
 		uniform mat4 projection, view, model;
 		void main() {
 			gl_Position = projection * view * model * vec4(attr_pos, 1.0);
@@ -1814,6 +1816,7 @@ int main() {
 		void main() {
 			float color_index = (gl_PrimitiveID + 0.5f) / textureSize(faces_colors, 0);
 			out_fragcolor = texture(faces_colors, color_index);
+			// out_fragcolor = vec4(vec3(color_index), 1.0);
 		}
 	)GLSL";
     glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
@@ -2084,7 +2087,7 @@ int main() {
 			// start with root meshes
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
 			for (auto i : model.root_meshes_indices) {
-				Mesh* mesh = &model.tree.values[i].value;
+				Mesh* mesh = &model.meshes.values[i].value;
 				mesh->transformation = model_transformation;
 				mn::buf_push(meshes_stack, mesh);
 			}
@@ -2120,7 +2123,7 @@ int main() {
 					}
 
 					for (const mn::Str& child_name : mesh->children) {
-						auto* kv = mn::map_lookup(model.tree, child_name);
+						auto* kv = mn::map_lookup(model.meshes, child_name);
 						mn_assert(kv);
 						Mesh* child_mesh = &kv->value;
 						child_mesh->transformation = mesh->transformation;
@@ -2299,7 +2302,7 @@ int main() {
 				}
 				if (ImGui::Button("Reset All")) {
 					model.current_state = {};
-					for (auto& [_, mesh] : model.tree.values) {
+					for (auto& [_, mesh] : model.meshes.values) {
 						mesh.current_state = mesh.initial_state;
 					}
 				}
@@ -2309,13 +2312,13 @@ int main() {
 				ImGui::DragFloat3("rotation", glm::value_ptr(model.current_state.rotation), 5, 0, 180);
 
 				size_t light_sources_count = 0;
-				for (const auto& [_, mesh] : model.tree.values) {
+				for (const auto& [_, mesh] : model.meshes.values) {
 					if (mesh.is_light_source) {
 						light_sources_count++;
 					}
 				}
 
-				ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.tree.count,
+				ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.count,
 					model.root_meshes_indices.count, light_sources_count).ptr);
 
 				std::function<void(Mesh&)> render_mesh_ui;
@@ -2338,7 +2341,7 @@ int main() {
 						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
 						ImGui::Indent();
 						for (const auto& child_name : mesh.children) {
-							auto kv = mn::map_lookup(model.tree, child_name);
+							auto kv = mn::map_lookup(model.meshes, child_name);
 							mn_assert(kv);
 							render_mesh_ui(kv->value);
 						}
@@ -2371,7 +2374,7 @@ int main() {
 
 				ImGui::Indent();
 				for (auto i : model.root_meshes_indices) {
-					render_mesh_ui(model.tree.values[i].value);
+					render_mesh_ui(model.meshes.values[i].value);
 				}
 				ImGui::Unindent();
 
@@ -2429,19 +2432,21 @@ int main() {
 }
 /*
 TODO:
+- glDrawArrays instead of glDrawElements
+- send normals
+- view normals (geometry shader)
 - fix tesselate
+	- when fail, fill with fake triangles
 	- line intersect
 	- some faces can't tesselate (a10.dnm)
 	- orientation of triangles is flipped (Ground/t64.dnm)
-- fix rotations (a10.dnm:000005 why rotated different from 000004?)
-- what is CNT?
 
-- send normals
-- view normals (geometry shader)
+- why a10.dnm:000005 rotated different from 000004?
+- what is CNT?
 
 - move internal DNMs to resources dir
 - smooth camera movement
-- imgui: positions: bigger ranges
+- imgui: translations: bigger ranges
 
 - strict integers tokenization
 */
