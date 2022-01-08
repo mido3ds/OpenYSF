@@ -417,7 +417,7 @@ namespace fmt {
 // See https://ysflightsim.fandom.com/wiki/STA
 struct MeshState {
 	glm::vec3 translation;
-	glm::vec3 rotation; // (degrees) roll, pitch, yaw
+	glm::vec3 rotation; // roll, pitch, yaw
 	bool visible;
 };
 
@@ -537,7 +537,7 @@ struct Model {
 
 	struct {
 		glm::vec3 translation;
-		glm::vec3 rotation; // (degrees) roll, pitch, yaw
+		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
 	} current_state;
 };
@@ -613,11 +613,31 @@ void model_unload_from_gpu(Model& self) {
 	}
 }
 
-bool lines_intersect(glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d) {
-	const auto ab = b-a;
-	const auto ac = c-a;
-	const auto ad = d-a;
-	return glm::normalize(glm::cross(ab, ac)) == (- glm::normalize(glm::cross(ab, ad)));
+// https://gist.github.com/EgoMoose/cd402f3a48c3dc5e2d7dccc7492f2a41
+// https://www.youtube.com/watch?v=ELQG5OvmAE8
+bool lines_intersect(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, const glm::vec3& d) {
+	const glm::vec3 r = b - a;
+	const glm::vec3 s = d - c;
+	const glm::vec3 q = a - c;
+
+	const float dotqr = glm::dot(q, r);
+	const float dotqs = glm::dot(q, s);
+	const float dotrs = glm::dot(r, s);
+	const float dotrr = glm::dot(r, r);
+	const float dotss = glm::dot(s, s);
+
+	const float denom = dotrr * dotss - dotrs * dotrs;
+	const float numer = dotqs * dotrs - dotqr * dotss;
+
+	const float t = numer / denom;
+	const float u = (dotqs + t * dotrs) / dotss;
+
+	// the two points of intersection
+	glm::vec3 p0 = a + t * r;
+	glm::vec3 p1 = c + u * s;
+
+	constexpr float MARGIN_OF_ERROR = 0.001f;
+	return glm::distance(p0, p1) <= MARGIN_OF_ERROR;
 }
 
 bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &indices, int i) {
@@ -638,16 +658,16 @@ bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &
 
 	// v1v3 must be in Sector(v1v2, v1v0)
 	{
-		const float phi = glm::acos(glm::dot(v1v2, v1v0));
-		if (glm::acos(glm::dot(v1v2, v1v3)) >= phi || glm::acos(glm::dot(v1v0, v1v3)) >= phi) {
+		const float sector_angle = glm::acos(glm::dot(v1v2, v1v0));
+		if (glm::acos(glm::dot(v1v2, v1v3)) >= sector_angle || glm::acos(glm::dot(v1v0, v1v3)) >= sector_angle) {
 			return false;
 		}
 	}
 
 	// v3v1 must be in Sector(v3v4, v3v2)
 	{
-		const float phi = glm::acos(glm::dot(v3v4, v3v2));
-		if (glm::acos(glm::dot(v3v4, v3v1)) >= phi || glm::acos(glm::dot(v3v2, v3v1)) >= phi) {
+		const float sector_angle = glm::acos(glm::dot(v3v4, v3v2));
+		if (glm::acos(glm::dot(v3v4, v3v1)) >= sector_angle || glm::acos(glm::dot(v3v2, v3v1)) >= sector_angle) {
 			return false;
 		}
 	}
@@ -664,10 +684,7 @@ bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &
 
 		// don't test the edge if it shares a vertex with it
 		if ((jv0 != iv1 && jv0 != iv3) && (jv1 != iv1 && jv1 != iv3)) {
-			// intersects(jv0 -> jv1, iv2 -> iv3)?
-			const auto ab = vertices[jv1] - vertices[jv0];
-			// TODO: probably wrong algorithm
-			if (glm::cross(ab, (vertices[iv2] - vertices[jv0])) == -1.0f * glm::cross(ab, (vertices[iv3] - vertices[jv0]))) {
+			if (lines_intersect(vertices[jv0], vertices[jv1], vertices[iv2], vertices[iv3])) {
 				return false;
 			}
 		}
@@ -679,15 +696,9 @@ bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &
 mn::Buf<uint32_t>
 polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices) {
 	mn::Buf<uint32_t> out {};
-
 	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
-	size_t k = 0;
-	while (indices.count > 3) {
-		k++;
-		if (k > orig_indices.count) {
-			break;
-		}
 
+	for (size_t k = 0; k <= orig_indices.count && indices.count > 3; k++) {
 		for (size_t i = 0; i < indices.count; i++) {
 			if (vertex_is_ear(vertices, indices, i)) {
 				mn::buf_push(out, indices[mod(i-1, indices.count)]);
@@ -1120,8 +1131,8 @@ Model model_from_dnm(const char* dnm_file) {
 		auto num_stas = token_u64(s);
 		mn::buf_reserve(surf->value.animation_states, num_stas);
 		expect(s, '\n');
-		// YS angle format to degrees, extracted from ys blender scripts
-		constexpr double YSA_TO_DEGREES = 0.005493164;
+		// YS angle format to radians, extracted from ys blender scripts
+		constexpr double YS_TO_RADIANS = 0.0000958737992;
 		for (size_t i = 0; i < num_stas; i++) {
 			expect(s, "STA ");
 
@@ -1133,11 +1144,11 @@ Model model_from_dnm(const char* dnm_file) {
 			sta.translation.z = token_float(s);
 			expect(s, ' ');
 
-			sta.rotation.x = token_i32(s) * YSA_TO_DEGREES;
+			sta.rotation.x = token_i32(s) * YS_TO_RADIANS;
 			expect(s, ' ');
-			sta.rotation.y = token_i32(s) * YSA_TO_DEGREES;
+			sta.rotation.y = token_i32(s) * YS_TO_RADIANS;
 			expect(s, ' ');
-			sta.rotation.z = token_i32(s) * YSA_TO_DEGREES;
+			sta.rotation.z = token_i32(s) * YS_TO_RADIANS;
 			expect(s, ' ');
 
 			sta.visible = token_u8(s) == 1;
@@ -1153,11 +1164,11 @@ Model model_from_dnm(const char* dnm_file) {
 		expect(s, ' ');
 		surf->value.initial_state.translation.z = token_float(s);
 		expect(s, ' ');
-		surf->value.initial_state.rotation.x = token_i32(s) * YSA_TO_DEGREES;
+		surf->value.initial_state.rotation.x = token_i32(s) * YS_TO_RADIANS;
 		expect(s, ' ');
-		surf->value.initial_state.rotation.y = token_i32(s) * YSA_TO_DEGREES;
+		surf->value.initial_state.rotation.y = token_i32(s) * YS_TO_RADIANS;
 		expect(s, ' ');
-		surf->value.initial_state.rotation.z = token_i32(s) * YSA_TO_DEGREES;
+		surf->value.initial_state.rotation.z = token_i32(s) * YS_TO_RADIANS;
 		expect(s, ' ');
 		surf->value.initial_state.visible = token_u8(s) == 1;
 		expect(s, '\n');
@@ -1598,8 +1609,8 @@ enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTI
 struct Camera {
 	struct {
 		bool identity           = false;
-		float movement_speed    = 90.5f;
-		float mouse_sensitivity = 0.1f;
+		float movement_speed    = 2.5f;
+		float mouse_sensitivity = 1.4;
 
 		glm::vec3 pos      = glm::vec3{0.0f, 0.0f, 3.0f};
 		glm::vec3 front    = glm::vec3{0.0f, 0.0f, -1.0f};
@@ -1607,8 +1618,8 @@ struct Camera {
 		glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
 		glm::vec3 up       = world_up;
 
-		float yaw   = -90.0f; // degrees
-		float pitch = 0.0f; // degrees
+		float yaw   = glm::radians(-90.0f);
+		float pitch = glm::radians(0.0f);
 	} view;
 
 	struct {
@@ -1626,7 +1637,7 @@ struct Camera {
 		struct {
 			float near         = 0.1f;
 			float far          = 1000.0f;
-			float fovy         = 45.0f; // degrees
+			float fovy         = glm::radians(45.0f);
 			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
 			bool custom_aspect = false;
 		} pers; // perspective
@@ -1654,7 +1665,7 @@ glm::mat4 camera_get_projection_matrix(const Camera& self) {
 		));
 	case PROJECTION_KIND_PERSPECTIVE: {
 		return glm::perspective(
-			glm::radians(self.proj.pers.fovy),
+			self.proj.pers.fovy,
 			self.proj.pers.aspect,
 			self.proj.pers.near,
 			self.proj.pers.far
@@ -1675,38 +1686,46 @@ auto clamp(auto x, auto lower_limit, auto upper_limit) {
 	return x;
 }
 
-void camera_update(Camera& self, const SDL_Event &event, float delta_time) {
+void camera_update(Camera& self, float delta_time) {
 	if (self.view.identity) {
 		return;
 	}
 
-	if (event.type == SDL_KEYDOWN) {
-		const float velocity = self.view.movement_speed * delta_time;
-		switch (event.key.keysym.sym) {
-		case 'w': self.view.pos += self.view.front * velocity; break;
-		case 's': self.view.pos -= self.view.front * velocity; break;
-		case 'd': self.view.pos += self.view.right * velocity; break;
-		case 'a': self.view.pos -= self.view.right * velocity; break;
-		default: break;
-		}
-	} else if (event.type == SDL_MOUSEMOTION && (SDL_GetMouseState(0,0) & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
-		if (SDL_GetModState() & KMOD_SHIFT) {
-			self.proj.pers.fovy = clamp(self.proj.pers.fovy - event.motion.yrel * self.view.mouse_sensitivity, 1.0f, 45.0f);
-		} else {
-			self.view.yaw   -= event.motion.xrel * self.view.mouse_sensitivity;
-			self.view.pitch += event.motion.yrel * self.view.mouse_sensitivity;
-
-			// make sure that when pitch is out of bounds, screen doesn't get flipped
-			self.view.pitch = clamp(self.view.pitch, -89.0f, 89.0f);
-		}
+	// move with keyboard
+	const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
+	const float velocity = self.view.movement_speed * delta_time;
+	if (key_pressed[SDL_SCANCODE_W]) {
+		self.view.pos += self.view.front * velocity;
+	}
+	if (key_pressed[SDL_SCANCODE_S]) {
+		self.view.pos -= self.view.front * velocity;
+	}
+	if (key_pressed[SDL_SCANCODE_D]) {
+		self.view.pos += self.view.right * velocity;
+	}
+	if (key_pressed[SDL_SCANCODE_A]) {
+		self.view.pos -= self.view.right * velocity;
 	}
 
+	// move with mouse
+	static glm::ivec2 mouse_before {};
+	glm::ivec2 mouse_now;
+	const auto buttons = SDL_GetMouseState(&mouse_now.x, &mouse_now.y);
+	if ((buttons & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
+		self.view.yaw   -= (mouse_now.x - mouse_before.x) * self.view.mouse_sensitivity / 1000;
+		self.view.pitch += (mouse_now.y - mouse_before.y) * self.view.mouse_sensitivity / 1000;
+
+		// make sure that when pitch is out of bounds, screen doesn't get flipped
+		self.view.pitch = clamp(self.view.pitch, glm::radians(-89.0f), glm::radians(89.0f));
+	}
+	mouse_before = mouse_now;
+
 	// update front, right and up Vectors using the updated Euler angles
-	glm::vec3 front;
-	front.x = cos(glm::radians(self.view.yaw)) * cos(glm::radians(self.view.pitch));
-	front.y = sin(glm::radians(self.view.pitch));
-	front.z = sin(glm::radians(self.view.yaw)) * cos(glm::radians(self.view.pitch));
-	self.view.front = glm::normalize(front);
+	self.view.front = glm::normalize(glm::vec3 {
+		glm::cos(self.view.yaw) * glm::cos(self.view.pitch),
+		glm::sin(self.view.pitch),
+		glm::sin(self.view.yaw) * glm::cos(self.view.pitch),
+	});
 
 	// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
 	self.view.right = glm::normalize(glm::cross(self.view.front, self.view.world_up));
@@ -1988,9 +2007,10 @@ int main() {
 			}
 		}
 
+		camera_update(camera, delta_time);
+
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
-			camera_update(camera, event, delta_time);
 			ImGui_ImplSDL2_ProcessEvent(&event);
 
 			if (event.type == SDL_KEYDOWN) {
@@ -2132,9 +2152,9 @@ int main() {
 				if (mesh->current_state.visible) {
 					// apply mesh transformation
 					mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[0]), glm::vec3(1, 0, 0));
-					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[1]), glm::vec3(0, 1, 0));
-					mesh->transformation = glm::rotate(mesh->transformation, glm::radians(mesh->current_state.rotation[2]), glm::vec3(0, 0, 1));
+					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3(1, 0, 0));
+					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3(0, 1, 0));
+					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3(0, 0, 1));
 
 					// upload transofmation model
 					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
@@ -2243,10 +2263,10 @@ int main() {
 				ImGui::Checkbox("Identity", &camera.view.identity);
 
 				ImGui::BeginDisabled(camera.view.identity);
-					ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 2, 0, 300);
-					ImGui::DragFloat("mouse_sensitivity", &camera.view.mouse_sensitivity, 0.04, 0, 0.8);
-					ImGui::DragFloat("yaw", &camera.view.yaw, 1, 0, 360);
-					ImGui::DragFloat("pitch", &camera.view.pitch, 1, -89, 89);
+					ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 0.5, 1, 10);
+					ImGui::DragFloat("mouse_sensitivity", &camera.view.mouse_sensitivity, 1, 0.5, 10);
+					ImGui::SliderAngle("yaw", &camera.view.yaw);
+					ImGui::SliderAngle("pitch", &camera.view.pitch, -89, 89);
 
 					ImGui::DragFloat3("front", glm::value_ptr(camera.view.front), 0.1, -1, 1);
 					ImGui::DragFloat3("pos", glm::value_ptr(camera.view.pos), 1, -100, 100);
@@ -2331,7 +2351,7 @@ int main() {
 
 				ImGui::Checkbox("visible", &model.current_state.visible);
 				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation), 0.1, -1, 1);
-				ImGui::DragFloat3("rotation", glm::value_ptr(model.current_state.rotation), 5, 0, 180);
+				ImGui::SliderAngle("rotation", glm::value_ptr(model.current_state.rotation));
 
 				size_t light_sources_count = 0;
 				for (const auto& [_, mesh] : model.meshes.values) {
@@ -2358,7 +2378,7 @@ int main() {
 						ImGui::EndDisabled();
 
 						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation), 0.1, -1, 1);
-						ImGui::DragFloat3("rotation", glm::value_ptr(mesh.current_state.rotation), 5, 0, 180);
+						ImGui::SliderAngle("rotation", glm::value_ptr(mesh.current_state.rotation));
 
 						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
 						ImGui::Indent();
@@ -2455,18 +2475,17 @@ int main() {
 /*
 TODO:
 - fix tesselate
-	- when fail, fill with fake triangles
-	- correct and test line intersect
+	- test line intersect
 	- why some faces can't tesselate (a10.dnm)
-	- orientation of triangles is flipped (Ground/t64.dnm)
+	- orientation of triangles is flipped (Ground/vasi.dnm,Ground/t64.dnm)
 
 - why a10.dnm:000005 rotated different from 000004?
 - why ys11:00002 (and 00001) have mixed x/y rotations?
 - what is CNT?
 
 - move internal DNMs to resources dir
-- smooth camera movement
 - imgui: translations: bigger ranges
+- tracking camera (copy from jet-simulator)
 
 - view normals (geometry shader)
 - strict integers tokenization
