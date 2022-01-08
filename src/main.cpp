@@ -1740,7 +1740,7 @@ GLfloat _glGetFloat(GLenum e) {
 
 namespace MyImGui {
 	template<typename T>
-	void EnumsCombo(const char* title, T* p_enum, const std::initializer_list<std::pair<T, const char*>>& enums) {
+	void EnumsCombo(const char* label, T* p_enum, const std::initializer_list<std::pair<T, const char*>>& enums) {
 		int var_i = -1;
 		const char* preview = "- Invalid Value -";
 		for (const auto& [type, type_str] : enums) {
@@ -1751,7 +1751,7 @@ namespace MyImGui {
 			}
 		}
 
-		if (ImGui::BeginCombo(title, preview)) {
+		if (ImGui::BeginCombo(label, preview)) {
 			for (const auto& [type, type_str] : enums) {
 				if (ImGui::Selectable(type_str,  type == *p_enum)) {
 					*p_enum = type;
@@ -1760,6 +1760,12 @@ namespace MyImGui {
 
 			ImGui::EndCombo();
 		}
+	}
+
+	void SliderAngle3(const char* label, glm::vec3* radians) {
+		glm::vec3 degrees = glm::degrees(*radians);
+		ImGui::DragFloat3(label, glm::value_ptr(degrees), 1, -360, 360);
+		*radians = glm::radians(degrees);
 	}
 }
 
@@ -1915,35 +1921,38 @@ int main() {
 	int fps_limit = 60;
 	int millis_till_render = 0;
 
-	mn::Str logs {};
-	mn_defer(mn::str_free(logs));
-	bool enable_window_logs = true;
+	auto logs_arena = mn::allocator_arena_new();
+	mn_defer(mn::allocator_free(logs_arena));
+	auto logs = mn::buf_with_allocator<mn::Str>(logs_arena);
+	bool logs_auto_scrolling = true;
+	bool logs_wrapped = false;
+	float logs_last_scrolled_line = 0;
 	mn::log_debug("logs will be copied to logs window");
 	auto old_log_interface = mn::log_interface_set(mn::Log_Interface{
 		// pointer to user data
 		.self = &logs,
 		.debug = +[](void* self, const char* msg) {
-			auto logs = (mn::Str*) self;
-			auto formatted = mn::str_tmpf("> {}\n", msg);
-			mn::str_push(*logs, formatted);
+			auto logs = (mn::Buf<mn::Str>*) self;
+			auto formatted = mn::strf(logs->allocator, "> {}\n", msg);
+			mn::buf_push(*logs, formatted);
 			::fprintf(stdout, "%s", formatted.ptr);
 		},
 		.info = +[](void* self, const char* msg) {
-			auto logs = (mn::Str*) self;
-			auto formatted = mn::str_tmpf("[info] {}\n", msg);
-			mn::str_push(*logs, formatted);
+			auto logs = (mn::Buf<mn::Str>*) self;
+			auto formatted = mn::strf(logs->allocator, "[info] {}\n", msg);
+			mn::buf_push(*logs, formatted);
 			::fprintf(stdout, "%s", formatted.ptr);
 		},
 		.warning = +[](void* self, const char* msg) {
-			auto logs = (mn::Str*) self;
-			auto formatted = mn::str_tmpf("[warning] {}\n", msg);
-			mn::str_push(*logs, formatted);
+			auto logs = (mn::Buf<mn::Str>*) self;
+			auto formatted = mn::strf(logs->allocator, "[warning] {}\n", msg);
+			mn::buf_push(*logs, formatted);
 			::fprintf(stderr, "%s", formatted.ptr);
 		},
 		.error = +[](void* self, const char* msg) {
-			auto logs = (mn::Str*) self;
-			auto formatted = mn::str_tmpf("[error] {}\n", msg);
-			mn::str_push(*logs, formatted);
+			auto logs = (mn::Buf<mn::Str>*) self;
+			auto formatted = mn::strf(logs->allocator, "[error] {}\n", msg);
+			mn::buf_push(*logs, formatted);
 			::fprintf(stderr, "%s", formatted.ptr);
 		},
 		.critical = +[](void* self, const char* msg) {
@@ -2132,9 +2141,9 @@ int main() {
 			// apply model transformation
 			auto model_transformation = glm::identity<glm::mat4>();
 			model_transformation = glm::translate(model_transformation, model.current_state.translation);
-			model_transformation = glm::rotate(model_transformation, glm::radians(model.current_state.rotation[0]), glm::vec3(1, 0, 0));
-			model_transformation = glm::rotate(model_transformation, glm::radians(model.current_state.rotation[1]), glm::vec3(0, 1, 0));
-			model_transformation = glm::rotate(model_transformation, glm::radians(model.current_state.rotation[2]), glm::vec3(0, 0, 1));
+			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(1, 0, 0));
+			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(0, 1, 0));
+			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3(0, 0, 1));
 
 			// start with root meshes
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -2350,8 +2359,8 @@ int main() {
 				}
 
 				ImGui::Checkbox("visible", &model.current_state.visible);
-				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation), 0.1, -1, 1);
-				ImGui::SliderAngle("rotation", glm::value_ptr(model.current_state.rotation));
+				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
+				MyImGui::SliderAngle3("rotation", &model.current_state.rotation);
 
 				size_t light_sources_count = 0;
 				for (const auto& [_, mesh] : model.meshes.values) {
@@ -2377,8 +2386,8 @@ int main() {
 							ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
 						ImGui::EndDisabled();
 
-						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation), 0.1, -1, 1);
-						ImGui::SliderAngle("rotation", glm::value_ptr(mesh.current_state.rotation));
+						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
+						MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation);
 
 						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
 						ImGui::Indent();
@@ -2427,11 +2436,37 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
+			ImGui::Checkbox("Auto-Scroll", &logs_auto_scrolling);
+			ImGui::SameLine();
+			ImGui::Checkbox("Wrapped", &logs_wrapped);
+			ImGui::SameLine();
 			if (ImGui::Button("Clear")) {
-				mn::str_clear(logs);
+				mn::destruct(logs);
 			}
-			if (logs.count > 0) {
-				ImGui::TextWrapped("%s", logs.ptr);
+
+			if (ImGui::BeginChild("logs child", {}, false, logs_wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
+				ImGuiListClipper clipper(logs.count);
+				while (clipper.Step()) {
+					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+						if (logs_wrapped) {
+							ImGui::TextWrapped("%s", logs[i].ptr);
+						} else {
+							ImGui::TextUnformatted(mn::begin(logs[i]), mn::end(logs[i]));
+						}
+					}
+				}
+				ImGui::PopStyleVar();
+
+				// scroll
+				if (logs_auto_scrolling) {
+					if (logs_last_scrolled_line != logs.count) {
+						logs_last_scrolled_line = logs.count;
+						ImGui::SetScrollHereY();
+					}
+				}
+
+				ImGui::EndChild();
 			}
 		}
 		ImGui::End();
@@ -2484,7 +2519,6 @@ TODO:
 - what is CNT?
 
 - move internal DNMs to resources dir
-- imgui: translations: bigger ranges
 - tracking camera (copy from jet-simulator)
 
 - view normals (geometry shader)
