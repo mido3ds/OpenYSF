@@ -453,11 +453,10 @@ struct Mesh {
 	// POS
 	MeshState initial_state; // should be kepts const after init
 
-	// GPU
 	struct {
-		GLuint vao, vbo, ebo, color_texture;
-	} gpu_handles;
-	size_t indices_count; // sum(face.vertices_ids.count for face in faces)
+		GLuint vao, vbo;
+		size_t array_count;
+	} gpu;
 
 	// physics
 	glm::mat4 transformation;
@@ -481,12 +480,10 @@ void destruct(Mesh &self) {
 }
 
 void mesh_unload_from_gpu(Mesh& self) {
-	glDeleteVertexArrays(1, &self.gpu_handles.vao);
-	glDeleteBuffers(1, &self.gpu_handles.vbo);
-	glDeleteBuffers(1, &self.gpu_handles.ebo);
-	glDeleteTextures(1, &self.gpu_handles.color_texture);
-
-	self.gpu_handles = {};
+	glDeleteBuffers(1, &self.gpu.vbo);
+	glBindVertexArray(0);
+	glDeleteVertexArrays(1, &self.gpu.vao);
+	self.gpu = {};
 }
 
 namespace fmt {
@@ -547,45 +544,64 @@ struct Model {
 
 void model_load_to_gpu(Model& self) {
 	for (auto& [_, mesh] : self.meshes.values) {
-		// buffers
-		glGenVertexArrays(1, &mesh.gpu_handles.vao);
-		glBindVertexArray(mesh.gpu_handles.vao);
-			glGenBuffers(1, &mesh.gpu_handles.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, mesh.gpu_handles.vbo);
-			glBufferData(GL_ARRAY_BUFFER, mesh.vertices.count * sizeof(glm::vec3) * sizeof(float), mesh.vertices.ptr, GL_STATIC_DRAW);
-
-			glGenBuffers(1, &mesh.gpu_handles.ebo);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.gpu_handles.ebo);
-			auto indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
-			for (const auto& face : mesh.faces) {
-				mn::buf_concat(indices, face.vertices_ids);
+		struct Stride {
+			glm::vec3 vertex;
+			glm::vec4 color;
+			glm::vec3 normal;
+		};
+		auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
+		for (const auto& face : mesh.faces) {
+			for (size_t i = 0; i < face.vertices_ids.count; i++) {
+				mn::buf_push(buffer, Stride {
+					.vertex=mesh.vertices[face.vertices_ids[i]],
+					.color=face.color,
+					.normal=face.normal,
+				});
 			}
-			mesh.indices_count = indices.count;
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.indices_count * sizeof(GLuint), indices.ptr, GL_STATIC_DRAW);
+		}
+		mesh.gpu.array_count = buffer.count;
 
-			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+		glGenVertexArrays(1, &mesh.gpu.vao);
+		glBindVertexArray(mesh.gpu.vao);
+			glGenBuffers(1, &mesh.gpu.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh.gpu.vbo);
+			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+
+			size_t offset = 0;
+
 			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(
+				0,              /*index*/
+				3,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::vertex);
+
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(
+				1,              /*index*/
+				4,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::color);
+
+			glEnableVertexAttribArray(2);
+			glVertexAttribPointer(
+				2,              /*index*/
+				3,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::normal);
 		glBindVertexArray(0);
-
-		GL_CATCH_ERRS();
-
-		// faces colors
-		// glEnable(GL_TEXTURE_1D); // crashes with gl3.3
-		glGenTextures(1, &mesh.gpu_handles.color_texture);
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_1D, mesh.gpu_handles.color_texture);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-			auto colors = mn::buf_with_allocator<glm::vec4>(mn::memory::tmp());
-			// TODO: this is wrong, #colors == #elements, not #faces
-			for (const auto& face : mesh.faces) {
-				mn::buf_push(colors, face.color);
-			}
-			glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, colors.count, 0, GL_RGBA, GL_FLOAT, colors.ptr);
-		glBindTexture(GL_TEXTURE_1D, 0);
 
 		GL_CATCH_ERRS();
 	}
@@ -1788,11 +1804,20 @@ int main() {
     const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
 	constexpr auto vertex_shader_src = R"GLSL(
 		#version 330 core
-		layout (location = 0) in vec3 attr_pos;
+		layout (location = 0) in vec3 attr_position;
+		layout (location = 1) in vec4 attr_color;
+		layout (location = 2) in vec3 attr_normal;
+
 		// TODO: pass MVP instead of 3 uniforms for perf
 		uniform mat4 projection, view, model;
+
+		out vec4 vs_color;
+		out vec3 vs_normal;
+
 		void main() {
-			gl_Position = projection * view * model * vec4(attr_pos, 1.0);
+			gl_Position = projection * view * model * vec4(attr_position, 1.0);
+			vs_color = attr_color;
+			vs_normal = attr_normal;
 		}
 	)GLSL";
     glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
@@ -1810,13 +1835,16 @@ int main() {
     const GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
 	constexpr auto fragment_shader_src = R"GLSL(
 		#version 330 core
+		in vec4 vs_color;
+		in vec3 vs_normal;
+
 		out vec4 out_fragcolor;
+
 		uniform sampler1D faces_colors;
 		uniform bool is_light_source;
+
 		void main() {
-			float color_index = (gl_PrimitiveID + 0.5f) / textureSize(faces_colors, 0);
-			out_fragcolor = texture(faces_colors, color_index);
-			// out_fragcolor = vec4(vec3(color_index), 1.0);
+			out_fragcolor = vec4(vs_color.xyz, 1.0);
 		}
 	)GLSL";
     glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
@@ -2109,18 +2137,8 @@ int main() {
 
 					glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), (GLint) mesh->is_light_source);
 
-					glBindVertexArray(mesh->gpu_handles.vao);
-
-					if (mesh->is_light_source) {
-						glDrawElements(rendering.light_primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
-					} else {
-						// upload texture
-						glActiveTexture(GL_TEXTURE0);
-						glBindTexture(GL_TEXTURE_1D, mesh->gpu_handles.color_texture);
-
-						// draw faces
-						glDrawElements(rendering.regular_primitives_type, mesh->indices_count * sizeof(GLuint), GL_UNSIGNED_INT, 0);
-					}
+					glBindVertexArray(mesh->gpu.vao);
+					glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
 
 					for (const mn::Str& child_name : mesh->children) {
 						auto* kv = mn::map_lookup(model.meshes, child_name);
@@ -2432,13 +2450,10 @@ int main() {
 }
 /*
 TODO:
-- glDrawArrays instead of glDrawElements
-- send normals
-- view normals (geometry shader)
 - fix tesselate
 	- when fail, fill with fake triangles
-	- line intersect
-	- some faces can't tesselate (a10.dnm)
+	- correct and test line intersect
+	- why some faces can't tesselate (a10.dnm)
 	- orientation of triangles is flipped (Ground/t64.dnm)
 
 - why a10.dnm:000005 rotated different from 000004?
@@ -2448,5 +2463,6 @@ TODO:
 - smooth camera movement
 - imgui: translations: bigger ranges
 
+- view normals (geometry shader)
 - strict integers tokenization
 */
