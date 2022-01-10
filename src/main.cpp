@@ -613,31 +613,39 @@ void model_unload_from_gpu(Model& self) {
 	}
 }
 
-// https://gist.github.com/EgoMoose/cd402f3a48c3dc5e2d7dccc7492f2a41
-// https://www.youtube.com/watch?v=ELQG5OvmAE8
-bool lines_intersect(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c, const glm::vec3& d) {
-	const glm::vec3 r = b - a;
-	const glm::vec3 s = d - c;
-	const glm::vec3 q = a - c;
+// http://paulbourke.net/geometry/pointlineplane/
+// http://paulbourke.net/geometry/pointlineplane/lineline.c
+bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3, const glm::vec3& p4) {
+	// margin of error
+	constexpr double EPS = 0.001;
 
-	const float dotqr = glm::dot(q, r);
-	const float dotqs = glm::dot(q, s);
-	const float dotrs = glm::dot(r, s);
-	const float dotrr = glm::dot(r, r);
-	const float dotss = glm::dot(s, s);
+	const glm::vec3 p43 = p4 - p3;
+	if (::fabs(p43.x) < EPS && ::fabs(p43.y) < EPS && ::fabs(p43.z) < EPS) {
+		return false;
+	}
 
-	const float denom = dotrr * dotss - dotrs * dotrs;
-	const float numer = dotqs * dotrs - dotqr * dotss;
+	const glm::vec3 p21 = p2 - p1;
+	if (::fabs(p21.x) < EPS && ::fabs(p21.y) < EPS && ::fabs(p21.z) < EPS) {
+		return false;
+	}
 
-	const float t = numer / denom;
-	const float u = (dotqs + t * dotrs) / dotss;
+	const glm::vec3 p13 = p1 - p3;
+	const double d1343 = glm::dot(p13, p43);
+	const double d4321 = glm::dot(p43, p21);
+	const double d1321 = glm::dot(p13, p21);
+	const double d4343 = glm::dot(p43, p43);
+	const double d2121 = glm::dot(p21, p21);
 
-	// the two points of intersection
-	glm::vec3 p0 = a + t * r;
-	glm::vec3 p1 = c + u * s;
+	const double denom = d2121 * d4343 - d4321 * d4321;
+	if (::fabs(denom) < EPS) {
+		return false;
+	}
+	const double numer = d1343 * d4321 - d1321 * d4343;
 
-	constexpr float MARGIN_OF_ERROR = 0.001f;
-	return glm::distance(p0, p1) <= MARGIN_OF_ERROR;
+	const double mua = numer / denom;
+	const double mub = (d1343 + d4321 * (mua)) / d4343;
+
+	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
 bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &indices, int i) {
@@ -735,6 +743,26 @@ bool buf_equal(const mn::Buf<T>& a, const mn::Buf<T> b) {
 
 void test_polygons_to_triangles() {
 	mn::allocator_push(mn::memory::tmp());
+
+	{
+		// shouldn't intersect
+		glm::vec3 a {2,4,0};
+		glm::vec3 b {4,4,0};
+		glm::vec3 c {4,3,0};
+		glm::vec3 d {3,2,0};
+
+		mn_assert(lines_intersect(a, b, c, d) == false);
+	}
+
+	{
+		// shouldn't intersect
+		glm::vec3 a {1.311345,  0.627778,  1.068002};
+		glm::vec3 b {1.311345, -0.000053, -1.472697};
+		glm::vec3 c {1.311345, -0.000053,  1.717336};
+		glm::vec3 d {1.311345,  0.512254,  2.414495};
+
+		mn_assert(lines_intersect(a, b, c, d) == false);
+	}
 
 	{
 		auto vertices = mn::buf_lit({
@@ -2138,6 +2166,10 @@ int main() {
 		} else {
 			glDisable(GL_CULL_FACE);
 		}
+
+		// // to roate model
+		// model.current_state.rotation.x = glm::radians(21);
+		// model.current_state.rotation.y += glm::radians(7 * delta_time);
 
 		if (model.current_state.visible) {
 			// apply model transformation
