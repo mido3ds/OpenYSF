@@ -1973,8 +1973,9 @@ int main() {
 		GLenum light_primitives_type   = GL_LINES;
 		GLenum polygon_mode            = GL_FILL;
 
-		bool culling_enabled = true;
-		GLenum culling_face_type = GL_FRONT;
+		// NOTE: some meshes are open from outside and culling would break them (hide sides as in ground/vasi.dnm)
+		bool culling_enabled = false;
+		GLenum culling_face_type = GL_BACK;
 		GLenum culling_front_face_type = GL_CCW;
 	} rendering {};
 
@@ -2113,7 +2114,8 @@ int main() {
 		}
 
 		glEnable(GL_DEPTH_TEST);
-		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.f);
+		glClearDepth(1);
+		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glUseProgram(shader_program);
@@ -2465,9 +2467,8 @@ int main() {
 						ImGui::SetScrollHereY();
 					}
 				}
-
-				ImGui::EndChild();
 			}
+			ImGui::EndChild();
 		}
 		ImGui::End();
 
@@ -2512,7 +2513,6 @@ TODO:
 - fix tesselate
 	- test line intersect
 	- why some faces can't tesselate (a10.dnm)
-	- orientation of triangles is flipped (Ground/vasi.dnm,Ground/t64.dnm)
 
 - why a10.dnm:000005 rotated different from 000004?
 - why ys11:00002 (and 00001) have mixed x/y rotations?
