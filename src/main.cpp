@@ -201,6 +201,21 @@ mn::Str token_str(mn::Str& s, mn::Allocator allocator = mn::allocator_top()) {
 	return mn::str_from_substr(a, s.ptr, allocator);
 }
 
+bool peek(const mn::Str& s, char c) {
+	if (s.count == 0) {
+		return false;
+	}
+	return *s.ptr == c;
+}
+
+bool peek(const mn::Str& s1, const char* s2) {
+	const size_t len = ::strlen(s2);
+	if (len > s1.count) {
+		return false;
+	}
+	return ::memcmp(s1.ptr, s2, len) == 0;
+}
+
 bool accept(mn::Str& s1, const char* s2) {
 	const size_t len = ::strlen(s2);
 	if (len > s1.count) {
@@ -1132,9 +1147,10 @@ Model model_from_dnm(const char* dnm_file) {
 	while (accept(s, "PCK ")) {
 		auto name = token_str(s, mn::memory::tmp());
 		expect(s, ' ');
-		const auto expected_lines = token_u64(s);
-		auto lines = expected_lines;
+		const auto pck_expected_linenos = token_u64(s);
 		expect(s, '\n');
+
+		const auto pck_first_lineno = get_line_no(dnm_file, s);
 
 		expect(s, "SURF\n");
 		Mesh surf {};
@@ -1150,9 +1166,6 @@ Model model_from_dnm(const char* dnm_file) {
 			v.z = token_float(s);
 			bool smooth_shading = accept(s, " R");
 			expect(s, '\n');
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-			}
 
 			mn::buf_push(surf.vertices, v);
 			mn::buf_push(surf.vertices_has_smooth_shading, smooth_shading);
@@ -1171,9 +1184,6 @@ Model model_from_dnm(const char* dnm_file) {
 				is_light_source = false;
 
 			expect(s, "F\n");
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-			}
 			while (!accept(s, "E\n")) {
 				if (accept(s, "C ")) {
 					if (parsed_color) {
@@ -1188,9 +1198,6 @@ Model model_from_dnm(const char* dnm_file) {
 					face.color.b = token_u8(s) / 255.0f;
 					expect(s, '\n');
 					face.color.a = 1.0f; // maybe overwritten in ZA line
-					if (lines-- == 0) {
-						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-					}
 				} else if (accept(s, "N ")) {
 					if (parsed_normal) {
 						mn::panic("'{}': found more than one normal", name);
@@ -1210,9 +1217,6 @@ Model model_from_dnm(const char* dnm_file) {
 					expect(s, ' ');
 					face.normal.z = token_float(s);
 					expect(s, '\n');
-					if (lines-- == 0) {
-						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-					}
 				} else if (accept(s, 'V')) {
 					// V {x}...
 					auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
@@ -1224,9 +1228,6 @@ Model model_from_dnm(const char* dnm_file) {
 						mn::buf_push(polygon_vertices_ids, (uint32_t) id);
 					}
 					expect(s, '\n');
-					if (lines-- == 0) {
-						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-					}
 
 					if (parsed_vertices) {
 						mn::log_error("'{}': found more than one vertices line, ignore others", name);
@@ -1256,15 +1257,9 @@ Model model_from_dnm(const char* dnm_file) {
 						mn::log_error("'{}': found more than 1 B for same face", name);
 					}
 					is_light_source = true;
-					if (lines-- == 0) {
-						mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-					}
 				} else {
 					mn::panic("'{}': unexpected line, '{}'", name, smaller_str(s));
 				}
-			}
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
 			}
 
 			if (!parsed_color) {
@@ -1280,9 +1275,6 @@ Model model_from_dnm(const char* dnm_file) {
 			mn::buf_push(faces_unshaded_light_source, is_light_source);
 			mn::buf_push(surf.faces, face);
 		}
-		if (lines-- == 0) {
-			mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-		}
 
 		// [GF< {u64}>+\n]+
 		while (accept(s, "GF")) {
@@ -1294,14 +1286,13 @@ Model model_from_dnm(const char* dnm_file) {
 				mn::buf_push(surf.gfs, id);
 			}
 			expect(s, '\n');
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
+
+			// maybe GF+empty line+GF, found in aircraft/uh60.dnm
+			if (peek(s, "\nGF")) {
+				expect(s, '\n');
 			}
 		}
 		expect(s, '\n');
-		if (lines-- == 0) {
-			mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-		}
 
 		// [ZA< {u64} {u8}>+\n]+
 		while (accept(s, "ZA")) {
@@ -1316,9 +1307,6 @@ Model model_from_dnm(const char* dnm_file) {
 				// we revert it so it becomes: 1 -> obaque, 0 -> clear
 			}
 			expect(s, '\n');
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-			}
 		}
 
 		// [ZL< {u64}>+\n]
@@ -1337,9 +1325,6 @@ Model model_from_dnm(const char* dnm_file) {
 				mn::buf_push(surf.zls, id);
 			}
 			expect(s, '\n');
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
-			}
 		}
 
 		// [ZZ< {u64}>+\n]
@@ -1358,17 +1343,18 @@ Model model_from_dnm(const char* dnm_file) {
 				mn::buf_push(surf.zzs, id);
 			}
 			expect(s, '\n');
-			if (lines-- == 0) {
-				mn::panic("'{}': expected {} lines, found more", name, expected_lines);
+		}
+
+		// last line
+		{
+			const auto current_lineno = get_line_no(dnm_file, s);
+			const auto pck_found_linenos = current_lineno - pck_first_lineno;
+			if (pck_found_linenos != pck_expected_linenos) {
+				mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_linenos, pck_found_linenos);
 			}
 		}
 
 		expect(s, '\n');
-		// last line
-		lines--;
-		if (lines > 0) {
-			mn::log_error("'{}': expected {} lines, found {}", name, expected_lines, expected_lines - lines);
-		}
 
 		size_t unshaded_count = 0;
 		for (auto unshaded : faces_unshaded_light_source) {
@@ -2802,7 +2788,8 @@ TODO:
 - tu160 don't tesselate well
 - strobe lights not in their expected positions (tornado.dnm)
 - weird mesh in back of (f1.dnm)
-- wings have weird rotations (helicopters, e2c.dnm, ys11.dnm)
+- wings have weird rotations (helicopters, e2c.dnm, ys11.dnm, uh160.dnm)
+- aircraft/eclipse.dnm weird rotor place
 
 - why a10.dnm:000005 rotated different from 000004?
 - why ys11:00002 (and 00001) have mixed x/y rotations?
@@ -2811,6 +2798,7 @@ TODO:
 - 3d gizmos (camera)
 - move internal DNMs to resources dir
 - tracking camera (copy from jet-simulator)
+- struct parser (track line no, file, peek)
 
 - view normals (geometry shader)
 - strict integers tokenization
