@@ -95,7 +95,7 @@ namespace fmt {
 // euclidean modulo (https://stackoverflow.com/a/52529440)
 // always positive
 constexpr
-auto mod(auto a, auto b) {
+int mod(int a, int b) {
 	const auto r = a % b;
 	if (r < 0) {
 		// return r + (b < 0) ? -b : b; // avoid this form: it is UB when b == INT_MIN
@@ -108,6 +108,7 @@ static_assert(mod(+7, +3) == 1);
 static_assert(mod(+7, -3) == 1);
 static_assert(mod(-7, +3) == 2);
 static_assert(mod(-7, -3) == 2);
+static_assert(mod(0-1, 5) == 4);
 
 mn::Str smaller_str(const mn::Str& s) {
 	auto s2 = mn::str_clone(s, mn::memory::tmp());
@@ -613,19 +614,42 @@ void model_unload_from_gpu(Model& self) {
 	}
 }
 
+// margin of error
+constexpr double EPS = 0.001;
+
+bool
+almost_equal(const glm::vec3& a, const glm::vec3& b) {
+	const auto c = a - b;
+	return ::fabs(c.x) < EPS && ::fabs(c.y) < EPS && ::fabs(c.z) < EPS;
+}
+
+bool
+almost_equal(const glm::vec2& a, const glm::vec2& b) {
+	const auto c = a - b;
+	return ::fabs(c.x) < EPS && ::fabs(c.y) < EPS;
+}
+
+bool
+almost_equal(const glm::vec4& a, const glm::vec4& b) {
+	const auto c = a - b;
+	return ::fabs(c.x) < EPS && ::fabs(c.y) < EPS && ::fabs(c.z) < EPS && ::fabs(c.w) < EPS;
+}
+
+bool
+almost_equal(const float& a, const float& b) {
+	return ::fabs(a - b) < EPS;
+}
+
 // http://paulbourke.net/geometry/pointlineplane/
 // http://paulbourke.net/geometry/pointlineplane/lineline.c
 bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3, const glm::vec3& p4) {
-	// margin of error
-	constexpr double EPS = 0.001;
-
 	const glm::vec3 p43 = p4 - p3;
-	if (::fabs(p43.x) < EPS && ::fabs(p43.y) < EPS && ::fabs(p43.z) < EPS) {
+	if (almost_equal(p43, {0,0,0})) {
 		return false;
 	}
 
 	const glm::vec3 p21 = p2 - p1;
-	if (::fabs(p21.x) < EPS && ::fabs(p21.y) < EPS && ::fabs(p21.z) < EPS) {
+	if (almost_equal(p21, {0,0,0})) {
 		return false;
 	}
 
@@ -637,7 +661,7 @@ bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& 
 	const double d2121 = glm::dot(p21, p21);
 
 	const double denom = d2121 * d4343 - d4321 * d4321;
-	if (::fabs(denom) < EPS) {
+	if (almost_equal(denom, 0)) {
 		return false;
 	}
 	const double numer = d1343 * d4321 - d1321 * d4343;
@@ -648,72 +672,127 @@ bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& 
 	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
-bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &indices, int i) {
-	// indices
-	const uint32_t iv0 = indices[mod(i-2, indices.count)];
-	const uint32_t iv1 = indices[mod(i-1, indices.count)];
-	const uint32_t iv2 = indices[i];
-	const uint32_t iv3 = indices[mod(i+1, indices.count)];
-	const uint32_t iv4 = indices[mod(i+2, indices.count)];
+// bool vertex_is_ear(const mn::Buf<glm::vec3> &vertices, const mn::Buf<uint32_t> &indices, int i) {
+// 	// indices
+// 	const uint32_t iv0 = indices[mod(i-2, indices.count)];
+// 	const uint32_t iv1 = indices[mod(i-1, indices.count)];
+// 	const uint32_t iv2 = indices[i];
+// 	const uint32_t iv3 = indices[mod(i+1, indices.count)];
+// 	const uint32_t iv4 = indices[mod(i+2, indices.count)];
 
-	// vertices
-	const glm::vec3 v1v0 = glm::normalize(vertices[iv0] - vertices[iv1]);
-	const glm::vec3 v1v2 = glm::normalize(vertices[iv2] - vertices[iv1]);
-	const glm::vec3 v1v3 = glm::normalize(vertices[iv3] - vertices[iv1]);
-	const glm::vec3 v3v2 = glm::normalize(vertices[iv2] - vertices[iv3]);
-	const glm::vec3 v3v4 = glm::normalize(vertices[iv4] - vertices[iv3]);
-	const glm::vec3 v3v1 = -v1v3;
+// 	// vertices
+// 	const glm::vec3 v1v0 = glm::normalize(vertices[iv0] - vertices[iv1]);
+// 	const glm::vec3 v1v2 = glm::normalize(vertices[iv2] - vertices[iv1]);
+// 	const glm::vec3 v1v3 = glm::normalize(vertices[iv3] - vertices[iv1]);
+// 	const glm::vec3 v3v2 = glm::normalize(vertices[iv2] - vertices[iv3]);
+// 	const glm::vec3 v3v4 = glm::normalize(vertices[iv4] - vertices[iv3]);
+// 	const glm::vec3 v3v1 = -v1v3;
 
-	// v1v3 must be in Sector(v1v2, v1v0)
-	{
-		const float sector_angle = glm::acos(glm::dot(v1v2, v1v0));
-		if (glm::acos(glm::dot(v1v2, v1v3)) >= sector_angle || glm::acos(glm::dot(v1v0, v1v3)) >= sector_angle) {
-			return false;
-		}
-	}
+// 	// v1v3 must be in Sector(v1v2, v1v0)
+// 	{
+// 		const float sector_angle = glm::acos(glm::dot(v1v2, v1v0));
+// 		if (glm::acos(glm::dot(v1v2, v1v3)) >= sector_angle || glm::acos(glm::dot(v1v0, v1v3)) >= sector_angle) {
+// 			return false;
+// 		}
+// 	}
 
-	// v3v1 must be in Sector(v3v4, v3v2)
-	{
-		const float sector_angle = glm::acos(glm::dot(v3v4, v3v2));
-		if (glm::acos(glm::dot(v3v4, v3v1)) >= sector_angle || glm::acos(glm::dot(v3v2, v3v1)) >= sector_angle) {
-			return false;
-		}
-	}
+// 	// v3v1 must be in Sector(v3v4, v3v2)
+// 	{
+// 		const float sector_angle = glm::acos(glm::dot(v3v4, v3v2));
+// 		auto a = glm::acos(glm::dot(v3v4, v3v1));
+// 		auto b = glm::acos(glm::dot(v3v2, v3v1));
+// 		if (glm::acos(glm::dot(v3v4, v3v1)) >= sector_angle || glm::acos(glm::dot(v3v2, v3v1)) >= sector_angle) {
+// 			return false;
+// 		}
+// 	}
 
-	// edge_i: (v1, v3) must not intersect with any other edge in polygon
+// 	// edge_i: (v1, v3) must not intersect with any other edge in polygon
 
-	// for edge_j in edges:
-	//   if not share_vertex(edge_i, edge_j):
-	//     if intersects(edge_i, edge_j): return false
-	for (size_t j = 0; j < indices.count; j++) {
-		// edge_j
-		const uint32_t jv0 = indices[j];
-		const uint32_t jv1 = indices[mod(j+1, indices.count)];
+// 	// for edge_j in edges:
+// 	//   if not share_vertex(edge_i, edge_j):
+// 	//     if intersects(edge_i, edge_j): return false
+// 	for (size_t j = 0; j < indices.count; j++) {
+// 		// edge_j
+// 		const uint32_t jv0 = indices[j];
+// 		const uint32_t jv1 = indices[mod(j+1, indices.count)];
 
-		// don't test the edge if it shares a vertex with it
-		if ((jv0 != iv1 && jv0 != iv3) && (jv1 != iv1 && jv1 != iv3)) {
-			if (lines_intersect(vertices[jv0], vertices[jv1], vertices[iv2], vertices[iv3])) {
-				return false;
-			}
-		}
-	}
+// 		// don't test the edge if it shares a vertex with it
+// 		if ((jv0 != iv1 && jv0 != iv3) && (jv1 != iv1 && jv1 != iv3)) {
+// 			if (lines_intersect(vertices[jv0], vertices[jv1], vertices[iv1], vertices[iv3])) {
+// 				return false;
+// 			}
+// 		}
+// 	}
 
-	return true;
-}
+// 	return true;
+// }
 
 mn::Buf<uint32_t>
-polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices) {
+polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices, const glm::vec3& center) {
+	// dbl_indices -> orig_indices -> vertices
+	// vertex = vertices[orig_indices[dbl_indices[i]]]
+	// indices to indices to vertices
+	// sort dbl_indices from farthest from center to nearst
+	auto dbl_indices = mn::buf_with_allocator<size_t>(mn::memory::tmp());
+	for (size_t i = 0; i < orig_indices.count; i++) {
+		mn::buf_push(dbl_indices, i);
+	}
+	auto dist_from_center = mn::buf_with_allocator<double>(mn::memory::tmp());
+	for (const auto& v : vertices) {
+		mn::buf_push(dist_from_center, glm::distance(center, v));
+	}
+	std::sort(mn::begin(dbl_indices), mn::end(dbl_indices), [&](size_t a, size_t b) {
+		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
+	});
+
 	mn::Buf<uint32_t> out {};
 	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
 
-	for (size_t k = 0; k <= orig_indices.count && indices.count > 3; k++) {
-		for (size_t i = 0; i < indices.count; i++) {
-			if (vertex_is_ear(vertices, indices, i)) {
+	// limit no of iterations to avoid inf loop
+	size_t k = indices.count + 1;
+	while (k > 0 && indices.count > 3) {
+		k--;
+
+		for (size_t j = 0; j < dbl_indices.count; j++) {
+			auto i = dbl_indices[j];
+
+			// indices
+			const uint32_t iv0 = indices[mod(i-1, indices.count)];
+			const uint32_t iv2 = indices[mod(i+1, indices.count)];
+
+			bool is_ear = true;
+
+			// edge_i: (v0, v2) must not intersect with any other edge in polygon
+			// for edge_j in edges:
+			//   if not share_vertex(edge_i, edge_j):
+			//     if intersects(edge_i, edge_j): return false
+			for (size_t j = 0; j < indices.count; j++) {
+				// edge_j
+				const uint32_t jv0 = indices[j];
+				const uint32_t jv1 = indices[mod(j+1, indices.count)];
+
+				// don't test the edge if it shares a vertex with it
+				if ((jv0 != iv0 && jv0 != iv2) && (jv1 != iv0 && jv1 != iv2)) {
+					if (lines_intersect(vertices[jv0], vertices[jv1], vertices[iv0], vertices[iv2])) {
+						is_ear = false;
+						break;
+					}
+				}
+			}
+
+			if (is_ear) {
 				mn::buf_push(out, indices[mod(i-1, indices.count)]);
 				mn::buf_push(out, indices[i]);
 				mn::buf_push(out, indices[mod(i+1, indices.count)]);
 
 				mn::buf_remove_ordered(indices, i);
+				mn::buf_remove_ordered(dbl_indices, j);
+
+				for (auto& id : dbl_indices) {
+					if (id > i) {
+						id--;
+					}
+				}
 
 				// exit the loop so that we check again the first vertex of the loop, maybe it became now a convex one
 				break;
@@ -728,6 +807,33 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 	return out;
 }
 
+// mn::Buf<uint32_t>
+// polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices) {
+// 	mn::Buf<uint32_t> out {};
+// 	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
+
+// 	for (size_t k = 0; k <= orig_indices.count && indices.count > 3; k++) {
+// 		for (size_t i = 0; i < indices.count; i++) {
+// 			if (vertex_is_ear(vertices, indices, i)) {
+// 				mn::buf_push(out, indices[mod(i-1, indices.count)]);
+// 				mn::buf_push(out, indices[i]);
+// 				mn::buf_push(out, indices[mod(i+1, indices.count)]);
+
+// 				mn::buf_remove_ordered(indices, i);
+
+// 				// exit the loop so that we check again the first vertex of the loop, maybe it became now a convex one
+// 				break;
+// 			}
+// 		}
+// 	}
+
+// 	if (indices.count != 3) {
+// 		mn::log_error("failed to tesselate");
+// 	}
+// 	mn::buf_concat(out, indices);
+// 	return out;
+// }
+
 template<typename T>
 bool buf_equal(const mn::Buf<T>& a, const mn::Buf<T> b) {
 	if (a.count != b.count) {
@@ -741,8 +847,107 @@ bool buf_equal(const mn::Buf<T>& a, const mn::Buf<T> b) {
 	return true;
 }
 
+// glm::mat2x3
+// transform_3d_to_2d(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
+// 	const auto X = glm::normalize(a-b);
+// 	const auto Z = glm::normalize(glm::cross(X, glm::normalize(c-b)));
+// 	const auto Y = glm::cross(Z, X);
+
+// 	return {
+// 		{X.x, X.y, X.z},
+// 		{Y.x, Y.y, Y.z},
+// 	};
+// }
+
+// std::tuple<glm::vec3, glm::vec3, glm::vec3>
+// to_2d_(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
+// 	const auto AB = b-a;
+// 	const auto U = glm::normalize(AB);
+// 	const auto N = glm::normalize(glm::cross(AB, c-a));
+// 	const auto uN = glm::normalize(N);
+// 	const auto V = glm::cross(U, uN);
+
+// 	const auto u = a + U;
+// 	const auto v = a + V;
+// 	const auto n = a + uN;
+// 	const glm::mat4 S {
+// 		{a.x, u.x, v.x, n.x},
+// 		{a.y, u.y, v.y, n.y},
+// 		{a.z, u.z, v.z, n.z},
+// 		{1,   1,   1,   1 },
+// 	};
+
+// 	constexpr glm::mat4 D {
+// 		{0, 1, 0, 0},
+// 		{0, 0, 1, 0},
+// 		{0, 0, 0, 1},
+// 		{1, 1, 1, 1},
+// 	};
+// 	const auto M = glm::transpose(D) * glm::inverse(glm::transpose(S));
+
+// 	const auto aa = M * glm::vec4(a, 1);
+// 	const auto bb = M * glm::vec4(b, 1);
+// 	const auto cc = M * glm::vec4(c, 1);
+
+// 	mn_assert(almost_equal(aa.z, 0) && almost_equal(aa.w, 1));
+// 	mn_assert(almost_equal(bb.z, 0) && almost_equal(bb.w, 1));
+// 	mn_assert(almost_equal(cc.z, 0) && almost_equal(cc.w, 1));
+
+// 	return {
+// 		glm::vec3(aa),
+// 		glm::vec3(bb),
+// 		glm::vec3(cc),
+// 	};
+// }
+
+// bool
+// is_b_convex(const glm::vec2& a, const glm::vec2& b, const glm::vec2& c) {
+// 	return (b.x - a.x) * (c.y - b.y) - (c.x - b.x) * (b.y - a.y) > 0;
+// }
+
+
 void test_polygons_to_triangles() {
 	mn::allocator_push(mn::memory::tmp());
+	mn_defer(mn::allocator_pop());
+
+	// {
+	// 	glm::vec3 a {1,1,0};
+	// 	glm::vec3 b {2,1,0};
+	// 	glm::vec3 c {3,3,0};
+	// 	const auto M = transform_3d_to_2d(a, b, c);
+	// 	const glm::vec2 aa = M * a;
+	// 	const glm::vec2 bb = M * b;
+	// 	const glm::vec2 cc = M * c;
+	// 	mn::log_debug("a={}, b={}, c={}", a, b, c);
+	// 	mn::log_debug("aa={}, bb={}, cc={}", aa, bb, cc);
+	// 	mn::log_debug("{} {}", is_b_convex(a, b, c), is_b_convex(aa, bb, cc));
+	// }
+
+	// {
+	// 	glm::vec3 a {-0.1,  0.15, 0.5};
+	// 	glm::vec3 b { 0.1, -0.45, 0.5};
+	// 	glm::vec3 c { 0.3, -0.45, 0.5};
+	// 	const auto M = transform_3d_to_2d(a, b, c);
+	// 	const glm::vec2 aa = M * a;
+	// 	const glm::vec2 bb = M * b;
+	// 	const glm::vec2 cc = M * c;
+	// 	mn::log_debug("a={}, b={}, c={}", a, b, c);
+	// 	mn::log_debug("aa={}, bb={}, cc={}", aa, bb, cc);
+	// 	mn::log_debug("{} {}", is_b_convex(a, b, c), is_b_convex(aa, bb, cc));
+	// }
+
+	{
+		const auto vertices = mn::buf_lit<glm::vec3>({
+			{2,4,0},
+			{2,2,0},
+			{3,2,0},
+			{4,3,0},
+			{4,4,0},
+		});
+		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		const glm::vec3 center {3, 3, 0};
+		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4})));
+	}
 
 	{
 		// shouldn't intersect
@@ -764,123 +969,157 @@ void test_polygons_to_triangles() {
 		mn_assert(lines_intersect(a, b, c, d) == false);
 	}
 
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,3,0},
+	// 		{3,2,0},
+	// 		{4,3,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,3,0},
+	// 		{3,-200,0},
+	// 		{4,3,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,3,0},
+	// 		{3,200,0},
+	// 		{4,3,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,2,0},
+	// 		{3,2,0},
+	// 		{4,3,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,1,0},
+	// 		{3,2,0},
+	// 		{4,3,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,3,0},
+	// 		{3,2,0},
+	// 		{4,2,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{2,4,0},
+	// 		{2,3,0},
+	// 		{3,2,0},
+	// 		{4,1,0},
+	// 		{4,4,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+	// }
+
+	// {
+	// 	const auto vertices = mn::buf_lit<glm::vec3>({
+	// 		{4,4,0},
+	// 		{5,3,0},
+	// 		{4,2,0},
+	// 		{3,3,0},
+	// 	});
+	// 	const auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
+	// 	mn_assert(vertex_is_ear(vertices, indices, 0) == true);
+	// }
+
 	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,3,0},
-			glm::vec3{3,2,0},
-			glm::vec3{4,3,0},
-			glm::vec3{4,4,0},
+		const auto vertices = mn::buf_lit<glm::vec3>({
+			{4,4,0},
+			{5,3,0},
+			{4,2,0},
+			{3,3,0},
 		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
+		const glm::vec3 center {4, 3, 0};
+		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({3, 0, 1, 1, 2, 3})));
 	}
 
 	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,3,0},
-			glm::vec3{3,-200,0},
-			glm::vec3{4,3,0},
-			glm::vec3{4,4,0},
+		const auto vertices = mn::buf_lit<glm::vec3>({
+			{2,4,0},
+			{2,2,0},
+			{3,2,0},
+			{4,3,0},
+			{4,4,0},
 		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		const glm::vec3 center {3, 3, 0};
+		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4})));
 	}
 
 	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,3,0},
-			glm::vec3{3,200,0},
-			glm::vec3{4,3,0},
-			glm::vec3{4,4,0},
+		const auto vertices = mn::buf_lit<glm::vec3>({
+			{0.19, -0.77, 0.82},
+			{0.23, -0.75, 0.68},
+			{0.20, -0.75, 0.00},
+			{0.32, -0.71, 0.00},
+			{0.31, -0.73, 0.96},
 		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == false);
+		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		const glm::vec3 center {0.25, -0.742, 0.492};
+		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4})));
+	}
+}
+
+size_t get_line_no(const char* str1, const mn::Str& str2) {
+	const auto str1_mn = mn::str_lit(str1);
+	size_t all_lines = 0;
+	for (auto c : str1_mn) {
+		if (c == '\n') {
+			all_lines++;
+		}
 	}
 
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,2,0},
-			glm::vec3{3,2,0},
-			glm::vec3{4,3,0},
-			glm::vec3{4,4,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
+	size_t partial_lines = 0;
+	for (auto c : str2) {
+		if (c == '\n') {
+			partial_lines++;
+		}
 	}
 
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,1,0},
-			glm::vec3{3,2,0},
-			glm::vec3{4,3,0},
-			glm::vec3{4,4,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == false);
-	}
-
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,3,0},
-			glm::vec3{3,2,0},
-			glm::vec3{4,2,0},
-			glm::vec3{4,4,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == true);
-	}
-
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,3,0},
-			glm::vec3{3,2,0},
-			glm::vec3{4,1,0},
-			glm::vec3{4,4,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(vertex_is_ear(vertices, indices, 2) == false);
-	}
-
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{4,4,0},
-			glm::vec3{5,3,0},
-			glm::vec3{4,2,0},
-			glm::vec3{3,3,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
-		mn_assert(vertex_is_ear(vertices, indices, 0) == true);
-	}
-
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{4,4,0},
-			glm::vec3{5,3,0},
-			glm::vec3{4,2,0},
-			glm::vec3{3,3,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
-		mn_assert(buf_equal(polygons_to_triangles(vertices, indices), mn::buf_lit<uint32_t>({3, 0, 1, 1, 2, 3})));
-	}
-
-	{
-		auto vertices = mn::buf_lit({
-			glm::vec3{2,4,0},
-			glm::vec3{2,2,0},
-			glm::vec3{3,2,0},
-			glm::vec3{4,3,0},
-			glm::vec3{4,4,0},
-		});
-		auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
-		mn_assert(buf_equal(polygons_to_triangles(vertices, indices), mn::buf_lit<uint32_t>({0, 1, 2, 4, 0, 2, 2, 3, 4})));
-	}
+	return all_lines - partial_lines + 1;
 }
 
 Model model_from_dnm(const char* dnm_file) {
@@ -998,9 +1237,18 @@ Model model_from_dnm(const char* dnm_file) {
 							mn::log_error("'{}': face has count of ids={}, it should be >= 3, {}", name, polygon_vertices_ids.count, smaller_str(s));
 						}
 
-						face.vertices_ids = polygons_to_triangles(surf.vertices, polygon_vertices_ids);
+						face.vertices_ids = polygons_to_triangles(surf.vertices, polygon_vertices_ids, face.center);
 						if (face.vertices_ids.count % 3 != 0) {
-							mn::log_error("'{}': num of vertices_ids must have been divisble by 3 to be triangles, but found {}", name, face.vertices_ids.count);
+							auto orig_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
+							for (auto id : polygon_vertices_ids) {
+								mn::buf_push(orig_vertices, surf.vertices[id]);
+							}
+							auto new_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
+							for (auto id : face.vertices_ids) {
+								mn::buf_push(new_vertices, surf.vertices[id]);
+							}
+							mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, get_line_no(dnm_file, s),
+								face.vertices_ids.count, orig_vertices, new_vertices);
 						}
 					}
 				} else if (accept(s, "B\n")) {
@@ -1798,6 +2046,8 @@ namespace MyImGui {
 }
 
 int main() {
+	test_polygons_to_triangles();
+
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		mn::panic(SDL_GetError());
@@ -1925,15 +2175,16 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	Model model = model_from_dnm(VASI_DNM);
+	// Model model = model_from_dnm(VASI_DNM);
+	Model model {};
 	mn_defer(model_free(model));
-	model_load_to_gpu(model);
+	// model_load_to_gpu(model);
 	mn_defer(model_unload_from_gpu(model));
 
 	bool should_load_model = false;
-	bool should_reload_model = false;
+	bool should_reload_model = true;
 
-	auto model_file_path = mn::str_from_c("Internal::Box");
+	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm");
 	mn_defer(mn::str_free(model_file_path));
 
 	Camera camera {};
@@ -2017,6 +2268,8 @@ int main() {
 		float last_check_time = 0; // when checked file
 		int64_t last_write_time = 0; // when file was written to (by some other progrem)
 	} dnm_hotreload;
+
+	bool enable_rotating_model_around = true;
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -2167,11 +2420,13 @@ int main() {
 			glDisable(GL_CULL_FACE);
 		}
 
-		// // to roate model
-		// model.current_state.rotation.x = glm::radians(21);
-		// model.current_state.rotation.y += glm::radians(7 * delta_time);
 
 		if (model.current_state.visible) {
+			if (enable_rotating_model_around) {
+				model.current_state.rotation.x = glm::radians(21.0f);
+				model.current_state.rotation.y += glm::radians(7 * delta_time);
+			}
+
 			// apply model transformation
 			auto model_transformation = glm::identity<glm::mat4>();
 			model_transformation = glm::translate(model_transformation, model.current_state.translation);
@@ -2392,6 +2647,8 @@ int main() {
 					}
 				}
 
+				ImGui::Checkbox("Rotate Around", &enable_rotating_model_around);
+
 				ImGui::Checkbox("visible", &model.current_state.visible);
 				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
 				MyImGui::SliderAngle3("rotation", &model.current_state.rotation);
@@ -2542,14 +2799,16 @@ int main() {
 }
 /*
 TODO:
-- fix tesselate
-	- test line intersect
-	- why some faces can't tesselate (a10.dnm)
+- tu160 don't tesselate well
+- strobe lights not in their expected positions (tornado.dnm)
+- weird mesh in back of (f1.dnm)
+- wings have weird rotations (helicopters, e2c.dnm, ys11.dnm)
 
 - why a10.dnm:000005 rotated different from 000004?
 - why ys11:00002 (and 00001) have mixed x/y rotations?
 - what is CNT?
 
+- 3d gizmos (camera)
 - move internal DNMs to resources dir
 - tracking camera (copy from jet-simulator)
 
