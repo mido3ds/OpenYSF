@@ -454,7 +454,22 @@ namespace fmt {
 struct Mesh {
 	bool is_light_source = false;
 	AnimationClass animation_type = AnimationClass::UNKNOWN;
-	glm::vec3 cnt; // ???
+
+	// CNT = contra-position, see https://forum.ysfhq.com/viewtopic.php?p=94793&sid=837b2845906af55fe13e82afcc183d2f#p94793
+	// Basically for modders: you can make your full model with all parts in the place where they are located on the plane.
+	// for instance you draw the left main gear at -1,45 meters on the x-axis, and -1 meter to the back on z-axis (in Gepolyx).
+	//
+	// Then you cut the part from the mesh and save it.
+	// In DNM now, you add the gear SRF, but it rotates on 0,0,0 middle point, which gives a wrong animation.
+	// So, you enter the exact coordinates of the SRF you just made in the CNT line (I think it means Counter or contra-location), in above example x=-1,45 y=0 z=-1
+	// In DNM viewer the part has now moved to the middle of the plane.
+	//
+	// Then you locate the part again on the place where it should be.
+	// Result, the animation is seamless.
+	//
+	// especially with geardoors and bombdoors this is very important as they close exact and you wont see any cracks.
+	// Flaps and ailerons and the like are also easily made (in the wing) and they move much better.
+	glm::vec3 cnt;
 
 	mn::Str name; // name in SRF not FIL
 	mn::Buf<glm::vec3> vertices;
@@ -477,6 +492,9 @@ struct Mesh {
 	// physics
 	glm::mat4 transformation;
 	MeshState current_state;
+
+	bool render_pos_axis;
+	bool render_cnt_axis;
 };
 
 void mesh_free(Mesh &self) {
@@ -1137,6 +1155,11 @@ size_t get_line_no(const char* str1, const mn::Str& str2) {
 	return all_lines - partial_lines + 1;
 }
 
+// YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
+constexpr float YS_MAX             = 0xFFFF;
+constexpr float RADIANS_MAX        = 6.283185307179586f;
+constexpr float DEGREES_MAX        = 360.0f;
+
 Model model_from_dnm(const char* dnm_file) {
 	auto s = mn::str_tmp(dnm_file);
 	mn::str_replace(s, "\r\n", "\n");
@@ -1161,7 +1184,7 @@ Model model_from_dnm(const char* dnm_file) {
 
 			v.x = token_float(s);
 			expect(s, ' ');
-			v.y = token_float(s);
+			v.y = -token_float(s);
 			expect(s, ' ');
 			v.z = token_float(s);
 			bool smooth_shading = accept(s, " R");
@@ -1393,27 +1416,31 @@ Model model_from_dnm(const char* dnm_file) {
 		auto num_stas = token_u64(s);
 		mn::buf_reserve(surf->value.animation_states, num_stas);
 		expect(s, '\n');
-		// YS angle format to radians, extracted from ys blender scripts
-		constexpr double YS_TO_RADIANS = 0.0000958737992;
+
 		for (size_t i = 0; i < num_stas; i++) {
 			expect(s, "STA ");
 
 			MeshState sta {};
 			sta.translation.x = token_float(s);
 			expect(s, ' ');
-			sta.translation.y = token_float(s);
+			sta.translation.y = -token_float(s);
 			expect(s, ' ');
 			sta.translation.z = token_float(s);
 			expect(s, ' ');
 
-			sta.rotation.x = token_i32(s) * YS_TO_RADIANS;
+			sta.rotation.x = token_i32(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
-			sta.rotation.y = token_i32(s) * YS_TO_RADIANS;
+			sta.rotation.y = token_i32(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
-			sta.rotation.z = token_i32(s) * YS_TO_RADIANS;
+			sta.rotation.z = token_i32(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 
-			sta.visible = token_u8(s) == 1;
+			uint8_t visible = token_u8(s);
+			if (visible == 1 || visible == 0) {
+				sta.visible = (visible == 1);
+			} else {
+				mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file, s), visible);
+			}
 			expect(s, '\n');
 
 			mn::buf_push(surf->value.animation_states, sta);
@@ -1422,29 +1449,33 @@ Model model_from_dnm(const char* dnm_file) {
 		expect(s, "POS ");
 		surf->value.initial_state.translation.x = token_float(s);
 		expect(s, ' ');
-		surf->value.initial_state.translation.y = token_float(s);
+		surf->value.initial_state.translation.y = -token_float(s);
 		expect(s, ' ');
 		surf->value.initial_state.translation.z = token_float(s);
 		expect(s, ' ');
-		surf->value.initial_state.rotation.x = token_i32(s) * YS_TO_RADIANS;
+		surf->value.initial_state.rotation.x = token_i32(s) / YS_MAX * RADIANS_MAX;
 		expect(s, ' ');
-		surf->value.initial_state.rotation.y = token_i32(s) * YS_TO_RADIANS;
+		surf->value.initial_state.rotation.y = token_i32(s) / YS_MAX * RADIANS_MAX;
 		expect(s, ' ');
-		surf->value.initial_state.rotation.z = token_i32(s) * YS_TO_RADIANS;
+		surf->value.initial_state.rotation.z = token_i32(s) / YS_MAX * RADIANS_MAX;
 		expect(s, ' ');
-		surf->value.initial_state.visible = token_u8(s) == 1;
+		uint8_t visible = token_u8(s);
+		if (visible == 1 || visible == 0) {
+			surf->value.initial_state.visible = (visible == 1);
+		} else {
+			mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file, s), visible);
+		}
 		expect(s, '\n');
+
+		surf->value.current_state = surf->value.initial_state;
 
 		expect(s, "CNT ");
 		surf->value.cnt.x = token_float(s);
 		expect(s, ' ');
-		surf->value.cnt.y = token_float(s);
+		surf->value.cnt.y = -token_float(s);
 		expect(s, ' ');
 		surf->value.cnt.z = token_float(s);
 		expect(s, '\n');
-
-		surf->value.initial_state.translation -= surf->value.cnt;
-		surf->value.current_state = surf->value.initial_state;
 
 		expect(s, "REL DEP\n");
 
@@ -1499,6 +1530,32 @@ Model model_from_dnm(const char* dnm_file) {
 	for (size_t i = 0; i < surfs.values.count; i++) {
 		if (mn::set_lookup(surfs_wth_parents, surfs.values[i].key) == nullptr) {
 			mn::buf_push(model.root_meshes_indices, i);
+		}
+	}
+
+	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
+	auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
+	for (auto i : model.root_meshes_indices) {
+		Mesh* mesh = &model.meshes.values[i].value;
+		mn::buf_push(meshes_stack, mesh);
+	}
+	while (meshes_stack.count > 0) {
+		Mesh* mesh = mn::buf_top(meshes_stack);
+		mn_assert(mesh);
+		mn::buf_pop(meshes_stack);
+
+		for (auto& v : mesh->vertices) {
+			v -= mesh->cnt;
+		}
+
+		for (const mn::Str& child_name : mesh->children) {
+			auto* kv = mn::map_lookup(model.meshes, child_name);
+			mn_assert(kv);
+
+			Mesh* child_mesh = &kv->value;
+			child_mesh->cnt += mesh->cnt;
+
+			mn::buf_push(meshes_stack, child_mesh);
 		}
 	}
 
@@ -1876,12 +1933,12 @@ struct Camera {
 
 		glm::vec3 pos      = glm::vec3{0.0f, 0.0f, 3.0f};
 		glm::vec3 front    = glm::vec3{0.0f, 0.0f, -1.0f};
-		glm::vec3 world_up = glm::vec3{0.0f, 1.0f, 0.0f};
+		glm::vec3 world_up = glm::vec3{0.0f, -1.0f, 0.0f};
 		glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
 		glm::vec3 up       = world_up;
 
-		float yaw   = glm::radians(-90.0f);
-		float pitch = glm::radians(0.0f);
+		float yaw   = -90.0f / DEGREES_MAX * RADIANS_MAX;
+		float pitch = 0.0f / DEGREES_MAX * RADIANS_MAX;
 	} view;
 
 	struct {
@@ -1899,7 +1956,7 @@ struct Camera {
 		struct {
 			float near         = 0.1f;
 			float far          = 1000.0f;
-			float fovy         = glm::radians(45.0f);
+			float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
 			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
 			bool custom_aspect = false;
 		} pers; // perspective
@@ -1974,11 +2031,12 @@ void camera_update(Camera& self, float delta_time) {
 	glm::ivec2 mouse_now;
 	const auto buttons = SDL_GetMouseState(&mouse_now.x, &mouse_now.y);
 	if ((buttons & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
-		self.view.yaw   -= (mouse_now.x - mouse_before.x) * self.view.mouse_sensitivity / 1000;
-		self.view.pitch += (mouse_now.y - mouse_before.y) * self.view.mouse_sensitivity / 1000;
+		self.view.yaw   += (mouse_now.x - mouse_before.x) * self.view.mouse_sensitivity / 1000;
+		self.view.pitch -= (mouse_now.y - mouse_before.y) * self.view.mouse_sensitivity / 1000;
 
 		// make sure that when pitch is out of bounds, screen doesn't get flipped
-		self.view.pitch = clamp(self.view.pitch, glm::radians(-89.0f), glm::radians(89.0f));
+		constexpr float CAMERA_PITCH_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
+		self.view.pitch = clamp(self.view.pitch, -CAMERA_PITCH_MAX, CAMERA_PITCH_MAX);
 	}
 	mouse_before = mouse_now;
 
@@ -2024,10 +2082,10 @@ namespace MyImGui {
 		}
 	}
 
-	void SliderAngle3(const char* label, glm::vec3* radians) {
-		glm::vec3 degrees = glm::degrees(*radians);
-		ImGui::DragFloat3(label, glm::value_ptr(degrees), 1, -360, 360);
-		*radians = glm::radians(degrees);
+	void SliderAngle3(const char* label, glm::vec3* radians, float angle_max) {
+		glm::vec3 angle = *radians / RADIANS_MAX * angle_max;
+		ImGui::DragFloat3(label, glm::value_ptr(angle), 0.01f * angle_max, -angle_max, angle_max);
+		*radians = angle / angle_max * RADIANS_MAX;
 	}
 }
 
@@ -2235,7 +2293,7 @@ int main() {
 		GLfloat point_size = 3.0f;
 
 		GLenum regular_primitives_type = GL_TRIANGLES;
-		GLenum light_primitives_type   = GL_LINES;
+		GLenum light_primitives_type   = GL_TRIANGLES;
 		GLenum polygon_mode            = GL_FILL;
 
 		// NOTE: some meshes are open from outside and culling would break them (hide sides as in ground/vasi.dnm)
@@ -2255,7 +2313,71 @@ int main() {
 		int64_t last_write_time = 0; // when file was written to (by some other progrem)
 	} dnm_hotreload;
 
-	bool enable_rotating_model_around = true;
+	bool enable_rotating_model_around = false;
+	float imgui_angle_max = DEGREES_MAX;
+
+	struct {
+		GLuint vao, vbo;
+		size_t points_count;
+		GLfloat line_width = 5.0f;
+		bool on_top = true;
+	} axis_rendering;
+	mn_defer({
+		glDeleteBuffers(1, &axis_rendering.vbo);
+		glBindVertexArray(0);
+		glDeleteVertexArrays(1, &axis_rendering.vao);
+		axis_rendering = {};
+	});
+	{
+		struct Stride {
+			glm::vec3 vertex;
+			glm::vec4 color;
+		};
+		mn::allocator_push(mn::memory::tmp());
+		const auto buffer = mn::buf_lit({
+			Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
+			Stride {{1, 0, 0}, {1, 0, 0, 1}},
+			Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
+			Stride {{0, 1, 0}, {0, 1, 0, 1}},
+			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
+			Stride {{0, 0, 1}, {0, 0, 1, 1}},
+		});
+		mn::allocator_pop();
+		axis_rendering.points_count = buffer.count;
+
+		glGenVertexArrays(1, &axis_rendering.vao);
+		glBindVertexArray(axis_rendering.vao);
+			glGenBuffers(1, &axis_rendering.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, axis_rendering.vbo);
+			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+
+			size_t offset = 0;
+
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(
+				0,              /*index*/
+				3,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::vertex);
+
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(
+				1,              /*index*/
+				4,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::color);
+		glBindVertexArray(0);
+
+		GL_CATCH_ERRS();
+	}
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -2406,11 +2528,14 @@ int main() {
 			glDisable(GL_CULL_FACE);
 		}
 
+		static float alpha = 0;
+
+		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 
 		if (model.current_state.visible) {
 			if (enable_rotating_model_around) {
-				model.current_state.rotation.x = glm::radians(21.0f);
-				model.current_state.rotation.y += glm::radians(7 * delta_time);
+				model.current_state.rotation.x = 21.0f / DEGREES_MAX * RADIANS_MAX;
+				model.current_state.rotation.y += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
 			}
 
 			// apply model transformation
@@ -2433,12 +2558,46 @@ int main() {
 				mn_assert(mesh);
 				mn::buf_pop(meshes_stack);
 
+				// skip high throttle propoller
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE) {
+					continue;
+				}
+
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+					mesh->current_state.rotation.x += 5.0f / DEGREES_MAX * RADIANS_MAX;
+				}
+
+				if (mesh->animation_states.count > 0) {
+					const MeshState& sta1 = mesh->initial_state;
+					const MeshState& sta2 = mesh->animation_states[0];
+
+					mesh->current_state.translation = sta1.translation + sta2.translation * alpha;
+
+					switch (mesh->animation_type) {
+					case AnimationClass::AIRCRAFT_SPINNER_PROPELLER: break;
+					default:
+						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(sta1.rotation), glm::quat(sta2.rotation), -alpha));
+						break;
+					}
+
+					float visibilty = (float) sta1.visible * (1-alpha) + (float) sta2.visible * alpha;
+					mesh->current_state.visible = visibilty > 0.05;;
+				}
+
 				if (mesh->current_state.visible) {
+					if (mesh->render_cnt_axis) {
+						mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
+					}
+
 					// apply mesh transformation
 					mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3(1, 0, 0));
-					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3(0, 1, 0));
-					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3(0, 0, 1));
+					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
+					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
+					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
+
+					if (mesh->render_pos_axis) {
+						mn::buf_push(axis_instances, mesh->transformation);
+					}
 
 					// upload transofmation model
 					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
@@ -2456,6 +2615,23 @@ int main() {
 						mn::buf_push(meshes_stack, child_mesh);
 					}
 				}
+			}
+		}
+
+		// render axis
+		if (axis_instances.count > 0) {
+			if (axis_rendering.on_top) {
+				glDisable(GL_DEPTH_TEST);
+			} else {
+				glEnable(GL_DEPTH_TEST);
+			}
+			glEnable(GL_LINE_SMOOTH);
+			glLineWidth(axis_rendering.line_width);
+			glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), 0);
+			glBindVertexArray(axis_rendering.vao);
+			for (const auto& transformation : axis_instances) {
+				glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
+				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 		}
 
@@ -2494,6 +2670,12 @@ int main() {
 				if (width_changed || height_changed) {
 					SDL_SetWindowSize(sdl_window, size[0], size[1]);
 				}
+
+				MyImGui::EnumsCombo("Angle Max", &imgui_angle_max, {
+					{DEGREES_MAX, "DEGREES_MAX"},
+					{RADIANS_MAX, "RADIANS_MAX"},
+					{YS_MAX,      "YS_MAX"},
+				});
 
 				ImGui::TreePop();
 			}
@@ -2622,6 +2804,12 @@ int main() {
 				ImGui::TreePop();
 			}
 
+			if (ImGui::TreeNode("Gizmos")) {
+				ImGui::Checkbox("On Top", &axis_rendering.on_top);
+				ImGui::DragFloat("Line Width", &axis_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+				ImGui::TreePop();
+			}
+
 			if (ImGui::TreeNode("Model")) {
 				if (ImGui::Button("Reset State")) {
 					model.current_state = {};
@@ -2633,11 +2821,13 @@ int main() {
 					}
 				}
 
+				ImGui::DragFloat("Alpha", &alpha, 0.01, 0, 1);
+
 				ImGui::Checkbox("Rotate Around", &enable_rotating_model_around);
 
 				ImGui::Checkbox("visible", &model.current_state.visible);
 				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
-				MyImGui::SliderAngle3("rotation", &model.current_state.rotation);
+				MyImGui::SliderAngle3("rotation", &model.current_state.rotation, imgui_angle_max);
 
 				size_t light_sources_count = 0;
 				for (const auto& [_, mesh] : model.meshes.values) {
@@ -2650,7 +2840,7 @@ int main() {
 					model.root_meshes_indices.count, light_sources_count).ptr);
 
 				std::function<void(Mesh&)> render_mesh_ui;
-				render_mesh_ui = [&model, &render_mesh_ui](Mesh& mesh) {
+				render_mesh_ui = [&model, &render_mesh_ui, imgui_angle_max](Mesh& mesh) {
 					if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
 						if (ImGui::Button("Reset")) {
 							mesh.current_state = mesh.initial_state;
@@ -2659,12 +2849,17 @@ int main() {
 						ImGui::Checkbox("light source", &mesh.is_light_source);
 						ImGui::Checkbox("visible", &mesh.current_state.visible);
 
+						ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
+						ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
+
 						ImGui::BeginDisabled();
 							ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
 						ImGui::EndDisabled();
 
 						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
-						MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation);
+						MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, imgui_angle_max);
+
+						ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
 
 						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
 						ImGui::Indent();
@@ -2785,21 +2980,35 @@ int main() {
 }
 /*
 TODO:
-- tu160 don't tesselate well
-- strobe lights not in their expected positions (tornado.dnm)
-- weird mesh in back of (f1.dnm)
-- wings have weird rotations (helicopters, e2c.dnm, ys11.dnm, uh160.dnm)
-- aircraft/eclipse.dnm weird rotor place
+bugs:
+- tornado.dnm: strobe lights and wheels not in their expected positions
+- wiggen.dnm: right wheel doesn't rotate right
 
-- why a10.dnm:000005 rotated different from 000004?
-- why ys11:00002 (and 00001) have mixed x/y rotations?
-- what is CNT?
-
-- 3d gizmos (camera)
-- move internal DNMs to resources dir
+ideas:
+- animation config
+	- enable/disable
+	- rotor
+		- min/max speed
+		- drag speed
+		- show/hide max throttle object
+	- drag UI for wheenls animation
+- read DNMVER 2
+- axis
+	- better shader
+		- no normals
+		- no colors
+		- refactor shaders
+		- geometry shaders
+	- 3d axis (camera)
+	- select mesh/object
+	- move selected (translation of axis)
+	- show axis angels
+	- rotate selected
+	- move internal DNMs to resources dir
 - tracking camera (copy from jet-simulator)
 - struct parser (track line no, file, peek)
-
+- all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
+- (optimization): store stack of nodes instead of tree in model
 */
