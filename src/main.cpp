@@ -2082,6 +2082,12 @@ namespace MyImGui {
 		}
 	}
 
+	void SliderAngle(const char* label, float* radians, float angle_max) {
+		float angle = *radians / RADIANS_MAX * angle_max;
+		ImGui::DragFloat(label, &angle, 0.01f * angle_max, -angle_max, angle_max);
+		*radians = angle / angle_max * RADIANS_MAX;
+	}
+
 	void SliderAngle3(const char* label, glm::vec3* radians, float angle_max) {
 		glm::vec3 angle = *radians / RADIANS_MAX * angle_max;
 		ImGui::DragFloat3(label, glm::value_ptr(angle), 0.01f * angle_max, -angle_max, angle_max);
@@ -2379,6 +2385,17 @@ int main() {
 		GL_CATCH_ERRS();
 	}
 
+	struct {
+		bool enabled = true;
+		float alpha = 0;
+
+		float throttle = 0;
+		float propoller_max_angle_speed = 5.0f / DEGREES_MAX * RADIANS_MAX;
+
+		bool afterburner_reheat_enabled = false;
+		float afterburner_throttle_threshold = 0.80f;
+	} animation_config;
+
 	while (running) {
 		mn::memory::tmp()->clear_all();
 
@@ -2528,14 +2545,16 @@ int main() {
 			glDisable(GL_CULL_FACE);
 		}
 
-		static float alpha = 0;
-
 		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 
 		if (model.current_state.visible) {
 			if (enable_rotating_model_around) {
-				model.current_state.rotation.x = 21.0f / DEGREES_MAX * RADIANS_MAX;
+				model.current_state.rotation.x = -21.0f / DEGREES_MAX * RADIANS_MAX;
 				model.current_state.rotation.y += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
+			}
+
+			if (animation_config.afterburner_reheat_enabled && animation_config.throttle < animation_config.afterburner_throttle_threshold) {
+				animation_config.throttle = animation_config.afterburner_throttle_threshold;
 			}
 
 			// apply model transformation
@@ -2558,30 +2577,45 @@ int main() {
 				mn_assert(mesh);
 				mn::buf_pop(meshes_stack);
 
-				// skip high throttle propoller
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE) {
+				if (animation_config.enabled) {
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+						mesh->current_state.rotation.x += animation_config.throttle * animation_config.propoller_max_angle_speed;
+					}
+
+					if (mesh->animation_states.count > 0) {
+						const MeshState& sta1 = mesh->initial_state;
+						const MeshState& sta2 = mesh->animation_states[0];
+
+						mesh->current_state.translation = sta1.translation + sta2.translation * animation_config.alpha;
+
+						switch (mesh->animation_type) {
+						case AnimationClass::AIRCRAFT_SPINNER_PROPELLER: break;
+						default:
+							mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(sta1.rotation), glm::quat(sta2.rotation), -animation_config.alpha));
+							break;
+						}
+
+						float visibilty = (float) sta1.visible * (1-animation_config.alpha) + (float) sta2.visible * animation_config.alpha;
+						mesh->current_state.visible = visibilty > 0.05;;
+					}
+				}
+
+				const bool enable_high_throttle = almost_equal(animation_config.throttle, 1.0f);
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
+					continue;
+				}
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle) {
 					continue;
 				}
 
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->current_state.rotation.x += 5.0f / DEGREES_MAX * RADIANS_MAX;
-				}
-
-				if (mesh->animation_states.count > 0) {
-					const MeshState& sta1 = mesh->initial_state;
-					const MeshState& sta2 = mesh->animation_states[0];
-
-					mesh->current_state.translation = sta1.translation + sta2.translation * alpha;
-
-					switch (mesh->animation_type) {
-					case AnimationClass::AIRCRAFT_SPINNER_PROPELLER: break;
-					default:
-						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(sta1.rotation), glm::quat(sta2.rotation), -alpha));
-						break;
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
+					if (animation_config.afterburner_reheat_enabled == false) {
+						continue;
 					}
 
-					float visibilty = (float) sta1.visible * (1-alpha) + (float) sta2.visible * alpha;
-					mesh->current_state.visible = visibilty > 0.05;;
+					if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
+						continue;
+					}
 				}
 
 				if (mesh->current_state.visible) {
@@ -2804,9 +2838,32 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Gizmos")) {
+			if (ImGui::TreeNode("Axis Rendering")) {
 				ImGui::Checkbox("On Top", &axis_rendering.on_top);
 				ImGui::DragFloat("Line Width", &axis_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Animation")) {
+				ImGui::Checkbox("Enabled", &animation_config.enabled);
+				if (ImGui::Button("Reset")) {
+					animation_config = {};
+				}
+
+				ImGui::BeginDisabled(animation_config.enabled == false);
+					ImGui::DragFloat("Alpha", &animation_config.alpha, 0.01, 0, 1);
+					if (ImGui::SliderFloat("Throttle", &animation_config.throttle, 0.0f, 1.0f)) {
+						if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
+							animation_config.afterburner_reheat_enabled = false;
+						}
+					}
+					MyImGui::SliderAngle("Propoller Max Speed", &animation_config.propoller_max_angle_speed, imgui_angle_max);
+
+					ImGui::NewLine();
+					ImGui::Text("Afterburner Reheat");
+					ImGui::Checkbox("Enable", &animation_config.afterburner_reheat_enabled);
+					ImGui::SliderFloat("Threshold", &animation_config.afterburner_throttle_threshold, 0.0f, 1.0f);
+				ImGui::EndDisabled();
 				ImGui::TreePop();
 			}
 
@@ -2820,8 +2877,6 @@ int main() {
 						mesh.current_state = mesh.initial_state;
 					}
 				}
-
-				ImGui::DragFloat("Alpha", &alpha, 0.01, 0, 1);
 
 				ImGui::Checkbox("Rotate Around", &enable_rotating_model_around);
 
@@ -2840,14 +2895,16 @@ int main() {
 					model.root_meshes_indices.count, light_sources_count).ptr);
 
 				std::function<void(Mesh&)> render_mesh_ui;
-				render_mesh_ui = [&model, &render_mesh_ui, imgui_angle_max](Mesh& mesh) {
+				render_mesh_ui = [&model, &render_mesh_ui, imgui_angle_max, animation_config](Mesh& mesh) {
 					if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
 						if (ImGui::Button("Reset")) {
 							mesh.current_state = mesh.initial_state;
 						}
 
 						ImGui::Checkbox("light source", &mesh.is_light_source);
-						ImGui::Checkbox("visible", &mesh.current_state.visible);
+						ImGui::BeginDisabled(animation_config.enabled);
+							ImGui::Checkbox("visible", &mesh.current_state.visible);
+						ImGui::EndDisabled();
 
 						ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
 						ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
@@ -2856,8 +2913,10 @@ int main() {
 							ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
 						ImGui::EndDisabled();
 
-						ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
-						MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, imgui_angle_max);
+						ImGui::BeginDisabled(animation_config.enabled);
+							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
+							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, imgui_angle_max);
+						ImGui::EndDisabled();
 
 						ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
 
@@ -2986,12 +3045,7 @@ bugs:
 
 ideas:
 - animation config
-	- enable/disable
-	- rotor
-		- min/max speed
-		- drag speed
-		- show/hide max throttle object
-	- drag UI for wheenls animation
+	- drag UI for wheels animation
 - read DNMVER 2
 - axis
 	- better shader
