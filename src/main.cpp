@@ -2234,7 +2234,7 @@ int main() {
 	bool should_load_model = false;
 	bool should_reload_model = true;
 
-	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm");
+	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a10.dnm");
 	mn_defer(mn::str_free(model_file_path));
 
 	Camera camera {};
@@ -2387,7 +2387,7 @@ int main() {
 
 	struct {
 		bool enabled = true;
-		float alpha = 0;
+		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 
 		float throttle = 0;
 		float propoller_max_angle_speed = 5.0f / DEGREES_MAX * RADIANS_MAX;
@@ -2560,9 +2560,9 @@ int main() {
 			// apply model transformation
 			auto model_transformation = glm::identity<glm::mat4>();
 			model_transformation = glm::translate(model_transformation, model.current_state.translation);
-			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(1, 0, 0));
-			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(0, 1, 0));
 			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3(0, 0, 1));
+			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(1, 0, 0));
+			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(0, 1, 0));
 
 			// start with root meshes
 			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -2582,20 +2582,16 @@ int main() {
 						mesh->current_state.rotation.x += animation_config.throttle * animation_config.propoller_max_angle_speed;
 					}
 
-					if (mesh->animation_states.count > 0) {
-						const MeshState& sta1 = mesh->initial_state;
-						const MeshState& sta2 = mesh->animation_states[0];
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR) {
+						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
+						const MeshState& state_up   = mesh->animation_states[0];
+						const MeshState& state_down = mesh->animation_states[1];
+						const auto& alpha = animation_config.landing_gear_alpha;
 
-						mesh->current_state.translation = sta1.translation + sta2.translation * animation_config.alpha;
+						mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
+						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
 
-						switch (mesh->animation_type) {
-						case AnimationClass::AIRCRAFT_SPINNER_PROPELLER: break;
-						default:
-							mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(sta1.rotation), glm::quat(sta2.rotation), -animation_config.alpha));
-							break;
-						}
-
-						float visibilty = (float) sta1.visible * (1-animation_config.alpha) + (float) sta2.visible * animation_config.alpha;
+						float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
 						mesh->current_state.visible = visibilty > 0.05;;
 					}
 				}
@@ -2851,7 +2847,7 @@ int main() {
 				}
 
 				ImGui::BeginDisabled(animation_config.enabled == false);
-					ImGui::DragFloat("Alpha", &animation_config.alpha, 0.01, 0, 1);
+					ImGui::DragFloat("Landing Gear", &animation_config.landing_gear_alpha, 0.01, 0, 1);
 					if (ImGui::SliderFloat("Throttle", &animation_config.throttle, 0.0f, 1.0f)) {
 						if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
 							animation_config.afterburner_reheat_enabled = false;
@@ -3038,15 +3034,17 @@ int main() {
 	return 0;
 }
 /*
-TODO:
 bugs:
-- tornado.dnm: strobe lights and wheels not in their expected positions
-- wiggen.dnm: right wheel doesn't rotate right
+- tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
+- viggen.dnm: right wheel doesn't rotate right
+- crashes with hurricane/cessna172r
 
-ideas:
-- animation config
-	- drag UI for wheels animation
+TODO:
+- figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
+- make afterburner transparent (landing_gear_alpha blending)
 - read DNMVER 2
+- move from animation_config to Model
+- animate landing gear transition in time (no alpha)
 - axis
 	- better shader
 		- no normals
