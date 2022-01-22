@@ -1293,346 +1293,6 @@ void destruct(Model& self) {
 	model_free(self);
 }
 
-constexpr auto SURF_EXAMPLE = R"(SURF
-V 0.000 4.260 0.370 R
-V 0.000 4.260 0.370 R
-V 0.000 0.020 0.350 R
-V 0.000 0.000 4.290 R
-V 0.000 4.290 4.290 R
-V 4.940 4.258 0.375 R
-V 4.940 0.017 0.355 R
-V 4.940 -0.003 4.295 R
-V 4.940 4.287 4.295 R
-F
-C 127 127 127
-N 0.000 2.143 2.325 -1.000 0.001 -0.001
-V 4 3 2 0
-E
-F
-V 0 2 6 5
-C 121 127 122
-N 2.470 2.139 0.363 0.001 0.005 -1.000
-E
-F
-V 2 3 7 6
-C 0 127 127
-N 2.470 0.009 2.322 -0.001 -1.000 -0.005
-E
-F
-C 127 2 127
-V 3 4 8 7
-N 2.470 2.144 4.293 -0.001 0.000 1.000
-E
-F
-N 2.470 4.274 2.332 0.001 1.000 -0.008
-V 4 0 5 8
-C 127 127 1
-B
-E
-F
-V 5 6 7 8
-N 4.940 2.140 2.330 1.000 0.000 0.000
-C 6 66 127
-E
-E
-)";
-
-constexpr auto DNM_EXAMPLE = R"(DYNAMODEL
-DNMVER 1
-PCK habal.srf 24
-SURF
-V 0.000 4.260 0.370 R
-V 0.000 4.260 0.370 R
-V 0.000 0.020 0.350 R
-F
-C 127 127 127
-N 0.000 2.143 2.325 -1.000 0.001 -0.001
-V 0 1 2
-E
-F
-C 107 127 127
-N 0.000 1.143 2.325 -1.000 0.001 -0.001
-V 0 1 1
-E
-
-GF 0 0 0
-GF 1
-GF 0 0 1
-GF 0 0
-
-ZA 0 200 0 200 1 100 0 200 0 200 0 200
-ZA 0 200 0 200 0 250 1 200 0 200
-ZL 0 1 0 1
-ZZ 0 0 1
-
-SRF "Habal"
-FIL habal.srf
-CLA 2
-NST 2
-STA 0.0000 0.0000 0.0000 -32768 -15915 32768 0
-STA 0.0000 0.0000 0.0000 0 0 0 1
-POS 1.1000 -0.8500 -1.8500 32736 0 0 1
-CNT 0.0000 0.0000 0.0000
-REL DEP
-NCH 1
-CLD "Habal"
-END
-END
-)";
-
-constexpr auto TRIANGLE_DNM = R"(DYNAMODEL
-DNMVER 1
-PCK triangle.srf 11
-SURF
-V 0.500 0.500 0.000
-V 0.500 -0.500 0.000
-V -0.500 -0.500 0.000
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 0 1 2
-E
-
-
-
-END
-)";
-
-constexpr auto RECTANGLE_DNM = R"(DYNAMODEL
-DNMVER 1
-PCK rectangle.srf 17
-SURF
-V 0.500 0.500 0.000
-V 0.500 -0.500 0.000
-V -0.500 -0.500 0.000
-V -0.500 0.500 0.000
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 0 1 3
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 1 2 3
-E
-
-
-
-PCK rectangle2.srf 18
-SURF
-V 0.500 0.500 0.000
-V 0.500 -0.500 0.000
-V -0.500 -0.500 0.000
-V -0.500 0.500 0.000
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 0 1 3
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 1 2 3
-E
-
-
-
-SRF "rectangle"
-FIL rectangle.srf
-CLA 2
-NST 0
-POS 0.0000 0.0000 0.0000 0 0 0 1
-CNT 0.0000 0.0000 0.0000
-REL DEP
-NCH 1
-CLD "rectangle2"
-END
-SRF "rectangle2"
-FIL rectangle2.srf
-CLA 2
-NST 0
-POS 0.6000 0.4000 0.0000 0 0 0 1
-CNT 0.0000 0.0000 0.0000
-REL DEP
-NCH 0
-END
-END
-)";
-
-constexpr auto BOX_DNM = R"(DYNAMODEL
-DNMVER 1
-PCK box.srf 71
-SURF
-V -0.500 -0.500 -0.500
-V 0.500 -0.500 -0.500
-V 0.500 0.500 -0.500
-V -0.500 0.500 -0.500
-V -0.500 -0.500 0.500
-V 0.500 -0.500 0.500
-V 0.500 0.500 0.500
-V -0.500 0.500 0.500
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 0 1 2
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 2 3 0
-E
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 4 5 6
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 6 7 4
-E
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 7 3 0
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 0 4 7
-E
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 6 2 1
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 1 5 6
-E
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 0 1 5
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 5 4 0
-E
-F
-C 255 0 0
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 3 2 6
-E
-F
-C 255 255 255
-N 0.000 0.000 0.000 0.000 0.000 0.000
-V 6 7 3
-E
-
-
-
-SRF "box"
-FIL box.srf
-CLA 2
-NST 0
-POS 0.0000 0.0000 0.0000 0 0 0 1
-CNT 0.0000 0.0000 0.0000
-REL DEP
-NCH 0
-END
-END
-)";
-
-// smaller ground/vasi.dnm
-constexpr auto VASI_DNM = R"(DYNAMODEL
-DNMVER 1
-PCK 00000006.srf 69
-SURF
-V -3.525 0 -0.625
-V -2.475 0 -0.625
-V -2.475 1.05 -0.625
-V -3.525 1.05 -0.625
-V 3.525 0 -0.625
-V 2.475 0 -0.625
-V 2.475 1.05 -0.625
-V 3.525 1.05 -0.625
-V -3.525 1.05 0.375
-V -3.525 0 0.375
-V -2.475 0 0.375
-V -2.475 1.05 0.375
-V 2.475 1.05 0.375
-V 2.475 0 0.375
-V 3.525 0 0.375
-V 3.525 1.05 0.375
-F
-V 1 0 3 2
-N -3 0.525 -0.625 -0 -0 -1
-C 255 255 0
-E
-F
-V 6 7 4 5
-N 3 0.525 -0.625 -0 -0 -1
-C 255 255 0
-E
-F
-V 3 0 9 8
-N -3.525 0.525 -0.125 -1 -0 -0
-C 255 255 0
-E
-F
-V 0 1 10 9
-N -3 0 -0.125 0 -1 0
-C 255 255 0
-E
-F
-V 1 2 11 10
-N -2.475 0.525 -0.125 1 0 0
-C 255 255 0
-E
-F
-V 2 3 8 11
-N -3 1.05 -0.125 0 1 0
-C 255 255 0
-E
-F
-V 6 5 13 12
-N 2.475 0.525 -0.125 -1 -0 -0
-C 255 255 0
-E
-F
-V 5 4 14 13
-N 3 0 -0.125 0 -1 0
-C 255 255 0
-E
-F
-V 4 7 15 14
-N 3.525 0.525 -0.125 1 0 0
-C 255 255 0
-E
-F
-V 7 6 12 15
-N 3 1.05 -0.125 0 1 0
-C 255 255 0
-E
-
-
-
-SRF "Boxes"
-FIL 00000006.srf
-CLA 0
-NST 0
-POS 0.0000 0.0000 0.0000 0 0 0 1
-CNT 0.0000 0.0000 0.0000
-REL DEP
-NCH 0
-END
-END
-)";
-
 constexpr auto WND_TITLE        = "JFS";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
@@ -1947,13 +1607,11 @@ int main() {
 	mn_defer(glDeleteProgram(shader_program));
 
 	// model
-	// Model model = model_from_dnm(VASI_DNM);
 	Model model {};
 	mn_defer(model_free(model));
-	// model_load_to_gpu(model);
 	mn_defer(model_unload_from_gpu(model));
 
-	bool should_open_model = false;
+	bool should_open_dnm_file = false;
 	bool should_load_model = true;
 
 	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a10.dnm");
@@ -1966,7 +1624,7 @@ int main() {
 	bool fullscreen = false;
 
 	Uint32 time_millis = SDL_GetTicks();
-	double delta_time; // 1/seconds
+	double delta_time; // seconds since previous frame
 
 	bool should_limit_fps = true;
 	int fps_limit = 60;
@@ -2196,19 +1854,17 @@ int main() {
 			dnm_hotreload.last_check_time += delta_time;
 			if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
 				dnm_hotreload.last_check_time = 0;
-				if (mn::str_prefix(model_file_path, "Internal::") == false) {
-					int64_t write_time = mn::file_last_write_time(model_file_path);
-					if (write_time > dnm_hotreload.last_write_time) {
-						dnm_hotreload.last_write_time = write_time;
-						should_load_model = true;
-						mn::log_debug("file '{}' changed, will reload", model_file_path);
-					}
+				const int64_t write_time = mn::file_last_write_time(model_file_path);
+				if (write_time > dnm_hotreload.last_write_time) {
+					dnm_hotreload.last_write_time = write_time;
+					should_load_model = true;
+					mn::log_debug("file '{}' changed, will reload", model_file_path);
 				}
 			}
 		}
 
-		if (should_open_model) {
-			should_open_model = false;
+		if (should_open_dnm_file) {
+			should_open_dnm_file = false;
 
 			auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
 			if (result.size() == 1) {
@@ -2388,7 +2044,7 @@ int main() {
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			if (ImGui::Button("Load DNM")) {
-				should_open_model = true;
+				should_open_dnm_file = true;
 			}
 			if (ImGui::Button("Reload")) {
 				should_load_model = true;
@@ -2755,7 +2411,6 @@ bugs:
 - crashes with hurricane/cessna172r
 
 TODO:
-- move surf/dnm strings into resources
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - make afterburner transparent (landing_gear_alpha blending)
 - read DNMVER 2
