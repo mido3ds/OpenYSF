@@ -247,6 +247,15 @@ void expect(mn::Str& s1, T s2) {
 	}
 }
 
+void skip_after(mn::Str& s, char c) {
+	const size_t index = mn::str_find(s, c, 0);
+	if (index == SIZE_MAX) {
+		mn::panic("failed to find '{}' in '{}'", c, smaller_str(s));
+	}
+	s.ptr += index + 1;
+	s.count += index + 1;
+}
+
 struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
@@ -926,14 +935,13 @@ Model model_from_dnm(const char* dnm_file) {
 
 		// <Face>+
 		auto faces_unshaded_light_source = mn::buf_with_allocator<bool>(mn::memory::tmp());
-		while (!accept(s, '\n')) {
+		while (accept(s, "F\n")) {
 			Face face {};
 			bool parsed_color = false,
 				parsed_normal = false,
 				parsed_vertices = false,
 				is_light_source = false;
 
-			expect(s, "F\n");
 			while (!accept(s, "E\n")) {
 				if (accept(s, "C ")) {
 					if (parsed_color) {
@@ -1024,6 +1032,17 @@ Model model_from_dnm(const char* dnm_file) {
 
 			mn::buf_push(faces_unshaded_light_source, is_light_source);
 			mn::buf_push(surf.faces, face);
+		}
+
+		// <empty line>|GE ...|ZE...
+		while (true) {
+			if (accept(s, '\n')) {
+				break;
+			} else if (accept(s, "GE") || accept(s, "ZE")) {
+				skip_after(s, '\n');
+			} else {
+				mn::panic("'{}':{} unexpected input", name, get_line_no(dnm_file, s));
+			}
 		}
 
 		// [GF< {u64}>+\n]+
@@ -1208,10 +1227,8 @@ Model model_from_dnm(const char* dnm_file) {
 
 		if (dnm_version == 2) {
 			if (accept(s, "PAX")) {
-				// don't parse it now, skip line
-				const auto new_pos = mn::str_find(s, "\n", 0);
-				s.ptr += new_pos+1;
-				s.count += new_pos+1;
+				// we don't support it for now
+				skip_after(s, '\n');
 			}
 		}
 
@@ -2424,10 +2441,11 @@ int main() {
 bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
-- crashes with hurricane/cessna172r
+- crashes with cessna172r
 
 TODO:
 - what's PAX in dnmver 2?
+- what are GE and ZE in hurricane.dnm?
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - make afterburner transparent (landing_gear_alpha blending)
 - move from animation_config to Model
