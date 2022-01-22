@@ -253,7 +253,7 @@ void skip_after(mn::Str& s, char c) {
 		mn::panic("failed to find '{}' in '{}'", c, smaller_str(s));
 	}
 	s.ptr += index + 1;
-	s.count += index + 1;
+	s.count -= index + 1;
 }
 
 struct Face {
@@ -911,7 +911,10 @@ Model model_from_dnm(const char* dnm_file) {
 
 		const auto pck_first_lineno = get_line_no(dnm_file, s);
 
-		expect(s, "SURF\n");
+		// aircraft/cessna172r.dnm has Surf instead of SURF
+		if ((accept(s, "SURF\n") || accept(s, "Surf\n")) == false) {
+			mn::panic("'{}':{} failed to find SURF/Surf for start of mesh", name, get_line_no(dnm_file, s));
+		}
 		Mesh surf {};
 
 		// V {x} {y} {z}[ R]\n
@@ -924,6 +927,10 @@ Model model_from_dnm(const char* dnm_file) {
 			expect(s, ' ');
 			v.z = token_float(s);
 			bool smooth_shading = accept(s, " R");
+
+			// aircraft/cessna172r.dnm has spaces after end if V
+			while (accept(s, " ")) {}
+
 			expect(s, '\n');
 
 			mn::buf_push(surf.vertices, v);
@@ -954,8 +961,15 @@ Model model_from_dnm(const char* dnm_file) {
 					face.color.g = token_u8(s) / 255.0f;
 					expect(s, ' ');
 					face.color.b = token_u8(s) / 255.0f;
+
+					// aircraft/cessna172r.dnm allows alpha value in color
+					if (accept(s, ' ')) {
+						face.color.a = token_u8(s) / 255.0f;
+					} else {
+						face.color.a = 1.0f; // maybe overwritten in ZA line
+					}
+
 					expect(s, '\n');
-					face.color.a = 1.0f; // maybe overwritten in ZA line
 				} else if (accept(s, "N ")) {
 					if (parsed_normal) {
 						mn::panic("'{}': found more than one normal", name);
@@ -1034,86 +1048,67 @@ Model model_from_dnm(const char* dnm_file) {
 			mn::buf_push(surf.faces, face);
 		}
 
-		// <empty line>|GE ...|ZE...
+		size_t zl_count = 0;
+		size_t zz_count = 0;
 		while (true) {
 			if (accept(s, '\n')) {
-				break;
-			} else if (accept(s, "GE") || accept(s, "ZE")) {
+				// nothing
+			} else if (accept(s, "GE") || accept(s, "ZE") || accept(s, "GL")) {
 				skip_after(s, '\n');
-			} else {
-				mn::panic("'{}':{} unexpected input", name, get_line_no(dnm_file, s));
-			}
-		}
-
-		// [GF< {u64}>+\n]+
-		while (accept(s, "GF")) {
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
-				if (id >= surf.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+			} else if (accept(s, "GF")) { // [GF< {u64}>+\n]+
+				while (accept(s, ' ')) {
+					auto id = token_u64(s);
+					if (id >= surf.faces.count) {
+						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+					}
+					mn::buf_push(surf.gfs, id);
 				}
-				mn::buf_push(surf.gfs, id);
-			}
-			expect(s, '\n');
-
-			// maybe GF+empty line+GF, found in aircraft/uh60.dnm
-			if (peek(s, "\nGF")) {
 				expect(s, '\n');
-			}
-		}
-		expect(s, '\n');
-
-		// [ZA< {u64} {u8}>+\n]+
-		while (accept(s, "ZA")) {
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
-				if (id >= surf.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+			} else if (accept(s, "ZA")) { // [ZA< {u64} {u8}>+\n]+
+				while (accept(s, ' ')) {
+					auto id = token_u64(s);
+					if (id >= surf.faces.count) {
+						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+					}
+					expect(s, ' ');
+					surf.faces[id].color.a = (255 - token_u8(s)) / 255.0f;
+					// because alpha came as: 0 -> obaque, 255 -> clear
+					// we revert it so it becomes: 1 -> obaque, 0 -> clear
 				}
-				expect(s, ' ');
-				surf.faces[id].color.a = (255 - token_u8(s)) / 255.0f;
-				// because alpha came as: 0 -> obaque, 255 -> clear
-				// we revert it so it becomes: 1 -> obaque, 0 -> clear
-			}
-			expect(s, '\n');
-		}
-
-		// [ZL< {u64}>+\n]
-		size_t zl_count = 0;
-		while (accept(s, "ZL")) {
-			zl_count++;
-			if (dnm_version == 1) {
-				if (zl_count > 1) {
-					mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
+				expect(s, '\n');
+			} else if (accept(s, "ZL")) { // [ZL< {u64}>+\n]
+				zl_count++;
+				if (dnm_version == 1) {
+					if (zl_count > 1) {
+						mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
+					}
 				}
-			}
 
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
-				if (id >= surf.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+				while (accept(s, ' ')) {
+					auto id = token_u64(s);
+					if (id >= surf.faces.count) {
+						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+					}
+					mn::buf_push(surf.zls, id);
 				}
-				mn::buf_push(surf.zls, id);
-			}
-			expect(s, '\n');
-		}
-
-		// [ZZ< {u64}>+\n]
-		size_t zz_count = 0;
-		while (accept(s, "ZZ")) {
-			zz_count++;
-			if (zz_count > 1) {
-				mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
-			}
-
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
-				if (id >= surf.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+				expect(s, '\n');
+			} else if  (accept(s, "ZZ")) { // [ZZ< {u64}>+\n]
+				zz_count++;
+				if (zz_count > 1) {
+					mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
 				}
-				mn::buf_push(surf.zzs, id);
+
+				while (accept(s, ' ')) {
+					auto id = token_u64(s);
+					if (id >= surf.faces.count) {
+						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
+					}
+					mn::buf_push(surf.zzs, id);
+				}
+				expect(s, '\n');
+			} else {
+				break;
 			}
-			expect(s, '\n');
 		}
 
 		// last line
@@ -1124,8 +1119,6 @@ Model model_from_dnm(const char* dnm_file) {
 				mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_linenos, pck_found_linenos);
 			}
 		}
-
-		expect(s, '\n');
 
 		size_t unshaded_count = 0;
 		for (auto unshaded : faces_unshaded_light_source) {
@@ -1176,11 +1169,12 @@ Model model_from_dnm(const char* dnm_file) {
 			sta.translation.z = token_float(s);
 			expect(s, ' ');
 
-			sta.rotation.x = token_i32(s) / YS_MAX * RADIANS_MAX;
+			// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
+			sta.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
-			sta.rotation.y = token_i32(s) / YS_MAX * RADIANS_MAX;
+			sta.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
-			sta.rotation.z = token_i32(s) / YS_MAX * RADIANS_MAX;
+			sta.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 
 			uint8_t visible = token_u8(s);
@@ -1194,59 +1188,87 @@ Model model_from_dnm(const char* dnm_file) {
 			mn::buf_push(surf->value.animation_states, sta);
 		}
 
-		expect(s, "POS ");
-		surf->value.initial_state.translation.x = token_float(s);
-		expect(s, ' ');
-		surf->value.initial_state.translation.y = -token_float(s);
-		expect(s, ' ');
-		surf->value.initial_state.translation.z = token_float(s);
-		expect(s, ' ');
-		surf->value.initial_state.rotation.x = token_i32(s) / YS_MAX * RADIANS_MAX;
-		expect(s, ' ');
-		surf->value.initial_state.rotation.y = token_i32(s) / YS_MAX * RADIANS_MAX;
-		expect(s, ' ');
-		surf->value.initial_state.rotation.z = token_i32(s) / YS_MAX * RADIANS_MAX;
-		expect(s, ' ');
-		uint8_t visible = token_u8(s);
-		if (visible == 1 || visible == 0) {
-			surf->value.initial_state.visible = (visible == 1);
-		} else {
-			mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file, s), visible);
-		}
-		expect(s, '\n');
+		bool read_pos = false, read_cnt = false, read_rel_dep = false, read_nch = false;
+		while (true) {
+			if (accept(s, "POS ")) {
+				read_pos = true;
 
-		surf->value.current_state = surf->value.initial_state;
+				surf->value.initial_state.translation.x = token_float(s);
+				expect(s, ' ');
+				surf->value.initial_state.translation.y = -token_float(s);
+				expect(s, ' ');
+				surf->value.initial_state.translation.z = token_float(s);
+				expect(s, ' ');
 
-		expect(s, "CNT ");
-		surf->value.cnt.x = token_float(s);
-		expect(s, ' ');
-		surf->value.cnt.y = -token_float(s);
-		expect(s, ' ');
-		surf->value.cnt.z = token_float(s);
-		expect(s, '\n');
+				// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
+				surf->value.initial_state.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+				expect(s, ' ');
+				surf->value.initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
+				expect(s, ' ');
+				surf->value.initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
 
-		if (dnm_version == 2) {
-			if (accept(s, "PAX")) {
-				// we don't support it for now
+				// aircraft/cessna172r.dnm is the only file with no visibility
+				if (accept(s, ' ')) {
+					uint8_t visible = token_u8(s);
+					if (visible == 1 || visible == 0) {
+						surf->value.initial_state.visible = (visible == 1);
+					} else {
+						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file, s), visible);
+					}
+				} else {
+					surf->value.initial_state.visible = true;
+				}
+
+				expect(s, '\n');
+
+				surf->value.current_state = surf->value.initial_state;
+			} else if (accept(s, "CNT ")) {
+				read_cnt = true;
+
+				surf->value.cnt.x = token_float(s);
+				expect(s, ' ');
+				surf->value.cnt.y = -token_float(s);
+				expect(s, ' ');
+				surf->value.cnt.z = token_float(s);
+				expect(s, '\n');
+			} else if (accept(s, "PAX")) {
 				skip_after(s, '\n');
+			} else if (accept(s, "REL DEP\n")) {
+				read_rel_dep = true;
+			} else if (accept(s, "NCH ")) {
+				read_nch = true;
+
+				const auto num_children = token_u64(s);
+				expect(s, '\n');
+				mn::buf_reserve(surf->value.children, num_children);
+
+				for (size_t i = 0; i < num_children; i++) {
+					expect(s, "CLD ");
+					auto child_name = token_str(s);
+					if (!(mn::str_prefix(child_name, "\"") && mn::str_suffix(child_name, "\""))) {
+						mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
+					}
+					mn::str_trim(child_name, "\"");
+					mn::buf_push(surf->value.children, child_name);
+					expect(s, '\n');
+				}
+			} else {
+				break;
 			}
 		}
 
-		expect(s, "REL DEP\n");
-
-		expect(s, "NCH ");
-		auto num_children = token_u64(s);
-		expect(s, '\n');
-		mn::buf_reserve(surf->value.children, num_children);
-		for (size_t i = 0; i < num_children; i++) {
-			expect(s, "CLD ");
-			auto child_name = token_str(s);
-			if (!(mn::str_prefix(child_name, "\"") && mn::str_suffix(child_name, "\""))) {
-				mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
-			}
-			mn::str_trim(child_name, "\"");
-			mn::buf_push(surf->value.children, child_name);
-			expect(s, '\n');
+		if (read_pos == false) {
+			mn::panic("'{}':{} failed to find POS", name, get_line_no(dnm_file, s));
+		}
+		if (read_cnt == false) {
+			mn::panic("'{}':{} failed to find CNT", name, get_line_no(dnm_file, s));
+		}
+		if (read_rel_dep == false) {
+			// aircraft/cessna172r.dnm doesn't have REL DEP
+			mn::log_error("'{}':{} failed to find REL DEP", name, get_line_no(dnm_file, s));
+		}
+		if (read_nch == false) {
+			mn::panic("'{}':{} failed to find NCH", name, get_line_no(dnm_file, s));
 		}
 
 		// reinsert with name instead of FIL
@@ -1257,7 +1279,10 @@ Model model_from_dnm(const char* dnm_file) {
 
 		expect(s, "END\n");
 	}
-	expect(s, "END\n");
+	// aircraft/cessna172r.dnm doesn't have final END
+	if (s.count > 0) {
+		expect(s, "END\n");
+	}
 
 	// check children exist
 	for (const auto [_, srf] : surfs.values) {
@@ -1647,7 +1672,7 @@ int main() {
 	bool should_open_dnm_file = false;
 	bool should_load_model = true;
 
-	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a10.dnm");
+	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\cessna172r.dnm");
 	mn_defer(mn::str_free(model_file_path));
 
 	Camera camera {};
@@ -1986,7 +2011,7 @@ int main() {
 						mesh->current_state.rotation.x += animation_config.throttle * animation_config.propoller_max_angle_speed;
 					}
 
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR) {
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.count > 1) {
 						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
 						const MeshState& state_up   = mesh->animation_states[0];
 						const MeshState& state_down = mesh->animation_states[1];
@@ -2441,11 +2466,13 @@ int main() {
 bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
-- crashes with cessna172r
+- cessna172r propoller doesn't rotate
 
 TODO:
 - what's PAX in dnmver 2?
 - what are GE and ZE in hurricane.dnm?
+- what are GL in cessna172r.dnm?
+- what do if REL DEP not in dnm?
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - make afterburner transparent (landing_gear_alpha blending)
 - move from animation_config to Model
