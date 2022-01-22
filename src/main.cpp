@@ -2231,8 +2231,8 @@ int main() {
 	// model_load_to_gpu(model);
 	mn_defer(model_unload_from_gpu(model));
 
-	bool should_load_model = false;
-	bool should_reload_model = true;
+	bool should_open_model = false;
+	bool should_load_model = true;
 
 	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\a10.dnm");
 	mn_defer(mn::str_free(model_file_path));
@@ -2470,28 +2470,6 @@ int main() {
 			}
 		}
 
-		if (should_load_model) {
-			should_load_model = false;
-
-			auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
-			if (result.size() == 1) {
-				mn::str_free(model_file_path);
-				model_unload_from_gpu(model);
-				model_free(model);
-
-				model_file_path = mn::str_from_c(result[0].c_str());
-				mn::log_debug("loading '{}'", model_file_path);
-
-				model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
-				model_load_to_gpu(model);
-
-				// so we don't hot reload it again
-				dnm_hotreload.last_write_time = mn::file_last_write_time(model_file_path);
-
-				mn::log_debug("loaded '{}'", model_file_path);
-			}
-		}
-
 		if (dnm_hotreload.enabled) {
 			dnm_hotreload.last_check_time += delta_time;
 			if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
@@ -2500,15 +2478,27 @@ int main() {
 					int64_t write_time = mn::file_last_write_time(model_file_path);
 					if (write_time > dnm_hotreload.last_write_time) {
 						dnm_hotreload.last_write_time = write_time;
-						should_reload_model = true;
+						should_load_model = true;
 						mn::log_debug("file '{}' changed, will reload", model_file_path);
 					}
 				}
 			}
 		}
 
-		if (should_reload_model) {
-			should_reload_model = false;
+		if (should_open_model) {
+			should_open_model = false;
+
+			auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
+			if (result.size() == 1) {
+				mn::str_free(model_file_path);
+				mn::str_push(model_file_path, result[0].c_str());
+				mn::log_debug("loading '{}'", model_file_path);
+				should_load_model = true;
+			}
+		}
+
+		if (should_load_model) {
+			should_load_model = false;
 
 			model_unload_from_gpu(model);
 			model_free(model);
@@ -2516,7 +2506,10 @@ int main() {
 			model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
 			model_load_to_gpu(model);
 
-			mn::log_debug("reloaded '{}'", model_file_path);
+			// so we don't hot reload it again
+			dnm_hotreload.last_write_time = mn::file_last_write_time(model_file_path);
+
+			mn::log_debug("loaded '{}'", model_file_path);
 		}
 
 		glEnable(GL_DEPTH_TEST);
@@ -2673,10 +2666,10 @@ int main() {
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			if (ImGui::Button("Load DNM")) {
-				should_load_model = true;
+				should_open_model = true;
 			}
 			if (ImGui::Button("Reload")) {
-				should_reload_model = true;
+				should_load_model = true;
 			}
 
 			if (ImGui::TreeNode("DNM Hotreload")) {
