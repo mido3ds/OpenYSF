@@ -886,7 +886,12 @@ Model model_from_dnm(const char* dnm_file) {
 	auto s = mn::str_tmp(dnm_file);
 	mn::str_replace(s, "\r\n", "\n");
 
-	expect(s, "DYNAMODEL\nDNMVER 1\n");
+	expect(s, "DYNAMODEL\nDNMVER ");
+	const uint8_t dnm_version = token_u8(s);
+	if (dnm_version > 2) {
+		mn::panic("unsupported version {}", dnm_version);
+	}
+	expect(s, '\n');
 
 	auto surfs = mn::map_new<mn::Str, Mesh>();
 	while (accept(s, "PCK ")) {
@@ -1058,8 +1063,10 @@ Model model_from_dnm(const char* dnm_file) {
 		size_t zl_count = 0;
 		while (accept(s, "ZL")) {
 			zl_count++;
-			if (zl_count > 1) {
-				mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
+			if (dnm_version == 1) {
+				if (zl_count > 1) {
+					mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
+				}
 			}
 
 			while (accept(s, ' ')) {
@@ -1198,6 +1205,15 @@ Model model_from_dnm(const char* dnm_file) {
 		expect(s, ' ');
 		surf->value.cnt.z = token_float(s);
 		expect(s, '\n');
+
+		if (dnm_version == 2) {
+			if (accept(s, "PAX")) {
+				// don't parse it now, skip line
+				const auto new_pos = mn::str_find(s, "\n", 0);
+				s.ptr += new_pos+1;
+				s.count += new_pos+1;
+			}
+		}
 
 		expect(s, "REL DEP\n");
 
@@ -2411,9 +2427,9 @@ bugs:
 - crashes with hurricane/cessna172r
 
 TODO:
+- what's PAX in dnmver 2?
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - make afterburner transparent (landing_gear_alpha blending)
-- read DNMVER 2
 - move from animation_config to Model
 - animate landing gear transition in time (no alpha)
 - axis
