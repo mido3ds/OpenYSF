@@ -1633,7 +1633,7 @@ int main() {
 		uniform bool is_light_source;
 
 		void main() {
-			out_fragcolor = vec4(vs_color.xyz, 1.0);
+			out_fragcolor = vs_color;
 		}
 	)GLSL";
     glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
@@ -1952,6 +1952,9 @@ int main() {
 		glClearDepth(1);
 		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 		glUseProgram(shader_program);
 		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
@@ -2474,9 +2477,8 @@ TODO:
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
-- make afterburner transparent (landing_gear_alpha blending)
 - move from animation_config to Model
-- animate landing gear transition in time (no alpha)
+- animate landing gear transition in real time (no alpha)
 - axis
 	- better shader
 		- no normals
