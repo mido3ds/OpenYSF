@@ -559,6 +559,11 @@ void glCheckError_(const char *file, int line) {
 
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
+	mn::Str file_abs_path;
+	bool should_open_dnm_file;
+	bool should_load_model;
+	bool enable_rotating_around;
+
 	mn::Map<mn::Str, Mesh> meshes;
 	mn::Buf<size_t> root_meshes_indices;
 
@@ -867,10 +872,9 @@ void test_polygons_to_triangles() {
 	}
 }
 
-size_t get_line_no(const char* str1, const mn::Str& str2) {
-	const auto str1_mn = mn::str_lit(str1);
+size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
 	size_t all_lines = 0;
-	for (auto c : str1_mn) {
+	for (auto c : str1) {
 		if (c == '\n') {
 			all_lines++;
 		}
@@ -891,8 +895,9 @@ constexpr float YS_MAX             = 0xFFFF;
 constexpr float RADIANS_MAX        = 6.283185307179586f;
 constexpr float DEGREES_MAX        = 360.0f;
 
-Model model_from_dnm(const char* dnm_file) {
-	auto s = mn::str_tmp(dnm_file);
+Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
+	const auto dnm_file = mn::file_content_str(dnm_file_abs_path, mn::memory::tmp());
+	auto s = mn::str_clone(dnm_file, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
 
 	expect(s, "DYNAMODEL\nDNMVER ");
@@ -1114,7 +1119,7 @@ Model model_from_dnm(const char* dnm_file) {
 		// last line
 		{
 			const auto current_lineno = get_line_no(dnm_file, s);
-			const auto pck_found_linenos = current_lineno - pck_first_lineno;
+			const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
 			if (pck_found_linenos != pck_expected_linenos) {
 				mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_linenos, pck_found_linenos);
 			}
@@ -1297,6 +1302,8 @@ Model model_from_dnm(const char* dnm_file) {
 	}
 
 	auto model = Model {
+		.file_abs_path = mn::str_clone(dnm_file_abs_path),
+		.should_load_model = true,
 		.meshes = surfs,
 	};
 
@@ -1343,6 +1350,7 @@ Model model_from_dnm(const char* dnm_file) {
 }
 
 void model_free(Model& self) {
+	mn::str_free(self.file_abs_path);
 	mn::destruct(self.meshes);
 	mn::destruct(self.root_meshes_indices);
 }
@@ -1664,16 +1672,18 @@ int main() {
     glDeleteShader(fragment_shader);
 	mn_defer(glDeleteProgram(shader_program));
 
-	// model
-	Model model {};
-	mn_defer(model_free(model));
-	mn_defer(model_unload_from_gpu(model));
-
-	bool should_open_dnm_file = false;
-	bool should_load_model = true;
-
-	auto model_file_path = mn::str_from_c("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\cessna172r.dnm");
-	mn_defer(mn::str_free(model_file_path));
+	// models
+	constexpr int NUM_MODELS = 2;
+	Model models[NUM_MODELS] = {
+		model_from_dnm(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
+		model_from_dnm(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
+	};
+	mn_defer({
+		for (int i = 0; i < NUM_MODELS; i++) {
+			mn_defer(model_free(models[0]));
+			mn_defer(model_unload_from_gpu(models[0]));
+		}
+	});
 
 	Camera camera {};
 
@@ -1757,7 +1767,6 @@ int main() {
 		int64_t last_write_time = 0; // when file was written to (by some other progrem)
 	} dnm_hotreload;
 
-	bool enable_rotating_model_around = false;
 	float imgui_angle_max = DEGREES_MAX;
 
 	struct {
@@ -1912,40 +1921,46 @@ int main() {
 			dnm_hotreload.last_check_time += delta_time;
 			if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
 				dnm_hotreload.last_check_time = 0;
-				const int64_t write_time = mn::file_last_write_time(model_file_path);
-				if (write_time > dnm_hotreload.last_write_time) {
-					dnm_hotreload.last_write_time = write_time;
-					should_load_model = true;
-					mn::log_debug("file '{}' changed, will reload", model_file_path);
+
+				for (int i = 0; i < NUM_MODELS; i++)
+				{
+					const int64_t write_time = mn::file_last_write_time(models[i].file_abs_path);
+					if (write_time > dnm_hotreload.last_write_time) {
+						dnm_hotreload.last_write_time = write_time;
+						models[i].should_load_model = true;
+						mn::log_debug("Model[{}]: file '{}' changed, will reload", i, models[i].file_abs_path);
+					}
 				}
 			}
 		}
 
-		if (should_open_dnm_file) {
-			should_open_dnm_file = false;
+		for (int i = 0; i < NUM_MODELS; i++) {
+			if (models[i].should_open_dnm_file) {
+				models[i].should_open_dnm_file = false;
 
-			auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
-			if (result.size() == 1) {
-				mn::str_free(model_file_path);
-				mn::str_push(model_file_path, result[0].c_str());
-				mn::log_debug("loading '{}'", model_file_path);
-				should_load_model = true;
+				auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
+				if (result.size() == 1) {
+					mn::str_free(models[i].file_abs_path);
+					mn::str_push(models[i].file_abs_path, result[0].c_str());
+					mn::log_debug("loading '{}'", models[i].file_abs_path);
+					models[i].should_load_model = true;
+				}
 			}
-		}
 
-		if (should_load_model) {
-			should_load_model = false;
+			if (models[i].should_load_model) {
+				auto model = model_from_dnm(models[i].file_abs_path);
+				model_load_to_gpu(model);
 
-			model_unload_from_gpu(model);
-			model_free(model);
+				// so we don't hot reload it again
+				dnm_hotreload.last_write_time = mn::file_last_write_time(models[i].file_abs_path);
 
-			model = model_from_dnm(mn::file_content_str(model_file_path, mn::memory::tmp()).ptr);
-			model_load_to_gpu(model);
+				model_unload_from_gpu(models[i]);
+				model_free(models[i]);
+				models[i] = model;
 
-			// so we don't hot reload it again
-			dnm_hotreload.last_write_time = mn::file_last_write_time(model_file_path);
-
-			mn::log_debug("loaded '{}'", model_file_path);
+				mn::log_debug("loaded '{}'", models[i].file_abs_path);
+				models[i].should_load_model = false;
+			}
 		}
 
 		glEnable(GL_DEPTH_TEST);
@@ -1979,102 +1994,104 @@ int main() {
 
 		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 
-		if (model.current_state.visible) {
-			if (enable_rotating_model_around) {
-				model.current_state.rotation.x = -21.0f / DEGREES_MAX * RADIANS_MAX;
-				model.current_state.rotation.y += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
-			}
+		for (Model& model : models) {
+			if (model.current_state.visible) {
+				if (model.enable_rotating_around) {
+					model.current_state.rotation.x += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
+					model.current_state.rotation.y = -21.0f / DEGREES_MAX * RADIANS_MAX;
+				}
 
-			if (animation_config.afterburner_reheat_enabled && animation_config.throttle < animation_config.afterburner_throttle_threshold) {
-				animation_config.throttle = animation_config.afterburner_throttle_threshold;
-			}
+				if (animation_config.afterburner_reheat_enabled && animation_config.throttle < animation_config.afterburner_throttle_threshold) {
+					animation_config.throttle = animation_config.afterburner_throttle_threshold;
+				}
 
-			// apply model transformation
-			auto model_transformation = glm::identity<glm::mat4>();
-			model_transformation = glm::translate(model_transformation, model.current_state.translation);
-			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3(0, 0, 1));
-			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(1, 0, 0));
-			model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(0, 1, 0));
+				// apply model transformation
+				auto model_transformation = glm::identity<glm::mat4>();
+				model_transformation = glm::translate(model_transformation, model.current_state.translation);
+				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3(0, 0, 1));
+				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(1, 0, 0));
+				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(0, 1, 0));
 
-			// start with root meshes
-			auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
-			for (auto i : model.root_meshes_indices) {
-				Mesh* mesh = &model.meshes.values[i].value;
-				mesh->transformation = model_transformation;
-				mn::buf_push(meshes_stack, mesh);
-			}
+				// start with root meshes
+				auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
+				for (auto i : model.root_meshes_indices) {
+					Mesh* mesh = &model.meshes.values[i].value;
+					mesh->transformation = model_transformation;
+					mn::buf_push(meshes_stack, mesh);
+				}
 
-			while (meshes_stack.count > 0) {
-				Mesh* mesh = mn::buf_top(meshes_stack);
-				mn_assert(mesh);
-				mn::buf_pop(meshes_stack);
+				while (meshes_stack.count > 0) {
+					Mesh* mesh = mn::buf_top(meshes_stack);
+					mn_assert(mesh);
+					mn::buf_pop(meshes_stack);
 
-				if (animation_config.enabled) {
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-						mesh->current_state.rotation.x += animation_config.throttle * animation_config.propoller_max_angle_speed;
+					if (animation_config.enabled) {
+						if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+							mesh->current_state.rotation.x += animation_config.throttle * animation_config.propoller_max_angle_speed;
+						}
+
+						if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.count > 1) {
+							// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
+							const MeshState& state_up   = mesh->animation_states[0];
+							const MeshState& state_down = mesh->animation_states[1];
+							const auto& alpha = animation_config.landing_gear_alpha;
+
+							mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
+							mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
+
+							float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
+							mesh->current_state.visible = visibilty > 0.05;;
+						}
 					}
 
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.count > 1) {
-						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
-						const MeshState& state_up   = mesh->animation_states[0];
-						const MeshState& state_down = mesh->animation_states[1];
-						const auto& alpha = animation_config.landing_gear_alpha;
-
-						mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
-						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
-
-						float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
-						mesh->current_state.visible = visibilty > 0.05;;
+					const bool enable_high_throttle = almost_equal(animation_config.throttle, 1.0f);
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
+						continue;
 					}
-				}
-
-				const bool enable_high_throttle = almost_equal(animation_config.throttle, 1.0f);
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
-					continue;
-				}
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle) {
-					continue;
-				}
-
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-					if (animation_config.afterburner_reheat_enabled == false) {
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle) {
 						continue;
 					}
 
-					if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
-						continue;
-					}
-				}
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
+						if (animation_config.afterburner_reheat_enabled == false) {
+							continue;
+						}
 
-				if (mesh->current_state.visible) {
-					if (mesh->render_cnt_axis) {
-						mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
-					}
-
-					// apply mesh transformation
-					mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-					mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
-
-					if (mesh->render_pos_axis) {
-						mn::buf_push(axis_instances, mesh->transformation);
+						if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
+							continue;
+						}
 					}
 
-					// upload transofmation model
-					glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
+					if (mesh->current_state.visible) {
+						if (mesh->render_cnt_axis) {
+							mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
+						}
 
-					glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), (GLint) mesh->is_light_source);
+						// apply mesh transformation
+						mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
+						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
+						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
+						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
 
-					glBindVertexArray(mesh->gpu.vao);
-					glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+						if (mesh->render_pos_axis) {
+							mn::buf_push(axis_instances, mesh->transformation);
+						}
 
-					for (const mn::Str& child_name : mesh->children) {
-						auto* kv = mn::map_lookup(model.meshes, child_name);
-						mn_assert(kv);
-						Mesh* child_mesh = &kv->value;
-						child_mesh->transformation = mesh->transformation;
-						mn::buf_push(meshes_stack, child_mesh);
+						// upload transofmation model
+						glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
+
+						glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), (GLint) mesh->is_light_source);
+
+						glBindVertexArray(mesh->gpu.vao);
+						glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+
+						for (const mn::Str& child_name : mesh->children) {
+							auto* kv = mn::map_lookup(model.meshes, child_name);
+							mn_assert(kv);
+							Mesh* child_mesh = &kv->value;
+							child_mesh->transformation = mesh->transformation;
+							mn::buf_push(meshes_stack, child_mesh);
+						}
 					}
 				}
 			}
@@ -2104,13 +2121,6 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			if (ImGui::Button("Load DNM")) {
-				should_open_dnm_file = true;
-			}
-			if (ImGui::Button("Reload")) {
-				should_load_model = true;
-			}
-
 			if (ImGui::TreeNode("DNM Hotreload")) {
 				ImGui::Checkbox("Enabled", &dnm_hotreload.enabled);
 				ImGui::InputFloat("Check Rate (secs)", &dnm_hotreload.check_rate_secs, 0.5f, 2.0f);
@@ -2295,100 +2305,106 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Model")) {
-				if (ImGui::Button("Reset State")) {
-					model.current_state = {};
-				}
-				if (ImGui::Button("Reset All")) {
-					model.current_state = {};
-					for (auto& [_, mesh] : model.meshes.values) {
-						mesh.current_state = mesh.initial_state;
+			for (int i = 0; i < NUM_MODELS; i++) {
+				Model& model = models[i];
+				if (ImGui::TreeNode(mn::str_tmpf("Model {}", i).ptr)) {
+					models[i].should_open_dnm_file = ImGui::Button("Load DNM");
+					models[i].should_load_model = ImGui::Button("Reload");
+
+					if (ImGui::Button("Reset State")) {
+						model.current_state = {};
 					}
-				}
-
-				ImGui::Checkbox("Rotate Around", &enable_rotating_model_around);
-
-				ImGui::Checkbox("visible", &model.current_state.visible);
-				ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
-				MyImGui::SliderAngle3("rotation", &model.current_state.rotation, imgui_angle_max);
-
-				size_t light_sources_count = 0;
-				for (const auto& [_, mesh] : model.meshes.values) {
-					if (mesh.is_light_source) {
-						light_sources_count++;
-					}
-				}
-
-				ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.count,
-					model.root_meshes_indices.count, light_sources_count).ptr);
-
-				std::function<void(Mesh&)> render_mesh_ui;
-				render_mesh_ui = [&model, &render_mesh_ui, imgui_angle_max, animation_config](Mesh& mesh) {
-					if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
-						if (ImGui::Button("Reset")) {
+					if (ImGui::Button("Reset All")) {
+						model.current_state = {};
+						for (auto& [_, mesh] : model.meshes.values) {
 							mesh.current_state = mesh.initial_state;
 						}
+					}
 
-						ImGui::Checkbox("light source", &mesh.is_light_source);
-						ImGui::BeginDisabled(animation_config.enabled);
-							ImGui::Checkbox("visible", &mesh.current_state.visible);
-						ImGui::EndDisabled();
+					ImGui::Checkbox("Rotate Around", &model.enable_rotating_around);
 
-						ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
-						ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
+					ImGui::Checkbox("visible", &model.current_state.visible);
+					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
+					MyImGui::SliderAngle3("rotation", &model.current_state.rotation, imgui_angle_max);
 
-						ImGui::BeginDisabled();
-							ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
-						ImGui::EndDisabled();
-
-						ImGui::BeginDisabled(animation_config.enabled);
-							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
-							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, imgui_angle_max);
-						ImGui::EndDisabled();
-
-						ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
-
-						ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
-						ImGui::Indent();
-						for (const auto& child_name : mesh.children) {
-							auto kv = mn::map_lookup(model.meshes, child_name);
-							mn_assert(kv);
-							render_mesh_ui(kv->value);
+					size_t light_sources_count = 0;
+					for (const auto& [_, mesh] : model.meshes.values) {
+						if (mesh.is_light_source) {
+							light_sources_count++;
 						}
-						ImGui::Unindent();
+					}
 
-						if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.count).ptr)) {
-							for (size_t i = 0; i < mesh.faces.count; i++) {
-								if (ImGui::TreeNode(mn::str_tmpf("{}", i).ptr)) {
-									ImGui::TextWrapped("Vertices: %s", mn::str_tmpf("{}", mesh.faces[i].vertices_ids).ptr);
+					ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.count,
+						model.root_meshes_indices.count, light_sources_count).ptr);
 
-									bool changed = false;
-									changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
-									changed = changed || ImGui::DragFloat3("normal", glm::value_ptr(mesh.faces[i].normal), 0.1, -1, 1);
-									changed = changed || ImGui::ColorEdit4("color", glm::value_ptr(mesh.faces[i].color));
-									if (changed) {
-										model_unload_from_gpu(model);
-										model_load_to_gpu(model);
+					std::function<void(Mesh&)> render_mesh_ui;
+					render_mesh_ui = [&model, &render_mesh_ui, imgui_angle_max, animation_config](Mesh& mesh) {
+						if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
+							if (ImGui::Button("Reset")) {
+								mesh.current_state = mesh.initial_state;
+							}
+
+							ImGui::Checkbox("light source", &mesh.is_light_source);
+							ImGui::BeginDisabled(animation_config.enabled);
+								ImGui::Checkbox("visible", &mesh.current_state.visible);
+							ImGui::EndDisabled();
+
+							ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
+							ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
+
+							ImGui::BeginDisabled();
+								ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
+							ImGui::EndDisabled();
+
+							ImGui::BeginDisabled(animation_config.enabled);
+								ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
+								MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, imgui_angle_max);
+							ImGui::EndDisabled();
+
+							ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
+
+							ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
+							ImGui::Indent();
+							for (const auto& child_name : mesh.children) {
+								auto kv = mn::map_lookup(model.meshes, child_name);
+								mn_assert(kv);
+								render_mesh_ui(kv->value);
+							}
+							ImGui::Unindent();
+
+							if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.count).ptr)) {
+								for (size_t i = 0; i < mesh.faces.count; i++) {
+									if (ImGui::TreeNode(mn::str_tmpf("{}", i).ptr)) {
+										ImGui::TextWrapped("Vertices: %s", mn::str_tmpf("{}", mesh.faces[i].vertices_ids).ptr);
+
+										bool changed = false;
+										changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
+										changed = changed || ImGui::DragFloat3("normal", glm::value_ptr(mesh.faces[i].normal), 0.1, -1, 1);
+										changed = changed || ImGui::ColorEdit4("color", glm::value_ptr(mesh.faces[i].color));
+										if (changed) {
+											model_unload_from_gpu(model);
+											model_load_to_gpu(model);
+										}
+
+										ImGui::TreePop();
 									}
-
-									ImGui::TreePop();
 								}
+
+								ImGui::TreePop();
 							}
 
 							ImGui::TreePop();
 						}
+					};
 
-						ImGui::TreePop();
+					ImGui::Indent();
+					for (auto i : model.root_meshes_indices) {
+						render_mesh_ui(model.meshes.values[i].value);
 					}
-				};
+					ImGui::Unindent();
 
-				ImGui::Indent();
-				for (auto i : model.root_meshes_indices) {
-					render_mesh_ui(model.meshes.values[i].value);
+					ImGui::TreePop();
 				}
-				ImGui::Unindent();
-
-				ImGui::TreePop();
 			}
 		}
 		ImGui::End();
@@ -2449,7 +2465,9 @@ int main() {
 			| ImGuiWindowFlags_NoMove))
 		{
 			ImGui::TextWrapped(mn::str_tmpf("fps: {:.2f}", 1.0f/delta_time).ptr);
-			ImGui::TextWrapped(mn::str_tmpf("model: '{}'", model_file_path).ptr);
+			for (int i = 0; i < NUM_MODELS; i++) {
+				ImGui::TextWrapped(mn::str_tmpf("models[{}]: '{}'", i, models[0].file_abs_path).ptr);
+			}
 		}
 		ImGui::End();
 
@@ -2472,10 +2490,16 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
+- collision detection (detect 2 planes intersection):
+	- calculate AABB for model
+	- test collision
+	- render box
+
 - what's PAX in dnmver 2?
 - what are GE and ZE in hurricane.dnm?
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
+
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - move from animation_config to Model
 - animate landing gear transition in real time (no alpha)
