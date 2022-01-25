@@ -557,6 +557,70 @@ void glCheckError_(const char *file, int line) {
 #	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
 #endif
 
+// region R = { (x, y, z) | min.x<=x<=max.x, min.y<=y<=max.y, min.z<=z<=max.z }
+struct AABB {
+	glm::vec3 min, max;
+};
+
+namespace fmt {
+	template<>
+	struct formatter<AABB> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const AABB &s, FormatContext &ctx) {
+			return format_to(ctx.out(), "AABB{{max: {}, min: {}}}", s.min, s.max);
+		}
+	};
+}
+
+// no intersection if separated along an axis
+// overlapping on all axes means AABBs are intersecting
+bool aabbs_intersect(const AABB& a, const AABB& b) {
+	return glm::all(glm::greaterThanEqual(a.max, b.min)) && glm::all(glm::greaterThanEqual(b.max, a.min));
+}
+
+void test_aabbs_intersection() {
+	{
+		const AABB x {
+			.min={0.0f, 0.0f, 2.0f},
+			.max={1.0f, 1.0f, 5.0f},
+		};
+		const AABB y {
+			.min={0.5f, 0.5f, 3.0f},
+			.max={3.0f, 3.0f, 4.0f},
+		};
+		mn_assert(aabbs_intersect(x, y));
+	}
+
+	{
+		const AABB x {
+			.min={0.0f, 0.0f, 2.0f},
+			.max={1.0f, 1.0f, 5.0f},
+		};
+		const AABB y {
+			.min={0.5f, 0.5f, -3.0f},
+			.max={3.0f, 3.0f, -4.0f},
+		};
+		mn_assert(aabbs_intersect(x, y) == false);
+	}
+
+	{
+		const AABB x {
+			.min={0.0f, 0.0f, 2.0f},
+			.max={1.0f, 1.0f, 5.0f},
+		};
+		const AABB y {
+			.min={0.5f, 0.5f, -3.0f},
+			.max={3.0f, 3.0f, 4.0f},
+		};
+		mn_assert(aabbs_intersect(x, y));
+	}
+
+	mn::log_debug("test_aabbs_intersection: all passed");
+}
+
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	mn::Str file_abs_path;
@@ -566,6 +630,9 @@ struct Model {
 
 	mn::Map<mn::Str, Mesh> meshes;
 	mn::Buf<size_t> root_meshes_indices;
+
+	AABB initial_aabb;
+	AABB current_aabb;
 
 	struct {
 		glm::vec3 translation;
@@ -870,6 +937,8 @@ void test_polygons_to_triangles() {
 		const glm::vec3 center {0.25, -0.742, 0.492};
 		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4})));
 	}
+
+	mn::log_debug("test_polygons_to_triangles: passed all");
 }
 
 size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
@@ -891,9 +960,9 @@ size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
 }
 
 // YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
-constexpr float YS_MAX             = 0xFFFF;
-constexpr float RADIANS_MAX        = 6.283185307179586f;
-constexpr float DEGREES_MAX        = 360.0f;
+constexpr float YS_MAX      = 0xFFFF;
+constexpr float RADIANS_MAX = 6.283185307179586f;
+constexpr float DEGREES_MAX = 360.0f;
 
 Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 	const auto dnm_file = mn::file_content_str(dnm_file_abs_path, mn::memory::tmp());
@@ -1305,6 +1374,10 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 		.file_abs_path = mn::str_clone(dnm_file_abs_path),
 		.should_load_model = true,
 		.meshes = surfs,
+		.initial_aabb = AABB {
+			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
+			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
+		},
 	};
 
 	// top level nodes = nodes without parents
@@ -1324,6 +1397,7 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 	auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
 	for (auto i : model.root_meshes_indices) {
 		Mesh* mesh = &model.meshes.values[i].value;
+		mesh->transformation = glm::identity<glm::mat4>();
 		mn::buf_push(meshes_stack, mesh);
 	}
 	while (meshes_stack.count > 0) {
@@ -1333,6 +1407,23 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 
 		for (auto& v : mesh->vertices) {
 			v -= mesh->cnt;
+
+			// apply mesh transformation to get model space vertex
+			mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
+			const auto model_v = mesh->transformation * glm::vec4(v, 1.0);
+
+			// update AABB
+			for (int i = 0; i < 3; i++) {
+				if (model_v[i] < model.initial_aabb.min[i]) {
+					model.initial_aabb.min[i] = model_v[i];
+				}
+				if (model_v[i] > model.initial_aabb.max[i]) {
+					model.initial_aabb.max[i] = model_v[i];
+				}
+			}
 		}
 
 		for (const mn::Str& child_name : mesh->children) {
@@ -1345,6 +1436,8 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 			mn::buf_push(meshes_stack, child_mesh);
 		}
 	}
+
+	model.current_aabb = model.initial_aabb;
 
 	return model;
 }
@@ -1544,6 +1637,7 @@ namespace MyImGui {
 }
 
 int main() {
+	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
 	SDL_SetMainReady();
@@ -1565,9 +1659,9 @@ int main() {
 	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
 
 	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { mn::panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR)) { mn::panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR)) { mn::panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER)) { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR))  { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR))  { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER))           { mn::panic(SDL_GetError()); }
 
 	auto gl_context = SDL_GL_CreateContext(sdl_window);
 	if (!gl_context) {
@@ -1846,6 +1940,8 @@ int main() {
 	while (running) {
 		mn::memory::tmp()->clear_all();
 
+		auto overlay_text = mn::str_tmp();
+
 		// time
 		{
 			Uint32 delta_time_millis = SDL_GetTicks() - time_millis;
@@ -1869,6 +1965,7 @@ int main() {
 				delta_time = 0.0001f;
 			}
 		}
+		overlay_text = mn::strf(overlay_text, "fps: {:.2f}\n", 1.0f/delta_time);
 
 		camera_update(camera, delta_time);
 
@@ -1992,9 +2089,34 @@ int main() {
 			glDisable(GL_CULL_FACE);
 		}
 
+		// test intersection
+		for (int i = 0; i < NUM_MODELS-1; i++) {
+			if (models[i].current_state.visible == false) {
+				overlay_text = mn::strf(overlay_text, "model[{}] invisible and won't intersect\n", i);
+				continue;
+			}
+
+			for (int j = i+1; j < NUM_MODELS; j++) {
+				if (models[j].current_state.visible == false) {
+					overlay_text = mn::strf(overlay_text, "model[{}] invisible and won't intersect\n", j);
+					continue;
+				}
+
+				if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
+					overlay_text = mn::strf(overlay_text, "model[{}] intersects model[{}]\n", i, j);
+				} else {
+					overlay_text = mn::strf(overlay_text, "model[{}] doesn't intersect model[{}]\n", i, j);
+				}
+			}
+		}
+
 		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 
-		for (Model& model : models) {
+		// render models
+		for (int i = 0; i < NUM_MODELS; i++) {
+			Model& model = models[i];
+			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
+
 			if (model.current_state.visible) {
 				if (model.enable_rotating_around) {
 					model.current_state.rotation.x += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
@@ -2011,6 +2133,9 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3(0, 0, 1));
 				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(1, 0, 0));
 				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(0, 1, 0));
+
+				model.current_aabb.min = model_transformation * glm::vec4(model.initial_aabb.min, 1.0f);
+				model.current_aabb.max = model_transformation * glm::vec4(model.initial_aabb.max, 1.0f);
 
 				// start with root meshes
 				auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -2327,6 +2452,9 @@ int main() {
 					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
 					MyImGui::SliderAngle3("rotation", &model.current_state.rotation, imgui_angle_max);
 
+					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.initial_aabb.min));
+					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.initial_aabb.max));
+
 					size_t light_sources_count = 0;
 					for (const auto& [_, mesh] : model.meshes.values) {
 						if (mesh.is_light_source) {
@@ -2462,12 +2590,8 @@ int main() {
 			| ImGuiWindowFlags_NoSavedSettings
 			| ImGuiWindowFlags_NoFocusOnAppearing
 			| ImGuiWindowFlags_NoNav
-			| ImGuiWindowFlags_NoMove))
-		{
-			ImGui::TextWrapped(mn::str_tmpf("fps: {:.2f}", 1.0f/delta_time).ptr);
-			for (int i = 0; i < NUM_MODELS; i++) {
-				ImGui::TextWrapped(mn::str_tmpf("models[{}]: '{}'", i, models[0].file_abs_path).ptr);
-			}
+			| ImGuiWindowFlags_NoMove)) {
+			ImGui::TextWrapped(overlay_text.ptr);
 		}
 		ImGui::End();
 
@@ -2490,10 +2614,10 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
-- collision detection (detect 2 planes intersection):
-	- calculate AABB for model
-	- test collision
-	- render box
+- collision detection (detect 2 aircrafts intersection):
+	- AABB -> OBB
+	- render OBB
+	- OBB red if collide, otherwise blue
 
 - what's PAX in dnmver 2?
 - what are GE and ZE in hurricane.dnm?
