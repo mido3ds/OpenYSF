@@ -950,7 +950,7 @@ void test_polygons_to_triangles() {
 		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4})));
 	}
 
-	mn::log_debug("test_polygons_to_triangles: passed all");
+	mn::log_debug("test_polygons_to_triangles: all passed");
 }
 
 size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
@@ -1778,7 +1778,6 @@ int main() {
 
 			out vec4 out_fragcolor;
 
-			uniform sampler1D faces_colors;
 			uniform bool is_light_source;
 
 			void main() {
@@ -1947,6 +1946,29 @@ int main() {
 		GL_CATCH_ERRS();
 	}
 
+	const GLuint lines_gpu_program = gpu_program_new(
+		// vertex shader
+		R"GLSL(
+			#version 330 core
+			layout (location = 0) in vec3 attr_position;
+			uniform mat4 model_view_projection;
+			void main() {
+				gl_Position = model_view_projection * vec4(attr_position, 1.0);
+			}
+		)GLSL",
+
+		// fragment shader
+		R"GLSL(
+			#version 330 core
+			uniform vec3 color;
+			out vec4 out_fragcolor;
+			void main() {
+				out_fragcolor = vec4(color, 1.0f);
+			}
+		)GLSL"
+	);
+	mn_defer(glDeleteProgram(lines_gpu_program));
+
 	struct {
 		GLuint vao, vbo;
 		size_t points_count;
@@ -1958,47 +1980,38 @@ int main() {
 		glDeleteVertexArrays(1, &box_rendering.vao);
 	});
 	{
-		struct Stride {
-			glm::vec3 vertex;
-			glm::vec4 color;
-		};
 		mn::allocator_push(mn::memory::tmp());
-		const auto buffer = mn::buf_lit({
-			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // face x0
-			Stride {{0, 1, 0}, {0, 0, 1, 1}},
-			Stride {{0, 1, 1}, {0, 0, 1, 1}},
-			Stride {{0, 0, 1}, {0, 0, 1, 1}},
-			Stride {{0, 0, 0}, {0, 0, 1, 1}},
-
-			Stride {{1, 0, 0}, {0, 0, 1, 1}}, // face x1
-			Stride {{1, 1, 0}, {0, 0, 1, 1}},
-			Stride {{1, 1, 1}, {0, 0, 1, 1}},
-			Stride {{1, 0, 1}, {0, 0, 1, 1}},
-			Stride {{1, 0, 0}, {0, 0, 1, 1}},
-
-			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // face y0
-			Stride {{1, 0, 0}, {0, 0, 1, 1}},
-			Stride {{1, 0, 1}, {0, 0, 1, 1}},
-			Stride {{0, 0, 1}, {0, 0, 1, 1}},
-			Stride {{0, 0, 0}, {0, 0, 1, 1}},
-
-			Stride {{0, 1, 0}, {0, 0, 1, 1}}, // face y1
-			Stride {{1, 1, 0}, {0, 0, 1, 1}},
-			Stride {{1, 1, 1}, {0, 0, 1, 1}},
-			Stride {{0, 1, 1}, {0, 0, 1, 1}},
-			Stride {{0, 1, 0}, {0, 0, 1, 1}},
-
-			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // face z0
-			Stride {{1, 0, 0}, {0, 0, 1, 1}},
-			Stride {{1, 1, 0}, {0, 0, 1, 1}},
-			Stride {{0, 1, 0}, {0, 0, 1, 1}},
-			Stride {{0, 0, 0}, {0, 0, 1, 1}},
-
-			Stride {{0, 0, 1}, {0, 0, 1, 1}}, // face z1
-			Stride {{1, 0, 1}, {0, 0, 1, 1}},
-			Stride {{1, 1, 1}, {0, 0, 1, 1}},
-			Stride {{0, 1, 1}, {0, 0, 1, 1}},
-			Stride {{0, 0, 1}, {0, 0, 1, 1}},
+		const auto buffer = mn::buf_lit<glm::vec3>({
+			{0, 0, 0}, // face x0
+			{0, 1, 0},
+			{0, 1, 1},
+			{0, 0, 1},
+			{0, 0, 0},
+			{1, 0, 0}, // face x1
+			{1, 1, 0},
+			{1, 1, 1},
+			{1, 0, 1},
+			{1, 0, 0},
+			{0, 0, 0}, // face y0
+			{1, 0, 0},
+			{1, 0, 1},
+			{0, 0, 1},
+			{0, 0, 0},
+			{0, 1, 0}, // face y1
+			{1, 1, 0},
+			{1, 1, 1},
+			{0, 1, 1},
+			{0, 1, 0},
+			{0, 0, 0}, // face z0
+			{1, 0, 0},
+			{1, 1, 0},
+			{0, 1, 0},
+			{0, 0, 0},
+			{0, 0, 1}, // face z1
+			{1, 0, 1},
+			{1, 1, 1},
+			{0, 1, 1},
+			{0, 0, 1},
 		});
 		mn::allocator_pop();
 		box_rendering.points_count = buffer.count;
@@ -2007,31 +2020,17 @@ int main() {
 		glBindVertexArray(box_rendering.vao);
 			glGenBuffers(1, &box_rendering.vbo);
 			glBindBuffer(GL_ARRAY_BUFFER, box_rendering.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
-
-			size_t offset = 0;
+			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(glm::vec3), buffer.ptr, GL_STATIC_DRAW);
 
 			glEnableVertexAttribArray(0);
 			glVertexAttribPointer(
-				0,              /*index*/
-				3,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
+				0,                 /*index*/
+				3,                 /*#components*/
+				GL_FLOAT,          /*type*/
+				GL_FALSE,          /*normalize*/
+				sizeof(glm::vec3), /*stride bytes*/
+				(void*)0           /*offset*/
 			);
-			offset += sizeof(Stride::vertex);
-
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(
-				1,              /*index*/
-				4,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::color);
 		glBindVertexArray(0);
 
 		GL_CATCH_ERRS();
@@ -2179,10 +2178,6 @@ int main() {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		glUseProgram(meshes_gpu_program);
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
-
 		if (rendering.smooth_lines) {
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(rendering.line_width);
@@ -2225,6 +2220,10 @@ int main() {
 		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
 
 		// render models
+		glUseProgram(meshes_gpu_program);
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
+
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
@@ -2355,16 +2354,22 @@ int main() {
 			}
 		}
 
+		// render boxes
 		if (box_instances.count > 0) {
+			glUseProgram(lines_gpu_program);
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(box_rendering.line_width);
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(box_rendering.vao);
+
+			glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(glm::vec3{1,0,0}));
+
+			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
 
 			for (const auto& box : box_instances) {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
+				const auto projection_view_model = projection_view * transformation;
+				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
 				glDrawArrays(GL_LINE_LOOP, 0, box_rendering.points_count);
 			}
 		}
@@ -2753,7 +2758,6 @@ TODO:
 - collision detection (detect 2 aircrafts intersection):
 	- AABB big enough for rotated object
 	- render AABB
-		- custom shader
 		- AABB red if collide, otherwise blue
 	- AABB for each mesh?
 
