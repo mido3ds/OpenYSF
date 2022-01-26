@@ -582,7 +582,7 @@ bool aabbs_intersect(const AABB& a, const AABB& b) {
 }
 
 struct Box {
-	glm::vec3 translation, scale;
+	glm::vec3 translation, scale, color;
 };
 
 Box aabb_to_box(const AABB& aabb) {
@@ -2196,11 +2196,14 @@ int main() {
 		}
 
 		// test intersection
+		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
 		for (int i = 0; i < NUM_MODELS-1; i++) {
 			if (models[i].current_state.visible == false) {
 				overlay_text = mn::strf(overlay_text, "model[{}] invisible and won't intersect\n", i);
 				continue;
 			}
+
+			glm::vec3 i_color {0, 0, 1};
 
 			for (int j = i+1; j < NUM_MODELS; j++) {
 				if (models[j].current_state.visible == false) {
@@ -2208,16 +2211,30 @@ int main() {
 					continue;
 				}
 
+				glm::vec3 j_color {0, 0, 1};
+
 				if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
 					overlay_text = mn::strf(overlay_text, "model[{}] intersects model[{}]\n", i, j);
+					j_color = i_color = {1, 0, 0};
 				} else {
 					overlay_text = mn::strf(overlay_text, "model[{}] doesn't intersect model[{}]\n", i, j);
 				}
+
+				if (models[j].render_aabb) {
+					auto box = aabb_to_box(models[j].current_aabb);
+					box.color = j_color;
+					mn::buf_push(box_instances, box);
+				}
+			}
+
+			if (models[i].render_aabb) {
+				auto box = aabb_to_box(models[i].current_aabb);
+				box.color = i_color;
+				mn::buf_push(box_instances, box);
 			}
 		}
 
 		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
-		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
 
 		// render models
 		glUseProgram(meshes_gpu_program);
@@ -2247,10 +2264,6 @@ int main() {
 
 				model.current_aabb.min = model_transformation * glm::vec4(model.initial_aabb.min, 1.0f);
 				model.current_aabb.max = model_transformation * glm::vec4(model.initial_aabb.max, 1.0f);
-
-				if (model.render_aabb) {
-					mn::buf_push(box_instances, aabb_to_box(model.current_aabb));
-				}
 
 				// start with root meshes
 				auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -2361,8 +2374,6 @@ int main() {
 			glLineWidth(box_rendering.line_width);
 			glBindVertexArray(box_rendering.vao);
 
-			glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(glm::vec3{1,0,0}));
-
 			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
 
 			for (const auto& box : box_instances) {
@@ -2370,6 +2381,9 @@ int main() {
 				transformation = glm::scale(transformation, box.scale);
 				const auto projection_view_model = projection_view * transformation;
 				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
+
+				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
+
 				glDrawArrays(GL_LINE_LOOP, 0, box_rendering.points_count);
 			}
 		}
@@ -2757,8 +2771,6 @@ bugs:
 TODO:
 - collision detection (detect 2 aircrafts intersection):
 	- AABB big enough for rotated object
-	- render AABB
-		- AABB red if collide, otherwise blue
 	- AABB for each mesh?
 
 - what's PAX in dnmver 2?
