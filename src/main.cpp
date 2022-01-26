@@ -581,6 +581,17 @@ bool aabbs_intersect(const AABB& a, const AABB& b) {
 	return glm::all(glm::greaterThanEqual(a.max, b.min)) && glm::all(glm::greaterThanEqual(b.max, a.min));
 }
 
+struct Box {
+	glm::vec3 translation, scale;
+};
+
+Box aabb_to_box(const AABB& aabb) {
+	return Box {
+		.translation = aabb.min,
+		.scale = aabb.max - aabb.min,
+	};
+}
+
 void test_aabbs_intersection() {
 	{
 		const AABB x {
@@ -633,6 +644,7 @@ struct Model {
 
 	AABB initial_aabb;
 	AABB current_aabb;
+	bool render_aabb;
 
 	struct {
 		glm::vec3 translation;
@@ -1873,7 +1885,6 @@ int main() {
 		glDeleteBuffers(1, &axis_rendering.vbo);
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &axis_rendering.vao);
-		axis_rendering = {};
 	});
 	{
 		struct Stride {
@@ -1896,6 +1907,96 @@ int main() {
 		glBindVertexArray(axis_rendering.vao);
 			glGenBuffers(1, &axis_rendering.vbo);
 			glBindBuffer(GL_ARRAY_BUFFER, axis_rendering.vbo);
+			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+
+			size_t offset = 0;
+
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(
+				0,              /*index*/
+				3,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::vertex);
+
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(
+				1,              /*index*/
+				4,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::color);
+		glBindVertexArray(0);
+
+		GL_CATCH_ERRS();
+	}
+
+	struct {
+		GLuint vao, vbo;
+		size_t points_count;
+		GLfloat line_width = 1.0f;
+	} box_rendering;
+	mn_defer({
+		glDeleteBuffers(1, &axis_rendering.vbo);
+		glBindVertexArray(0);
+		glDeleteVertexArrays(1, &axis_rendering.vao);
+	});
+	{
+		struct Stride {
+			glm::vec3 vertex;
+			glm::vec4 color;
+		};
+		mn::allocator_push(mn::memory::tmp());
+		const auto buffer = mn::buf_lit({
+			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // face x0
+			Stride {{0, 1, 0}, {0, 0, 1, 1}},
+			Stride {{0, 1, 1}, {0, 0, 1, 1}},
+			Stride {{0, 0, 1}, {0, 0, 1, 1}},
+			Stride {{0, 0, 0}, {0, 0, 1, 1}},
+
+			Stride {{1, 0, 0}, {0, 0, 1, 1}}, // face x1
+			Stride {{1, 1, 0}, {0, 0, 1, 1}},
+			Stride {{1, 1, 1}, {0, 0, 1, 1}},
+			Stride {{1, 0, 1}, {0, 0, 1, 1}},
+			Stride {{1, 0, 0}, {0, 0, 1, 1}},
+
+			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // face y0
+			Stride {{1, 0, 0}, {0, 0, 1, 1}},
+			Stride {{1, 0, 1}, {0, 0, 1, 1}},
+			Stride {{0, 0, 1}, {0, 0, 1, 1}},
+			Stride {{0, 0, 0}, {0, 0, 1, 1}},
+
+			Stride {{0, 1, 0}, {0, 0, 1, 1}}, // face y1
+			Stride {{1, 1, 0}, {0, 0, 1, 1}},
+			Stride {{1, 1, 1}, {0, 0, 1, 1}},
+			Stride {{0, 1, 1}, {0, 0, 1, 1}},
+			Stride {{0, 1, 0}, {0, 0, 1, 1}},
+
+			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // face z0
+			Stride {{1, 0, 0}, {0, 0, 1, 1}},
+			Stride {{1, 1, 0}, {0, 0, 1, 1}},
+			Stride {{0, 1, 0}, {0, 0, 1, 1}},
+			Stride {{0, 0, 0}, {0, 0, 1, 1}},
+
+			Stride {{0, 0, 1}, {0, 0, 1, 1}}, // face z1
+			Stride {{1, 0, 1}, {0, 0, 1, 1}},
+			Stride {{1, 1, 1}, {0, 0, 1, 1}},
+			Stride {{0, 1, 1}, {0, 0, 1, 1}},
+			Stride {{0, 0, 1}, {0, 0, 1, 1}},
+		});
+		mn::allocator_pop();
+		box_rendering.points_count = buffer.count;
+
+		glGenVertexArrays(1, &box_rendering.vao);
+		glBindVertexArray(box_rendering.vao);
+			glGenBuffers(1, &box_rendering.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, box_rendering.vbo);
 			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
 
 			size_t offset = 0;
@@ -2111,6 +2212,7 @@ int main() {
 		}
 
 		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
+		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
 
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
@@ -2136,6 +2238,10 @@ int main() {
 
 				model.current_aabb.min = model_transformation * glm::vec4(model.initial_aabb.min, 1.0f);
 				model.current_aabb.max = model_transformation * glm::vec4(model.initial_aabb.max, 1.0f);
+
+				if (model.render_aabb) {
+					mn::buf_push(box_instances, aabb_to_box(model.current_aabb));
+				}
 
 				// start with root meshes
 				auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -2236,6 +2342,20 @@ int main() {
 			for (const auto& transformation : axis_instances) {
 				glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
+			}
+		}
+
+		if (box_instances.count > 0) {
+			glEnable(GL_LINE_SMOOTH);
+			glLineWidth(box_rendering.line_width);
+			glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), 0);
+			glBindVertexArray(box_rendering.vao);
+
+			for (const auto& box : box_instances) {
+				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
+				transformation = glm::scale(transformation, box.scale);
+				glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
+				glDrawArrays(GL_LINE_LOOP, 0, box_rendering.points_count);
 			}
 		}
 
@@ -2407,6 +2527,11 @@ int main() {
 				ImGui::TreePop();
 			}
 
+			if (ImGui::TreeNode("AABB Rendering")) {
+				ImGui::DragFloat("Line Width", &box_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+				ImGui::TreePop();
+			}
+
 			if (ImGui::TreeNode("Animation")) {
 				ImGui::Checkbox("Enabled", &animation_config.enabled);
 				if (ImGui::Button("Reset")) {
@@ -2452,6 +2577,7 @@ int main() {
 					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
 					MyImGui::SliderAngle3("rotation", &model.current_state.rotation, imgui_angle_max);
 
+					ImGui::Checkbox("Render AABB", &model.render_aabb);
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.initial_aabb.min));
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.initial_aabb.max));
 
@@ -2615,15 +2741,19 @@ bugs:
 
 TODO:
 - collision detection (detect 2 aircrafts intersection):
-	- AABB -> OBB
-	- render OBB
-	- OBB red if collide, otherwise blue
+	- AABB big enough for rotated object
+	- render AABB
+		- custom shader
+		- AABB red if collide, otherwise blue
+	- AABB for each mesh?
 
 - what's PAX in dnmver 2?
 - what are GE and ZE in hurricane.dnm?
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
 
+- Scenery files
+- AABB -> OBB
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - move from animation_config to Model
 - animate landing gear transition in real time (no alpha)
