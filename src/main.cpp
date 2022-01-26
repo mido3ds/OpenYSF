@@ -1648,6 +1648,52 @@ namespace MyImGui {
 	}
 }
 
+GLuint gpu_program_new(const char* vertex_shader_src, const char* fragment_shader_src) {
+	// vertex shader
+    const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
+    glCompileShader(vertex_shader);
+
+    GLint vertex_shader_success;
+    glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &vertex_shader_success);
+    if (!vertex_shader_success) {
+    	char info_log[512];
+        glGetShaderInfoLog(vertex_shader, 512, NULL, info_log);
+        mn::panic("failed to compile vertex shader, err: {}", info_log);
+    }
+
+    // fragment shader
+    const GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
+    glCompileShader(fragment_shader);
+
+	GLint fragment_shader_success;
+    glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &fragment_shader_success);
+    if (!fragment_shader_success) {
+    	char info_log[512];
+        glGetShaderInfoLog(fragment_shader, 512, NULL, info_log);
+        mn::panic("failed to compile fragment shader, err: {}", info_log);
+    }
+
+    // link shaders
+    const GLuint gpu_program = glCreateProgram();
+    glAttachShader(gpu_program, vertex_shader);
+    glAttachShader(gpu_program, fragment_shader);
+    glLinkProgram(gpu_program);
+
+	GLint shader_program_success;
+    glGetProgramiv(gpu_program, GL_LINK_STATUS, &shader_program_success);
+    if (!shader_program_success) {
+    	char info_log[512];
+        glGetProgramInfoLog(gpu_program, 512, NULL, info_log);
+        mn::panic("failed to link vertex and fragment shaders, err: {}", info_log);
+    }
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+
+	return gpu_program;
+}
+
 int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
@@ -1703,80 +1749,44 @@ int main() {
 	}
 	mn_defer(ImGui_ImplOpenGL3_Shutdown());
 
-    // vertex shader
-    const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-	constexpr auto vertex_shader_src = R"GLSL(
-		#version 330 core
-		layout (location = 0) in vec3 attr_position;
-		layout (location = 1) in vec4 attr_color;
-		layout (location = 2) in vec3 attr_normal;
+	const GLuint meshes_gpu_program = gpu_program_new(
+		// vertex shader
+		R"GLSL(
+			#version 330 core
+			layout (location = 0) in vec3 attr_position;
+			layout (location = 1) in vec4 attr_color;
+			layout (location = 2) in vec3 attr_normal;
 
-		// TODO: pass MVP instead of 3 uniforms for perf
-		uniform mat4 projection, view, model;
+			// TODO: pass MVP instead of 3 uniforms for perf
+			uniform mat4 projection, view, model;
 
-		out vec4 vs_color;
-		out vec3 vs_normal;
+			out vec4 vs_color;
+			out vec3 vs_normal;
 
-		void main() {
-			gl_Position = projection * view * model * vec4(attr_position, 1.0);
-			vs_color = attr_color;
-			vs_normal = attr_normal;
-		}
-	)GLSL";
-    glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
-    glCompileShader(vertex_shader);
+			void main() {
+				gl_Position = projection * view * model * vec4(attr_position, 1.0);
+				vs_color = attr_color;
+				vs_normal = attr_normal;
+			}
+		)GLSL",
 
-    GLint vertex_shader_success;
-    glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &vertex_shader_success);
-    if (!vertex_shader_success) {
-    	char info_log[512];
-        glGetShaderInfoLog(vertex_shader, 512, NULL, info_log);
-        mn::panic("failed to compile vertex shader, err: {}", info_log);
-    }
+		// fragment shader
+		R"GLSL(
+			#version 330 core
+			in vec4 vs_color;
+			in vec3 vs_normal;
 
-    // fragment shader
-    const GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-	constexpr auto fragment_shader_src = R"GLSL(
-		#version 330 core
-		in vec4 vs_color;
-		in vec3 vs_normal;
+			out vec4 out_fragcolor;
 
-		out vec4 out_fragcolor;
+			uniform sampler1D faces_colors;
+			uniform bool is_light_source;
 
-		uniform sampler1D faces_colors;
-		uniform bool is_light_source;
-
-		void main() {
-			out_fragcolor = vs_color;
-		}
-	)GLSL";
-    glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
-    glCompileShader(fragment_shader);
-
-	GLint fragment_shader_success;
-    glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &fragment_shader_success);
-    if (!fragment_shader_success) {
-    	char info_log[512];
-        glGetShaderInfoLog(fragment_shader, 512, NULL, info_log);
-        mn::panic("failed to compile fragment shader, err: {}", info_log);
-    }
-
-    // link shaders
-    const GLuint shader_program = glCreateProgram();
-    glAttachShader(shader_program, vertex_shader);
-    glAttachShader(shader_program, fragment_shader);
-    glLinkProgram(shader_program);
-
-	GLint shader_program_success;
-    glGetProgramiv(shader_program, GL_LINK_STATUS, &shader_program_success);
-    if (!shader_program_success) {
-    	char info_log[512];
-        glGetProgramInfoLog(shader_program, 512, NULL, info_log);
-        mn::panic("failed to linke vertex and fragment shaders, err: {}", info_log);
-    }
-    glDeleteShader(vertex_shader);
-    glDeleteShader(fragment_shader);
-	mn_defer(glDeleteProgram(shader_program));
+			void main() {
+				out_fragcolor = vs_color;
+			}
+		)GLSL"
+	);
+	mn_defer(glDeleteProgram(meshes_gpu_program));
 
 	// models
 	constexpr int NUM_MODELS = 2;
@@ -1943,9 +1953,9 @@ int main() {
 		GLfloat line_width = 1.0f;
 	} box_rendering;
 	mn_defer({
-		glDeleteBuffers(1, &axis_rendering.vbo);
+		glDeleteBuffers(1, &box_rendering.vbo);
 		glBindVertexArray(0);
-		glDeleteVertexArrays(1, &axis_rendering.vao);
+		glDeleteVertexArrays(1, &box_rendering.vao);
 	});
 	{
 		struct Stride {
@@ -2169,9 +2179,9 @@ int main() {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		glUseProgram(shader_program);
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
-		glUniformMatrix4fv(glGetUniformLocation(shader_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
+		glUseProgram(meshes_gpu_program);
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
 		if (rendering.smooth_lines) {
 			glEnable(GL_LINE_SMOOTH);
@@ -2309,9 +2319,9 @@ int main() {
 						}
 
 						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
+						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
 
-						glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), (GLint) mesh->is_light_source);
+						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
 
 						glBindVertexArray(mesh->gpu.vao);
 						glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
@@ -2337,10 +2347,10 @@ int main() {
 			}
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(axis_rendering.line_width);
-			glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), 0);
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 		}
@@ -2348,13 +2358,13 @@ int main() {
 		if (box_instances.count > 0) {
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(box_rendering.line_width);
-			glUniform1i(glGetUniformLocation(shader_program, "is_light_source"), 0);
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(box_rendering.vao);
 
 			for (const auto& box : box_instances) {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
-				glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
 				glDrawArrays(GL_LINE_LOOP, 0, box_rendering.points_count);
 			}
 		}
