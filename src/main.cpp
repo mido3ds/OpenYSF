@@ -2809,7 +2809,8 @@ TODO:
 
 - Scenery files
 - AABB for each mesh?
-- AABB -> OBB
+- AABB -> OBB?
+- use coll.dnm files?
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - move from animation_config to Model
 - animate landing gear transition in real time (no alpha)
