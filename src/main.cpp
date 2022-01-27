@@ -1449,6 +1449,10 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 		}
 	}
 
+	// to sphere
+	// model.initial_aabb.min = glm::vec3(glm::min(glm::min(model.initial_aabb.min[0], model.initial_aabb.min[1]), model.initial_aabb.min[2]));
+	// model.initial_aabb.max = glm::vec3(glm::max(glm::max(model.initial_aabb.max[0], model.initial_aabb.max[1]), model.initial_aabb.max[2]));
+
 	model.current_aabb = model.initial_aabb;
 
 	return model;
@@ -2258,12 +2262,41 @@ int main() {
 				// apply model transformation
 				auto model_transformation = glm::identity<glm::mat4>();
 				model_transformation = glm::translate(model_transformation, model.current_state.translation);
-				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3(0, 0, 1));
-				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3(1, 0, 0));
-				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3(0, 1, 0));
+				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3{0, 0, 1});
+				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3{1, 0, 0});
+				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3{0, 1, 0});
+				// overlay_text = mn::strf(overlay_text, "{}\n", model_transformation);
 
-				model.current_aabb.min = model_transformation * glm::vec4(model.initial_aabb.min, 1.0f);
-				model.current_aabb.max = model_transformation * glm::vec4(model.initial_aabb.max, 1.0f);
+				// transform AABB (estimate new AABB after rotation)
+				{
+					// translate AABB
+					model.current_aabb.min = model.current_aabb.max = model.current_state.translation;
+
+					// new rotated AABB (no translation)
+					const auto model_rotation = glm::mat3(model_transformation);
+					const auto rotated_min = model_rotation * model.initial_aabb.min;
+					const auto rotated_max = model_rotation * model.initial_aabb.max;
+					const AABB rotated_aabb {
+						.min = glm::min(rotated_min, rotated_max),
+						.max = glm::max(rotated_min, rotated_max),
+					};
+
+					// for all three axes
+					for (int i = 0; i < 3; i++) {
+						// form extent by summing smaller and larger terms respectively
+						for (int j = 0; j < 3; j++) {
+							const float e = model_rotation[j][i] * rotated_aabb.min[j];
+							const float f = model_rotation[j][i] * rotated_aabb.max[j];
+							if (e < f) {
+								model.current_aabb.min[i] += e;
+								model.current_aabb.max[i] += f;
+							} else {
+								model.current_aabb.min[i] += f;
+								model.current_aabb.max[i] += e;
+							}
+						}
+					}
+				}
 
 				// start with root meshes
 				auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
@@ -2607,8 +2640,8 @@ int main() {
 					MyImGui::SliderAngle3("rotation", &model.current_state.rotation, imgui_angle_max);
 
 					ImGui::Checkbox("Render AABB", &model.render_aabb);
-					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.initial_aabb.min));
-					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.initial_aabb.max));
+					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.current_aabb.min));
+					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.current_aabb.max));
 
 					size_t light_sources_count = 0;
 					for (const auto& [_, mesh] : model.meshes.values) {
@@ -2769,16 +2802,13 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
-- collision detection (detect 2 aircrafts intersection):
-	- AABB big enough for rotated object
-	- AABB for each mesh?
-
 - what's PAX in dnmver 2?
 - what are GE and ZE in hurricane.dnm?
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
 
 - Scenery files
+- AABB for each mesh?
 - AABB -> OBB
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - move from animation_config to Model
