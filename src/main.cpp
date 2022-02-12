@@ -31,6 +31,19 @@
 
 namespace fmt {
 	template<>
+	struct formatter<glm::uvec2> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::uvec2 &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "glm::uvec2{{{}, {}}}", v.x, v.y);
+		}
+	};
+}
+
+namespace fmt {
+	template<>
 	struct formatter<glm::vec2> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
@@ -1736,6 +1749,229 @@ BLO 0.00
 END
 )";
 
+struct Block {
+	enum { RIGHT=0, LEFT } orientation;
+	glm::vec4 faces_color[2];
+};
+
+namespace fmt {
+	template<>
+	struct formatter<Block> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const Block &v, FormatContext &ctx) {
+			mn::Str orientation {};
+			switch (v.orientation) {
+			case Block::LEFT: orientation = mn::str_lit("LEFT"); break;
+			case Block::RIGHT: orientation = mn::str_lit("RIGHT"); break;
+			default: mn_unreachable();
+			}
+
+			return format_to(ctx.out(), "Block{{orientation: {}, faces_color[0]: {}, faces_color[1]: {}}}", orientation, v.faces_color[0], v.faces_color[1]);
+		}
+	};
+}
+
+struct TerrMesh {
+	glm::uvec2 num_blocks;
+	glm::vec2 scale;
+
+	struct {
+		bool enabled;
+		float bottom_height, top_height;
+		glm::vec3 bottom_color, top_color;
+	} gradiant;
+
+	struct {
+		bool enabled;
+		glm::vec3 color;
+	} top_side, bottom_side, right_side, left_side;
+
+	// [x][y] where (x=0,y=0) is bot-left most
+	mn::Buf<mn::Buf<float>> nodes_height;
+	mn::Buf<mn::Buf<Block>> blocks;
+};
+
+void terr_mesh_free(TerrMesh& self) {
+	mn::destruct(self.nodes_height);
+	mn::destruct(self.blocks);
+}
+
+void destruct(TerrMesh& self) {
+	terr_mesh_free(self);
+}
+
+namespace fmt {
+	template<>
+	struct formatter<TerrMesh> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const TerrMesh &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "TerrMesh{{num_blocks: {}, scale: {}, "
+				"gradiant: {{enabled: {}, bottom_height: {}, top_height: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
+				"sides: [top({}, {}), bot({}, {}), right({}, {}), left({}, {})]}}",
+				v.num_blocks, v.scale, v.gradiant.enabled, v.gradiant.bottom_height, v.gradiant.top_height, v.gradiant.bottom_color, v.gradiant.top_color,
+				v.nodes_height, v.blocks,
+				v.top_side.enabled, v.top_side.color,
+				v.bottom_side.enabled, v.bottom_side.color,
+				v.right_side.enabled, v.right_side.color,
+				v.left_side.enabled, v.left_side.color);
+		}
+	};
+}
+
+TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
+	auto s = mn::str_clone(ter_file, mn::memory::tmp());
+	mn::str_replace(s, "\r\n", "\n");
+
+	expect(s, "TerrMesh\n");
+
+	TerrMesh terr_mesh {};
+
+	expect(s, "NBL ");
+	terr_mesh.num_blocks.x = token_u32(s);
+	expect(s, ' ');
+	terr_mesh.num_blocks.y = token_u32(s);
+	expect(s, '\n');
+	// mn::log_debug("x={}, y={}", terr_mesh.num_blocks.x, terr_mesh.num_blocks.y);
+
+	expect(s, "TMS ");
+	terr_mesh.scale.x = token_float(s);
+	expect(s, ' ');
+	terr_mesh.scale.y = token_float(s);
+	expect(s, '\n');
+	// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
+
+	if (accept(s, "CBE ")) {
+		terr_mesh.gradiant.enabled = true;
+
+		terr_mesh.gradiant.bottom_height = token_float(s);
+		expect(s, ' ');
+		terr_mesh.gradiant.top_height = token_float(s);
+		expect(s, ' ');
+
+		terr_mesh.gradiant.bottom_color.r = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		terr_mesh.gradiant.bottom_color.g = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		terr_mesh.gradiant.bottom_color.b = token_u8(s) / 255.0f;
+		expect(s, ' ');
+
+		terr_mesh.gradiant.top_color.r = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		terr_mesh.gradiant.top_color.g = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		terr_mesh.gradiant.top_color.b = token_u8(s) / 255.0f;
+		expect(s, '\n');
+	}
+	// if (terr_mesh.gradiant.enabled) {
+	// 	mn::log_debug("gradiant: bottom_height={}, top_height={}, bot_color={}, top_color={}", terr_mesh.gradiant.bottom_height, terr_mesh.gradiant.top_height, terr_mesh.gradiant.bottom_color, terr_mesh.gradiant.top_color);
+	// } else {
+	// 	mn::log_debug("gradiant not enabled");
+	// }
+
+	// NOTE: assumed order in file
+	for (auto [side_str, side] : {
+		std::pair{"BOT ", &terr_mesh.bottom_side},
+		std::pair{"RIG ", &terr_mesh.right_side},
+		std::pair{"TOP ", &terr_mesh.top_side},
+		std::pair{"LEF ", &terr_mesh.left_side},
+	}) {
+		if (accept(s, side_str)) {
+			side->enabled = true;
+			side->color.r = token_u8(s) / 255.0f;
+			expect(s, ' ');
+			side->color.g = token_u8(s) / 255.0f;
+			expect(s, ' ');
+			side->color.b = token_u8(s) / 255.0f;
+			expect(s, '\n');
+		}
+
+		// mn::log_debug("{}: {} and color={}", side_str, side->enabled, side->color);
+	}
+
+	// create blocks
+	terr_mesh.blocks = mn::buf_with_count<mn::Buf<Block>>(terr_mesh.num_blocks.x);
+	for (auto& row : terr_mesh.blocks) {
+		row = mn::buf_with_count<Block>(terr_mesh.num_blocks.y);
+	}
+
+	// create nodes
+	terr_mesh.nodes_height = mn::buf_with_count<mn::Buf<float>>(terr_mesh.num_blocks.x+1);
+	for (auto& row : terr_mesh.nodes_height) {
+		row = mn::buf_with_count<float>(terr_mesh.num_blocks.y+1);
+	}
+
+	// parse blocks and nodes
+	for (size_t i = 0; i < terr_mesh.nodes_height.count; i++) {
+		for (size_t j = 0; j < terr_mesh.nodes_height[i].count; j++) {
+			expect(s, "BLO ");
+			terr_mesh.nodes_height[i][j] = token_float(s);
+
+			// don't read rest of block if node is on edge/wedge
+			if (i == terr_mesh.nodes_height.count-1 || j == terr_mesh.nodes_height[i].count-1) {
+				skip_after(s, '\n');
+				continue;
+			}
+
+			// from here the node has a block
+			if (accept(s, '\n')) {
+				continue;
+			} else if (accept(s, " R ")) {
+				terr_mesh.blocks[i][j].orientation = Block::RIGHT;
+			} else if (accept(s, " L ")) {
+				terr_mesh.blocks[i][j].orientation = Block::LEFT;
+			} else {
+				mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(s, ter_file), smaller_str(s));
+			}
+
+			// face 0
+			if (accept(s, "OFF ") || accept(s, "0 ")) {
+				terr_mesh.blocks[i][j].faces_color[0].a = 0;
+			} else if (accept(s, "ON ") || accept(s, "1 ")) {
+				terr_mesh.blocks[i][j].faces_color[0].a = 1;
+			} else {
+				skip_after(s, ' ');
+				terr_mesh.blocks[i][j].faces_color[0].a = 1;
+			}
+
+			terr_mesh.blocks[i][j].faces_color[0].r = token_u8(s) / 255.0f;
+			expect(s, ' ');
+			terr_mesh.blocks[i][j].faces_color[0].g = token_u8(s) / 255.0f;
+			expect(s, ' ');
+			terr_mesh.blocks[i][j].faces_color[0].b = token_u8(s) / 255.0f;
+			expect(s, ' ');
+
+			// face 1
+			if (accept(s, "OFF ") || accept(s, "0 ")) {
+				terr_mesh.blocks[i][j].faces_color[1].a = 0;
+			} else if (accept(s, "ON ") || accept(s, "1 ")) {
+				terr_mesh.blocks[i][j].faces_color[1].a = 1;
+			} else {
+				skip_after(s, ' ');
+				terr_mesh.blocks[i][j].faces_color[1].a = 1;
+			}
+
+			terr_mesh.blocks[i][j].faces_color[1].r = token_u8(s) / 255.0f;
+			expect(s, ' ');
+			terr_mesh.blocks[i][j].faces_color[1].g = token_u8(s) / 255.0f;
+			expect(s, ' ');
+			terr_mesh.blocks[i][j].faces_color[1].b = token_u8(s) / 255.0f;
+			expect(s, '\n');
+		}
+	}
+	// mn::log_debug("{}", terr_mesh.nodes_height);
+
+	expect(s, "END\n");
+
+	// mn::log_debug("{}", terr_mesh);
+	return terr_mesh;
+}
+
 int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
@@ -2846,6 +3082,8 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
+	- terrmesh
+		- render
 - AABB for each mesh?
 - AABB -> OBB?
 - use coll.dnm files?
