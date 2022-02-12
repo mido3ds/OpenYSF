@@ -1698,6 +1698,17 @@ GLuint gpu_program_new(const char* vertex_shader_src, const char* fragment_shade
 	return gpu_program;
 }
 
+// from YSFLIGHT SCENERY EDITOR 2009
+enum class RectRegionID {
+	NONE=0,
+	RUNWAY=1,
+	TAXIWAY=2,
+	AIRPORT_AREA=4,
+	ENEMY_TANK_GENERATOR=6,
+	FRIENDLY_TANK_GENERATOR=7,
+	VIEW_POINT=20,
+};
+
 int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
