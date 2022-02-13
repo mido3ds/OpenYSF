@@ -1776,7 +1776,7 @@ namespace fmt {
 
 struct TerrMesh {
 	glm::uvec2 num_blocks;
-	glm::vec2 scale;
+	glm::vec2 scale; // x, z
 
 	struct {
 		bool enabled;
@@ -1789,7 +1789,7 @@ struct TerrMesh {
 		glm::vec3 color;
 	} top_side, bottom_side, right_side, left_side;
 
-	// [x][y] where (x=0,y=0) is bot-left most
+	// [x][z] where (x=0,z=0) is bot-left most
 	mn::Buf<mn::Buf<float>> nodes_height;
 	mn::Buf<mn::Buf<Block>> blocks;
 };
@@ -1840,9 +1840,10 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 	// mn::log_debug("x={}, y={}", terr_mesh.num_blocks.x, terr_mesh.num_blocks.y);
 
 	expect(s, "TMS ");
-	terr_mesh.scale.x = token_float(s);
+	// TODO: multiply by 10?
+	terr_mesh.scale.x = token_float(s) * 10.0f;
 	expect(s, ' ');
-	terr_mesh.scale.y = token_float(s);
+	terr_mesh.scale.y = token_float(s) * 10.0f;
 	expect(s, '\n');
 	// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
 
@@ -2314,6 +2315,122 @@ int main() {
 		GL_CATCH_ERRS();
 	}
 
+	auto terr_mesh = terr_mesh_from_ter_file(mn::str_lit(TER_EXAMPLE));
+	mn_defer(terr_mesh_free(terr_mesh));
+	struct {
+		GLuint vao, vbo;
+		size_t array_count;
+	} terr_gpu;
+	mn_defer({
+		glDeleteBuffers(1, &terr_gpu.vbo);
+		glBindVertexArray(0);
+		glDeleteVertexArrays(1, &terr_gpu.vao);
+	});
+	{
+		// fill buffer
+		struct Stride {
+			glm::vec3 vertex;
+			glm::vec4 color;
+		};
+		auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
+		for (uint32_t i = 0; i < terr_mesh.num_blocks.x; i++) {
+			for (uint32_t j = 0; j < terr_mesh.num_blocks.y; j++) {
+				if (terr_mesh.blocks[i][j].orientation == Block::RIGHT) {
+					// face 1
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j], j*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[0],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j], j*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[0],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j+1], (j+1)*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[0],
+					});
+
+					// face 2
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j], j*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[1],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j+1], (j+1)*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[1],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j+1], (j+1)*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[1],
+					});
+				} else {
+					// face 1
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j], j*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[0],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j+1], (j+1)*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[0],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j+1], (j+1)*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[0],
+					});
+
+					// face 2
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j], j*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[1],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j+1], (j+1)*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[1],
+					});
+					mn::buf_push(buffer, Stride {
+						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j], j*terr_mesh.scale.y},
+						.color=terr_mesh.blocks[i][j].faces_color[1],
+					});
+				}
+			}
+		}
+		terr_gpu.array_count = buffer.count;
+
+		// load buffer to gpu
+		glGenVertexArrays(1, &terr_gpu.vao);
+		glBindVertexArray(terr_gpu.vao);
+			glGenBuffers(1, &terr_gpu.vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, terr_gpu.vbo);
+			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+
+			size_t offset = 0;
+
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(
+				0,              /*index*/
+				3,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::vertex);
+
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(
+				1,              /*index*/
+				4,              /*#components*/
+				GL_FLOAT,       /*type*/
+				GL_FALSE,       /*normalize*/
+				sizeof(Stride), /*stride bytes*/
+				(void*)offset   /*offset*/
+			);
+			offset += sizeof(Stride::color);
+		glBindVertexArray(0);
+
+		GL_CATCH_ERRS();
+	}
+
 	struct {
 		bool enabled = true;
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
@@ -2514,11 +2631,17 @@ int main() {
 
 		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 
-		// render models
 		glUseProgram(meshes_gpu_program);
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
+		// render terrain
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(glm::identity<glm::mat4>()));
+		glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
+		glBindVertexArray(terr_gpu.vao);
+		glDrawArrays(rendering.regular_primitives_type, 0, terr_gpu.array_count);
+
+		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
@@ -3083,7 +3206,14 @@ TODO:
 
 - Scenery files
 	- terrmesh
-		- render
+		- scale height
+		- put in function
+		- change translation
+		- rotate
+		- reset trans/rotate
+		- reload
+- refactor rendering
+	- primitives?
 - AABB for each mesh?
 - AABB -> OBB?
 - use coll.dnm files?
