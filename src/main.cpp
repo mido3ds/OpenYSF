@@ -1792,6 +1792,11 @@ struct TerrMesh {
 	// [x][z] where (x=0,z=0) is bot-left most
 	mn::Buf<mn::Buf<float>> nodes_height;
 	mn::Buf<mn::Buf<Block>> blocks;
+
+	struct {
+		GLuint vao, vbo;
+		size_t array_count;
+	} gpu;
 };
 
 void terr_mesh_free(TerrMesh& self) {
@@ -1972,6 +1977,118 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 
 	// mn::log_debug("{}", terr_mesh);
 	return terr_mesh;
+}
+
+void terr_mesh_load_to_gpu(TerrMesh& self) {
+	// fill buffer
+	struct Stride {
+		glm::vec3 vertex;
+		glm::vec4 color;
+	};
+	auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
+	for (uint32_t i = 0; i < self.num_blocks.x; i++) {
+		for (uint32_t j = 0; j < self.num_blocks.y; j++) {
+			if (self.blocks[i][j].orientation == Block::RIGHT) {
+				// face 1
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i, -self.nodes_height[i][j], j} * self.scale,
+					.color=self.blocks[i][j].faces_color[0],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j} * self.scale,
+					.color=self.blocks[i][j].faces_color[0],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1} * self.scale,
+					.color=self.blocks[i][j].faces_color[0],
+				});
+
+				// face 2
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i, -self.nodes_height[i][j], j} * self.scale,
+					.color=self.blocks[i][j].faces_color[1],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1} * self.scale,
+					.color=self.blocks[i][j].faces_color[1],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1} * self.scale,
+					.color=self.blocks[i][j].faces_color[1],
+				});
+			} else {
+				// face 1
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j} * self.scale,
+					.color=self.blocks[i][j].faces_color[0],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1} * self.scale,
+					.color=self.blocks[i][j].faces_color[0],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1} * self.scale,
+					.color=self.blocks[i][j].faces_color[0],
+				});
+
+				// face 2
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j} * self.scale,
+					.color=self.blocks[i][j].faces_color[1],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1} * self.scale,
+					.color=self.blocks[i][j].faces_color[1],
+				});
+				mn::buf_push(buffer, Stride {
+					.vertex=glm::vec3{i, -self.nodes_height[i][j], j} * self.scale,
+					.color=self.blocks[i][j].faces_color[1],
+				});
+			}
+		}
+	}
+	self.gpu.array_count = buffer.count;
+
+	// load buffer to gpu
+	glGenVertexArrays(1, &self.gpu.vao);
+	glBindVertexArray(self.gpu.vao);
+		glGenBuffers(1, &self.gpu.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
+		glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+
+		size_t offset = 0;
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(
+			0,              /*index*/
+			3,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			sizeof(Stride), /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(Stride::vertex);
+
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(
+			1,              /*index*/
+			4,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			sizeof(Stride), /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(Stride::color);
+	glBindVertexArray(0);
+
+	GL_CATCH_ERRS();
+}
+
+void terr_mesh_unload_from_gpu(TerrMesh& self) {
+	glDeleteBuffers(1, &self.gpu.vbo);
+	glBindVertexArray(0);
+	glDeleteVertexArrays(1, &self.gpu.vao);
+	self.gpu = {};
 }
 
 int main() {
@@ -2318,119 +2435,8 @@ int main() {
 
 	auto terr_mesh = terr_mesh_from_ter_file(mn::str_lit(TER_EXAMPLE));
 	mn_defer(terr_mesh_free(terr_mesh));
-	struct {
-		GLuint vao, vbo;
-		size_t array_count;
-	} terr_gpu;
-	mn_defer({
-		glDeleteBuffers(1, &terr_gpu.vbo);
-		glBindVertexArray(0);
-		glDeleteVertexArrays(1, &terr_gpu.vao);
-	});
-	{
-		// fill buffer
-		struct Stride {
-			glm::vec3 vertex;
-			glm::vec4 color;
-		};
-		auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
-		for (uint32_t i = 0; i < terr_mesh.num_blocks.x; i++) {
-			for (uint32_t j = 0; j < terr_mesh.num_blocks.y; j++) {
-				if (terr_mesh.blocks[i][j].orientation == Block::RIGHT) {
-					// face 1
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j], j} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[0],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j], j} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[0],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j+1], j+1} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[0],
-					});
-
-					// face 2
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j], j} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[1],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j+1], j+1} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[1],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j+1], j+1} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[1],
-					});
-				} else {
-					// face 1
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j], j} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[0],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j+1], j+1} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[0],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j+1], j+1} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[0],
-					});
-
-					// face 2
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j], j} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[1],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j+1], j+1} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[1],
-					});
-					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j], j} * terr_mesh.scale,
-						.color=terr_mesh.blocks[i][j].faces_color[1],
-					});
-				}
-			}
-		}
-		terr_gpu.array_count = buffer.count;
-
-		// load buffer to gpu
-		glGenVertexArrays(1, &terr_gpu.vao);
-		glBindVertexArray(terr_gpu.vao);
-			glGenBuffers(1, &terr_gpu.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, terr_gpu.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
-
-			size_t offset = 0;
-
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(
-				0,              /*index*/
-				3,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::vertex);
-
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(
-				1,              /*index*/
-				4,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::color);
-		glBindVertexArray(0);
-
-		GL_CATCH_ERRS();
-	}
+	terr_mesh_load_to_gpu(terr_mesh);
+	mn_defer(terr_mesh_unload_from_gpu(terr_mesh));
 
 	struct {
 		bool enabled = true;
@@ -2639,8 +2645,8 @@ int main() {
 		// render terrain
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(glm::identity<glm::mat4>()));
 		glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
-		glBindVertexArray(terr_gpu.vao);
-		glDrawArrays(rendering.regular_primitives_type, 0, terr_gpu.array_count);
+		glBindVertexArray(terr_mesh.gpu.vao);
+		glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
