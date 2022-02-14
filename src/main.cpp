@@ -1776,7 +1776,7 @@ namespace fmt {
 
 struct TerrMesh {
 	glm::uvec2 num_blocks;
-	glm::vec2 scale; // x, z
+	glm::vec3 scale;
 
 	struct {
 		bool enabled;
@@ -1841,9 +1841,10 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 
 	expect(s, "TMS ");
 	// TODO: multiply by 10?
-	terr_mesh.scale.x = token_float(s) * 10.0f;
+	terr_mesh.scale = {1, 1, 1};
+	terr_mesh.scale.x = token_float(s); //* 10.0f;
 	expect(s, ' ');
-	terr_mesh.scale.y = token_float(s) * 10.0f;
+	terr_mesh.scale.z = token_float(s); //* 10.0f;
 	expect(s, '\n');
 	// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
 
@@ -2338,57 +2339,57 @@ int main() {
 				if (terr_mesh.blocks[i][j].orientation == Block::RIGHT) {
 					// face 1
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j], j*terr_mesh.scale.y},
+						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j], j} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[0],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j], j*terr_mesh.scale.y},
+						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j], j} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[0],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j+1], (j+1)*terr_mesh.scale.y},
+						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j+1], j+1} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[0],
 					});
 
 					// face 2
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j], j*terr_mesh.scale.y},
+						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j], j} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[1],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j+1], (j+1)*terr_mesh.scale.y},
+						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j+1], j+1} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[1],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j+1], (j+1)*terr_mesh.scale.y},
+						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j+1], j+1} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[1],
 					});
 				} else {
 					// face 1
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j], j*terr_mesh.scale.y},
+						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j], j} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[0],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j+1], (j+1)*terr_mesh.scale.y},
+						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j+1], j+1} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[0],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j+1], (j+1)*terr_mesh.scale.y},
+						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j+1], j+1} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[0],
 					});
 
 					// face 2
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{(i+1)*terr_mesh.scale.x, terr_mesh.nodes_height[i+1][j], j*terr_mesh.scale.y},
+						.vertex=glm::vec3{i+1, -terr_mesh.nodes_height[i+1][j], j} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[1],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j+1], (j+1)*terr_mesh.scale.y},
+						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j+1], j+1} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[1],
 					});
 					mn::buf_push(buffer, Stride {
-						.vertex=glm::vec3{i*terr_mesh.scale.x, terr_mesh.nodes_height[i][j], j*terr_mesh.scale.y},
+						.vertex=glm::vec3{i, -terr_mesh.nodes_height[i][j], j} * terr_mesh.scale,
 						.color=terr_mesh.blocks[i][j].faces_color[1],
 					});
 				}
@@ -3212,6 +3213,7 @@ TODO:
 		- rotate
 		- reset trans/rotate
 		- reload
+		- normals
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
