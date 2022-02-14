@@ -2177,7 +2177,11 @@ int main() {
 			uniform bool is_light_source;
 
 			void main() {
-				out_fragcolor = vs_color;
+				if (vs_color.a == 0) {
+					discard;
+				} else {
+					out_fragcolor = vs_color;
+				}
 			}
 		)GLSL"
 	);
