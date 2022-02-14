@@ -1776,7 +1776,10 @@ namespace fmt {
 
 struct TerrMesh {
 	glm::uvec2 num_blocks;
-	glm::vec3 scale;
+
+	// [x][z] where (x=0,z=0) is bot-left most
+	mn::Buf<mn::Buf<float>> nodes_height;
+	mn::Buf<mn::Buf<Block>> blocks;
 
 	struct {
 		bool enabled;
@@ -1789,14 +1792,16 @@ struct TerrMesh {
 		glm::vec3 color;
 	} top_side, bottom_side, right_side, left_side;
 
-	// [x][z] where (x=0,z=0) is bot-left most
-	mn::Buf<mn::Buf<float>> nodes_height;
-	mn::Buf<mn::Buf<Block>> blocks;
-
 	struct {
 		GLuint vao, vbo;
 		size_t array_count;
 	} gpu;
+
+	struct {
+		glm::vec3 translation;
+		glm::vec3 rotation; // roll, pitch, yaw
+		glm::vec3 scale;
+	} current_state, initial_state;
 };
 
 void terr_mesh_free(TerrMesh& self) {
@@ -1816,10 +1821,11 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const TerrMesh &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "TerrMesh{{num_blocks: {}, scale: {}, "
+			return format_to(ctx.out(), "TerrMesh{{num_blocks: {}, scale: {}, translation: {}, rotation: {}, "
 				"gradiant: {{enabled: {}, bottom_height: {}, top_height: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
 				"sides: [top({}, {}), bot({}, {}), right({}, {}), left({}, {})]}}",
-				v.num_blocks, v.scale, v.gradiant.enabled, v.gradiant.bottom_height, v.gradiant.top_height, v.gradiant.bottom_color, v.gradiant.top_color,
+				v.num_blocks, v.current_state.scale, v.current_state.translation, v.current_state.rotation,
+				v.gradiant.enabled, v.gradiant.bottom_height, v.gradiant.top_height, v.gradiant.bottom_color, v.gradiant.top_color,
 				v.nodes_height, v.blocks,
 				v.top_side.enabled, v.top_side.color,
 				v.bottom_side.enabled, v.bottom_side.color,
@@ -1846,12 +1852,14 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 
 	expect(s, "TMS ");
 	// TODO: multiply by 10?
-	terr_mesh.scale = {1, 1, 1};
-	terr_mesh.scale.x = token_float(s); //* 10.0f;
+	terr_mesh.initial_state.scale = {1, 1, 1};
+	terr_mesh.initial_state.scale.x = token_float(s); //* 10.0f;
 	expect(s, ' ');
-	terr_mesh.scale.z = token_float(s); //* 10.0f;
+	terr_mesh.initial_state.scale.z = token_float(s); //* 10.0f;
 	expect(s, '\n');
 	// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
+
+	terr_mesh.current_state = terr_mesh.initial_state;
 
 	if (accept(s, "CBE ")) {
 		terr_mesh.gradiant.enabled = true;
@@ -1991,57 +1999,57 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 			if (self.blocks[i][j].orientation == Block::RIGHT) {
 				// face 1
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j], j} * self.scale,
+					.vertex=glm::vec3{i, -self.nodes_height[i][j], j},
 					.color=self.blocks[i][j].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j} * self.scale,
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j},
 					.color=self.blocks[i][j].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1} * self.scale,
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1},
 					.color=self.blocks[i][j].faces_color[0],
 				});
 
 				// face 2
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j], j} * self.scale,
+					.vertex=glm::vec3{i, -self.nodes_height[i][j], j},
 					.color=self.blocks[i][j].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1} * self.scale,
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1},
 					.color=self.blocks[i][j].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1} * self.scale,
+					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1},
 					.color=self.blocks[i][j].faces_color[1],
 				});
 			} else {
 				// face 1
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j} * self.scale,
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j},
 					.color=self.blocks[i][j].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1} * self.scale,
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1},
 					.color=self.blocks[i][j].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1} * self.scale,
+					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1},
 					.color=self.blocks[i][j].faces_color[0],
 				});
 
 				// face 2
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j} * self.scale,
+					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j},
 					.color=self.blocks[i][j].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1} * self.scale,
+					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1},
 					.color=self.blocks[i][j].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j], j} * self.scale,
+					.vertex=glm::vec3{i, -self.nodes_height[i][j], j},
 					.color=self.blocks[i][j].faces_color[1],
 				});
 			}
@@ -2643,10 +2651,19 @@ int main() {
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
 		// render terrain
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(glm::identity<glm::mat4>()));
-		glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
-		glBindVertexArray(terr_mesh.gpu.vao);
-		glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
+		{
+			auto model_transformation = glm::identity<glm::mat4>();
+			model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
+			model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
+			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
+			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
+			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+			glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
+
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
+			glBindVertexArray(terr_mesh.gpu.vao);
+			glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
+		}
 
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
@@ -3126,6 +3143,23 @@ int main() {
 					ImGui::TreePop();
 				}
 			}
+
+			if (ImGui::TreeNode("TerrMesh")) {
+				if (ImGui::Button("Reset State")) {
+					terr_mesh.current_state = terr_mesh.initial_state;
+				}
+
+				if (ImGui::Button("Reload")) {
+					terr_mesh_unload_from_gpu(terr_mesh);
+					terr_mesh_load_to_gpu(terr_mesh);
+				}
+
+				ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
+				ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
+				MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
+
+				ImGui::TreePop();
+			}
 		}
 		ImGui::End();
 
@@ -3204,6 +3238,7 @@ bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
+- rotation of terrmesh doesn't work nice with scale (y,z)
 
 TODO:
 - what's PAX in dnmver 2?
@@ -3213,13 +3248,8 @@ TODO:
 
 - Scenery files
 	- terrmesh
-		- scale height
-		- put in function
-		- change translation
-		- rotate
-		- reset trans/rotate
-		- reload
-		- normals
+		- gradiant
+		- side color
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
