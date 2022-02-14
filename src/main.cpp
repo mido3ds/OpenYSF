@@ -1775,9 +1775,7 @@ namespace fmt {
 }
 
 struct TerrMesh {
-	glm::uvec2 num_blocks;
-
-	// [x][z] where (x=0,z=0) is bot-left most
+	// [z][x] where (z=0,x=0) is bot-left most
 	mn::Buf<mn::Buf<float>> nodes_height;
 	mn::Buf<mn::Buf<Block>> blocks;
 
@@ -1787,10 +1785,7 @@ struct TerrMesh {
 		glm::vec3 bottom_color, top_color;
 	} gradiant;
 
-	struct {
-		bool enabled;
-		glm::vec3 color;
-	} top_side, bottom_side, right_side, left_side;
+	glm::vec4 top_side_color, bottom_side_color, right_side_color, left_side_color;
 
 	struct {
 		GLuint vao, vbo;
@@ -1821,16 +1816,12 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const TerrMesh &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "TerrMesh{{num_blocks: {}, scale: {}, translation: {}, rotation: {}, "
+			return format_to(ctx.out(), "TerrMesh{{scale: {}, translation: {}, rotation: {}, "
 				"gradiant: {{enabled: {}, bottom_height: {}, top_height: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
-				"sides: [top({}, {}), bot({}, {}), right({}, {}), left({}, {})]}}",
-				v.num_blocks, v.current_state.scale, v.current_state.translation, v.current_state.rotation,
+				"sides: [top={}, bot={}, right={}, left={}]}}",
+				v.current_state.scale, v.current_state.translation, v.current_state.rotation,
 				v.gradiant.enabled, v.gradiant.bottom_height, v.gradiant.top_height, v.gradiant.bottom_color, v.gradiant.top_color,
-				v.nodes_height, v.blocks,
-				v.top_side.enabled, v.top_side.color,
-				v.bottom_side.enabled, v.bottom_side.color,
-				v.right_side.enabled, v.right_side.color,
-				v.left_side.enabled, v.left_side.color);
+				v.nodes_height, v.blocks, v.top_side_color, v.bottom_side_color, v.right_side_color, v.left_side_color);
 		}
 	};
 }
@@ -1841,68 +1832,67 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 
 	expect(s, "TerrMesh\n");
 
-	TerrMesh terr_mesh {};
+	TerrMesh self {};
 
 	expect(s, "NBL ");
-	terr_mesh.num_blocks.x = token_u32(s);
+	const auto num_blocks_x = token_u32(s);
 	expect(s, ' ');
-	terr_mesh.num_blocks.y = token_u32(s);
+	const auto num_blocks_z = token_u32(s);
 	expect(s, '\n');
-	// mn::log_debug("x={}, y={}", terr_mesh.num_blocks.x, terr_mesh.num_blocks.y);
 
 	expect(s, "TMS ");
 	// TODO: multiply by 10?
-	terr_mesh.initial_state.scale = {1, 1, 1};
-	terr_mesh.initial_state.scale.x = token_float(s); //* 10.0f;
+	self.initial_state.scale = {1, 1, 1};
+	self.initial_state.scale.x = token_float(s); //* 10.0f;
 	expect(s, ' ');
-	terr_mesh.initial_state.scale.z = token_float(s); //* 10.0f;
+	self.initial_state.scale.z = token_float(s); //* 10.0f;
 	expect(s, '\n');
-	// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
+	// mn::log_debug("self.scale.x={}, self.scale.y={}", self.scale.x, self.scale.y);
 
-	terr_mesh.current_state = terr_mesh.initial_state;
+	self.current_state = self.initial_state;
 
 	if (accept(s, "CBE ")) {
-		terr_mesh.gradiant.enabled = true;
+		self.gradiant.enabled = true;
 
-		terr_mesh.gradiant.bottom_height = token_float(s);
+		self.gradiant.bottom_height = token_float(s);
 		expect(s, ' ');
-		terr_mesh.gradiant.top_height = token_float(s);
-		expect(s, ' ');
-
-		terr_mesh.gradiant.bottom_color.r = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		terr_mesh.gradiant.bottom_color.g = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		terr_mesh.gradiant.bottom_color.b = token_u8(s) / 255.0f;
+		self.gradiant.top_height = token_float(s);
 		expect(s, ' ');
 
-		terr_mesh.gradiant.top_color.r = token_u8(s) / 255.0f;
+		self.gradiant.bottom_color.r = token_u8(s) / 255.0f;
 		expect(s, ' ');
-		terr_mesh.gradiant.top_color.g = token_u8(s) / 255.0f;
+		self.gradiant.bottom_color.g = token_u8(s) / 255.0f;
 		expect(s, ' ');
-		terr_mesh.gradiant.top_color.b = token_u8(s) / 255.0f;
+		self.gradiant.bottom_color.b = token_u8(s) / 255.0f;
+		expect(s, ' ');
+
+		self.gradiant.top_color.r = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		self.gradiant.top_color.g = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		self.gradiant.top_color.b = token_u8(s) / 255.0f;
 		expect(s, '\n');
 	}
-	// if (terr_mesh.gradiant.enabled) {
-	// 	mn::log_debug("gradiant: bottom_height={}, top_height={}, bot_color={}, top_color={}", terr_mesh.gradiant.bottom_height, terr_mesh.gradiant.top_height, terr_mesh.gradiant.bottom_color, terr_mesh.gradiant.top_color);
+	// if (self.gradiant.enabled) {
+	// 	mn::log_debug("gradiant: bottom_height={}, top_height={}, bot_color={}, top_color={}", self.gradiant.bottom_height, self.gradiant.top_height, self.gradiant.bottom_color, self.gradiant.top_color);
 	// } else {
 	// 	mn::log_debug("gradiant not enabled");
 	// }
 
 	// NOTE: assumed order in file
 	for (auto [side_str, side] : {
-		std::pair{"BOT ", &terr_mesh.bottom_side},
-		std::pair{"RIG ", &terr_mesh.right_side},
-		std::pair{"TOP ", &terr_mesh.top_side},
-		std::pair{"LEF ", &terr_mesh.left_side},
+		std::pair{"BOT ", &self.bottom_side_color},
+		std::pair{"RIG ", &self.right_side_color},
+		std::pair{"TOP ", &self.top_side_color},
+		std::pair{"LEF ", &self.left_side_color},
 	}) {
 		if (accept(s, side_str)) {
-			side->enabled = true;
-			side->color.r = token_u8(s) / 255.0f;
+			side->a = 1;
+			side->r = token_u8(s) / 255.0f;
 			expect(s, ' ');
-			side->color.g = token_u8(s) / 255.0f;
+			side->g = token_u8(s) / 255.0f;
 			expect(s, ' ');
-			side->color.b = token_u8(s) / 255.0f;
+			side->b = token_u8(s) / 255.0f;
 			expect(s, '\n');
 		}
 
@@ -1910,25 +1900,25 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 	}
 
 	// create blocks
-	terr_mesh.blocks = mn::buf_with_count<mn::Buf<Block>>(terr_mesh.num_blocks.x);
-	for (auto& row : terr_mesh.blocks) {
-		row = mn::buf_with_count<Block>(terr_mesh.num_blocks.y);
+	self.blocks = mn::buf_with_count<mn::Buf<Block>>(num_blocks_z);
+	for (auto& row : self.blocks) {
+		row = mn::buf_with_count<Block>(num_blocks_x);
 	}
 
 	// create nodes
-	terr_mesh.nodes_height = mn::buf_with_count<mn::Buf<float>>(terr_mesh.num_blocks.x+1);
-	for (auto& row : terr_mesh.nodes_height) {
-		row = mn::buf_with_count<float>(terr_mesh.num_blocks.y+1);
+	self.nodes_height = mn::buf_with_count<mn::Buf<float>>(num_blocks_z+1);
+	for (auto& row : self.nodes_height) {
+		row = mn::buf_with_count<float>(num_blocks_x+1);
 	}
 
 	// parse blocks and nodes
-	for (size_t i = 0; i < terr_mesh.nodes_height.count; i++) {
-		for (size_t j = 0; j < terr_mesh.nodes_height[i].count; j++) {
+	for (size_t z = 0; z < self.nodes_height.count; z++) {
+		for (size_t x = 0; x < self.nodes_height[z].count; x++) {
 			expect(s, "BLO ");
-			terr_mesh.nodes_height[i][j] = token_float(s);
+			self.nodes_height[z][x] = token_float(s);
 
 			// don't read rest of block if node is on edge/wedge
-			if (i == terr_mesh.nodes_height.count-1 || j == terr_mesh.nodes_height[i].count-1) {
+			if (z == self.nodes_height.count-1 || x == self.nodes_height[z].count-1) {
 				skip_after(s, '\n');
 				continue;
 			}
@@ -1937,120 +1927,121 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 			if (accept(s, '\n')) {
 				continue;
 			} else if (accept(s, " R ")) {
-				terr_mesh.blocks[i][j].orientation = Block::RIGHT;
+				self.blocks[z][x].orientation = Block::RIGHT;
 			} else if (accept(s, " L ")) {
-				terr_mesh.blocks[i][j].orientation = Block::LEFT;
+				self.blocks[z][x].orientation = Block::LEFT;
 			} else {
 				mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(s, ter_file), smaller_str(s));
 			}
 
 			// face 0
 			if (accept(s, "OFF ") || accept(s, "0 ")) {
-				terr_mesh.blocks[i][j].faces_color[0].a = 0;
+				self.blocks[z][x].faces_color[0].a = 0;
 			} else if (accept(s, "ON ") || accept(s, "1 ")) {
-				terr_mesh.blocks[i][j].faces_color[0].a = 1;
+				self.blocks[z][x].faces_color[0].a = 1;
 			} else {
 				skip_after(s, ' ');
-				terr_mesh.blocks[i][j].faces_color[0].a = 1;
+				self.blocks[z][x].faces_color[0].a = 1;
 			}
 
-			terr_mesh.blocks[i][j].faces_color[0].r = token_u8(s) / 255.0f;
+			self.blocks[z][x].faces_color[0].r = token_u8(s) / 255.0f;
 			expect(s, ' ');
-			terr_mesh.blocks[i][j].faces_color[0].g = token_u8(s) / 255.0f;
+			self.blocks[z][x].faces_color[0].g = token_u8(s) / 255.0f;
 			expect(s, ' ');
-			terr_mesh.blocks[i][j].faces_color[0].b = token_u8(s) / 255.0f;
+			self.blocks[z][x].faces_color[0].b = token_u8(s) / 255.0f;
 			expect(s, ' ');
 
 			// face 1
 			if (accept(s, "OFF ") || accept(s, "0 ")) {
-				terr_mesh.blocks[i][j].faces_color[1].a = 0;
+				self.blocks[z][x].faces_color[1].a = 0;
 			} else if (accept(s, "ON ") || accept(s, "1 ")) {
-				terr_mesh.blocks[i][j].faces_color[1].a = 1;
+				self.blocks[z][x].faces_color[1].a = 1;
 			} else {
 				skip_after(s, ' ');
-				terr_mesh.blocks[i][j].faces_color[1].a = 1;
+				self.blocks[z][x].faces_color[1].a = 1;
 			}
 
-			terr_mesh.blocks[i][j].faces_color[1].r = token_u8(s) / 255.0f;
+			self.blocks[z][x].faces_color[1].r = token_u8(s) / 255.0f;
 			expect(s, ' ');
-			terr_mesh.blocks[i][j].faces_color[1].g = token_u8(s) / 255.0f;
+			self.blocks[z][x].faces_color[1].g = token_u8(s) / 255.0f;
 			expect(s, ' ');
-			terr_mesh.blocks[i][j].faces_color[1].b = token_u8(s) / 255.0f;
+			self.blocks[z][x].faces_color[1].b = token_u8(s) / 255.0f;
 			expect(s, '\n');
 		}
 	}
-	// mn::log_debug("{}", terr_mesh.nodes_height);
+	// mn::log_debug("{}", self.nodes_height);
 
 	expect(s, "END\n");
 
-	// mn::log_debug("{}", terr_mesh);
-	return terr_mesh;
+	// mn::log_debug("{}", self);
+	return self;
 }
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
-	// fill buffer
 	struct Stride {
 		glm::vec3 vertex;
 		glm::vec4 color;
 	};
 	auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
-	for (uint32_t i = 0; i < self.num_blocks.x; i++) {
-		for (uint32_t j = 0; j < self.num_blocks.y; j++) {
-			if (self.blocks[i][j].orientation == Block::RIGHT) {
+
+	// main triangles
+	for (size_t z = 0; z < self.blocks.count; z++) {
+		for (size_t x = 0; x < self.blocks[z].count; x++) {
+			if (self.blocks[z][x].orientation == Block::RIGHT) {
 				// face 1
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j], j},
-					.color=self.blocks[i][j].faces_color[0],
+					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
+					.color=self.blocks[z][x].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j},
-					.color=self.blocks[i][j].faces_color[0],
+					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
+					.color=self.blocks[z][x].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1},
-					.color=self.blocks[i][j].faces_color[0],
+					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
+					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j], j},
-					.color=self.blocks[i][j].faces_color[1],
+					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
+					.color=self.blocks[z][x].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1},
-					.color=self.blocks[i][j].faces_color[1],
+					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
+					.color=self.blocks[z][x].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1},
-					.color=self.blocks[i][j].faces_color[1],
+					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
+					.color=self.blocks[z][x].faces_color[1],
 				});
 			} else {
 				// face 1
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j},
-					.color=self.blocks[i][j].faces_color[0],
+					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
+					.color=self.blocks[z][x].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j+1], j+1},
-					.color=self.blocks[i][j].faces_color[0],
+					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
+					.color=self.blocks[z][x].faces_color[0],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1},
-					.color=self.blocks[i][j].faces_color[0],
+					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
+					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i+1, -self.nodes_height[i+1][j], j},
-					.color=self.blocks[i][j].faces_color[1],
+					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
+					.color=self.blocks[z][x].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j+1], j+1},
-					.color=self.blocks[i][j].faces_color[1],
+					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
+					.color=self.blocks[z][x].faces_color[1],
 				});
 				mn::buf_push(buffer, Stride {
-					.vertex=glm::vec3{i, -self.nodes_height[i][j], j},
-					.color=self.blocks[i][j].faces_color[1],
+					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
+					.color=self.blocks[z][x].faces_color[1],
 				});
 			}
 		}
