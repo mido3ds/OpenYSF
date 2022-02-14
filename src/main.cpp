@@ -1731,7 +1731,7 @@ RIG 255 255 255
 TOP 200 77 86
 LEF 128 128 255
 BLO 0.00 L 1 193 168 91 1 46 112 10
-BLO 0.00 L 0 194 169 92 1 194 169 92
+BLO 0.00 L 1 194 169 92 1 194 169 92
 BLO 10.00 R 1 194 169 92 1 132 145 57
 BLO 0.00
 BLO 0.00 R 1 192 168 91 1 194 169 92
@@ -1781,7 +1781,7 @@ struct TerrMesh {
 
 	struct {
 		bool enabled;
-		float bottom_height, top_height;
+		float bottom_y, top_y;
 		glm::vec3 bottom_color, top_color;
 	} gradiant;
 
@@ -1817,10 +1817,10 @@ namespace fmt {
 		template <typename FormatContext>
 		auto format(const TerrMesh &v, FormatContext &ctx) {
 			return format_to(ctx.out(), "TerrMesh{{scale: {}, translation: {}, rotation: {}, "
-				"gradiant: {{enabled: {}, bottom_height: {}, top_height: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
+				"gradiant: {{enabled: {}, bottom_y: {}, top_y: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
 				"sides: [top={}, bot={}, right={}, left={}]}}",
 				v.current_state.scale, v.current_state.translation, v.current_state.rotation,
-				v.gradiant.enabled, v.gradiant.bottom_height, v.gradiant.top_height, v.gradiant.bottom_color, v.gradiant.top_color,
+				v.gradiant.enabled, v.gradiant.bottom_y, v.gradiant.top_y, v.gradiant.bottom_color, v.gradiant.top_color,
 				v.nodes_height, v.blocks, v.top_side_color, v.bottom_side_color, v.right_side_color, v.left_side_color);
 		}
 	};
@@ -1854,16 +1854,9 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 	if (accept(s, "CBE ")) {
 		self.gradiant.enabled = true;
 
-		self.gradiant.bottom_height = token_float(s);
+		self.gradiant.top_y = token_float(s);
 		expect(s, ' ');
-		self.gradiant.top_height = token_float(s);
-		expect(s, ' ');
-
-		self.gradiant.bottom_color.r = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		self.gradiant.bottom_color.g = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		self.gradiant.bottom_color.b = token_u8(s) / 255.0f;
+		self.gradiant.bottom_y = -token_float(s);
 		expect(s, ' ');
 
 		self.gradiant.top_color.r = token_u8(s) / 255.0f;
@@ -1871,10 +1864,17 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file) {
 		self.gradiant.top_color.g = token_u8(s) / 255.0f;
 		expect(s, ' ');
 		self.gradiant.top_color.b = token_u8(s) / 255.0f;
+		expect(s, ' ');
+
+		self.gradiant.bottom_color.r = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		self.gradiant.bottom_color.g = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		self.gradiant.bottom_color.b = token_u8(s) / 255.0f;
 		expect(s, '\n');
 	}
 	// if (self.gradiant.enabled) {
-	// 	mn::log_debug("gradiant: bottom_height={}, top_height={}, bot_color={}, top_color={}", self.gradiant.bottom_height, self.gradiant.top_height, self.gradiant.bottom_color, self.gradiant.top_color);
+	// 	mn::log_debug("gradiant: bottom_y={}, top_y={}, bottom_color={}, top_color={}", self.gradiant.bottom_y, self.gradiant.top_y, self.gradiant.bottom_color, self.gradiant.top_color);
 	// } else {
 	// 	mn::log_debug("gradiant not enabled");
 	// }
@@ -2156,6 +2156,7 @@ int main() {
 			// TODO: pass MVP instead of 3 uniforms for perf
 			uniform mat4 projection, view, model;
 
+			out float vs_vertex_y;
 			out vec4 vs_color;
 			out vec3 vs_normal;
 
@@ -2163,12 +2164,14 @@ int main() {
 				gl_Position = projection * view * model * vec4(attr_position, 1.0);
 				vs_color = attr_color;
 				vs_normal = attr_normal;
+				vs_vertex_y = attr_position.y;
 			}
 		)GLSL",
 
 		// fragment shader
 		R"GLSL(
 			#version 330 core
+			in float vs_vertex_y;
 			in vec4 vs_color;
 			in vec3 vs_normal;
 
@@ -2176,9 +2179,16 @@ int main() {
 
 			uniform bool is_light_source;
 
+			uniform bool gradient_enabled;
+			uniform float gradient_bottom_y, gradient_top_y;
+			uniform vec3 gradient_bottom_color, gradient_top_color;
+
 			void main() {
 				if (vs_color.a == 0) {
 					discard;
+				} else if (gradient_enabled) {
+					float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
+					out_fragcolor = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
 				} else {
 					out_fragcolor = vs_color;
 				}
@@ -2655,9 +2665,19 @@ int main() {
 			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 			glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
 
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
+			if (terr_mesh.gradiant.enabled) {
+				glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_y"), terr_mesh.gradiant.bottom_y);
+				glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_top_y"), terr_mesh.gradiant.top_y);
+				glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_color"), 1, glm::value_ptr(terr_mesh.gradiant.bottom_color));
+				glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_top_color"), 1, glm::value_ptr(terr_mesh.gradiant.top_color));
+			}
+
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
 			glBindVertexArray(terr_mesh.gpu.vao);
 			glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
+
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
 		}
 
 		// render models
@@ -3243,7 +3263,6 @@ TODO:
 
 - Scenery files
 	- terrmesh
-		- gradiant
 		- side color
 - refactor rendering
 	- primitives?
