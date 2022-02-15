@@ -3416,6 +3416,9 @@ TODO:
 - Scenery files
 	- terrmesh
 		- side color
+	- pict2
+		- render
+		- what is (PLL,PST,QDR,QST,TRI)?
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
