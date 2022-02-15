@@ -2090,6 +2090,158 @@ void terr_mesh_unload_from_gpu(TerrMesh& self) {
 	self.gpu = {};
 }
 
+constexpr auto PICT2_EXAMPLE = R"(Pict2
+PLG
+COL 0 87 0
+VER -230.00 300.00
+VER 490.00 -1500.00
+VER 2260.00 -2440.00
+VER 4430.00 -2440.00
+VER 6410.00 -1620.00
+VER 8000.00 1480.00
+VER 8870.00 3940.00
+VER 8940.00 5010.00
+VER 8070.00 8170.00
+VER 7000.00 8760.00
+VER 5870.00 8730.00
+VER 3250.00 7600.00
+VER 1330.00 6300.00
+VER 390.00 5040.00
+VER 190.00 3060.00
+VER 580.00 2900.00
+VER 680.00 2330.00
+VER 440.00 1940.00
+VER 50.00 1670.00
+ENDO
+PLG
+COL 0 106 53
+VER 12200.00 27760.00
+VER 10810.00 29410.00
+VER 10890.00 30990.00
+VER 11730.00 31180.00
+VER 13040.00 30220.00
+VER 13230.00 28570.00
+ENDO
+ENDPICT
+)";
+
+enum class Pict2Kind {
+	POLYGON,
+	PLL, PST, QDR, QST, TRI, // ???
+};
+
+namespace fmt {
+	template<>
+	struct formatter<Pict2Kind> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const Pict2Kind &v, FormatContext &ctx) {
+			switch (v) {
+			case Pict2Kind::POLYGON: return format_to(ctx.out(), "Pict2Kind::POLYGON");
+			case Pict2Kind::PLL:     return format_to(ctx.out(), "Pict2Kind::PLL");
+			case Pict2Kind::PST:     return format_to(ctx.out(), "Pict2Kind::PST");
+			case Pict2Kind::QDR:     return format_to(ctx.out(), "Pict2Kind::QDR");
+			case Pict2Kind::QST:     return format_to(ctx.out(), "Pict2Kind::QST");
+			case Pict2Kind::TRI:     return format_to(ctx.out(), "Pict2Kind::TRI");
+			default: mn_unreachable();
+			}
+			return format_to(ctx.out(), "????????");
+		}
+	};
+}
+
+struct Pict2Permitive {
+	Pict2Kind kind;
+	glm::vec3 color;
+	mn::Buf<glm::vec2> vertices;
+};
+
+namespace fmt {
+	template<>
+	struct formatter<Pict2Permitive> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const Pict2Permitive &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "Pict2Permitive{{kind: {}, color: {}, vertices: {}}}", v.kind, v.color, v.vertices);
+		}
+	};
+}
+
+void pict2permitive_free(Pict2Permitive& self) {
+	mn::buf_free(self.vertices);
+}
+
+void destruct(Pict2Permitive& self) {
+	pict2permitive_free(self);
+}
+
+using Pict2 = mn::Buf<Pict2Permitive>;
+
+Pict2 pict2_from_pict2_file(const char* pict2_file_content) {
+	auto s = mn::str_tmp(pict2_file_content);
+	mn::str_replace(s, "\r\n", "\n");
+
+	expect(s, "Pict2\n");
+
+	Pict2 pict {};
+
+	while (accept(s, "ENDPICT\n") == false) {
+		Pict2Permitive permitive {};
+
+		auto kind_str = token_str(s, mn::memory::tmp());
+		expect(s, '\n');
+
+		if (kind_str == "PLG") {
+			permitive.kind = Pict2Kind::POLYGON;
+		} else if (kind_str == "PLL") {
+			permitive.kind = Pict2Kind::PLL;
+		} else if (kind_str == "PST") {
+			permitive.kind = Pict2Kind::PST;
+		} else if (kind_str == "QDR") {
+			permitive.kind = Pict2Kind::QDR;
+		} else if (kind_str == "QST") {
+			permitive.kind = Pict2Kind::QST;
+		} else if (kind_str == "TRI") {
+			permitive.kind = Pict2Kind::TRI;
+		} else {
+			mn::panic("{}: invalid pict2 kind={}", get_line_no(s, mn::str_lit(pict2_file_content)), kind_str);
+		}
+		// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
+
+		expect(s, "COL ");
+		permitive.color.r = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		permitive.color.g = token_u8(s) / 255.0f;
+		expect(s, ' ');
+		permitive.color.b = token_u8(s) / 255.0f;
+		expect(s, '\n');
+		// mn::log_debug("color={}", permitive.color);
+
+		while (accept(s, "ENDO\n") == false) {
+			glm::vec2 vertex {};
+			expect(s, "VER ");
+			vertex.x = token_float(s);
+			expect(s, ' ');
+			vertex.y = token_float(s);
+			expect(s, '\n');
+
+			// mn::log_debug("ver: (x={}, y={})", x, y);
+			mn::buf_push(permitive.vertices, vertex);
+		}
+		// mn::log_debug("vertices={}", permitive.vertices);
+
+		// mn::log_debug("{}", permitive);
+		mn::buf_push(pict, permitive);
+	}
+	// mn::log_debug("{}", pict);
+
+	return pict;
+}
+
 int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
