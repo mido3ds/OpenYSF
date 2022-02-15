@@ -2205,8 +2205,8 @@ int main() {
 	};
 	mn_defer({
 		for (int i = 0; i < NUM_MODELS; i++) {
-			mn_defer(model_free(models[0]));
-			mn_defer(model_unload_from_gpu(models[0]));
+			model_unload_from_gpu(models[i]);
+			model_free(models[i]);
 		}
 	});
 
