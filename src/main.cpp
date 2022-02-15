@@ -2215,7 +2215,7 @@ ENDO
 ENDPICT
 )";
 
-struct Permitive {
+struct Permitive2D {
 	enum class Kind {
 		POINTS,                // PST
 		LINES,                 // LSQ
@@ -2234,21 +2234,21 @@ struct Permitive {
 
 namespace fmt {
 	template<>
-	struct formatter<Permitive::Kind> {
+	struct formatter<Permitive2D::Kind> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const Permitive::Kind &v, FormatContext &ctx) {
+		auto format(const Permitive2D::Kind &v, FormatContext &ctx) {
 			switch (v) {
-			case Permitive::Kind::LINES:                return format_to(ctx.out(), "Permitive::Kind::LINES");
-			case Permitive::Kind::POLYGON:              return format_to(ctx.out(), "Permitive::Kind::POLYGON");
-			case Permitive::Kind::LINE_SEGMENTS:        return format_to(ctx.out(), "Permitive::Kind::LINE_SEGMENTS");
-			case Permitive::Kind::POINTS:               return format_to(ctx.out(), "Permitive::Kind::POINTS");
-			case Permitive::Kind::QUADRILATERAL:        return format_to(ctx.out(), "Permitive::Kind::QUADRILATERAL");
-			case Permitive::Kind::QUAD_STRIPS:           return format_to(ctx.out(), "Permitive::Kind::QUAD_STRIPS");
-			case Permitive::Kind::GRADATION_QUAD_STRIPS: return format_to(ctx.out(), "Permitive::Kind::GRADATION_QUAD_STRIPS");
-			case Permitive::Kind::TRIANGLES:            return format_to(ctx.out(), "Permitive::Kind::TRIANGLES");
+			case Permitive2D::Kind::LINES:                return format_to(ctx.out(), "Permitive2D::Kind::LINES");
+			case Permitive2D::Kind::POLYGON:              return format_to(ctx.out(), "Permitive2D::Kind::POLYGON");
+			case Permitive2D::Kind::LINE_SEGMENTS:        return format_to(ctx.out(), "Permitive2D::Kind::LINE_SEGMENTS");
+			case Permitive2D::Kind::POINTS:               return format_to(ctx.out(), "Permitive2D::Kind::POINTS");
+			case Permitive2D::Kind::QUADRILATERAL:        return format_to(ctx.out(), "Permitive2D::Kind::QUADRILATERAL");
+			case Permitive2D::Kind::QUAD_STRIPS:           return format_to(ctx.out(), "Permitive2D::Kind::QUAD_STRIPS");
+			case Permitive2D::Kind::GRADATION_QUAD_STRIPS: return format_to(ctx.out(), "Permitive2D::Kind::GRADATION_QUAD_STRIPS");
+			case Permitive2D::Kind::TRIANGLES:            return format_to(ctx.out(), "Permitive2D::Kind::TRIANGLES");
 			default: mn_unreachable();
 			}
 			return format_to(ctx.out(), "????????");
@@ -2256,55 +2256,55 @@ namespace fmt {
 	};
 
 	template<>
-	struct formatter<Permitive> {
+	struct formatter<Permitive2D> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const Permitive &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "Permitive{{kind: {}, color: {}, color2: {}, vertices: {}}}", v.kind, v.color, v.color2, v.vertices);
+		auto format(const Permitive2D &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "Permitive2D{{kind: {}, color: {}, color2: {}, vertices: {}}}", v.kind, v.color, v.color2, v.vertices);
 		}
 	};
 }
 
-void pict2permitive_free(Permitive& self) {
+void pict2permitive_free(Permitive2D& self) {
 	mn::buf_free(self.vertices);
 }
 
-void destruct(Permitive& self) {
+void destruct(Permitive2D& self) {
 	pict2permitive_free(self);
 }
 
-mn::Buf<Permitive> permitives_from_pc2_file(const mn::Str& pc2_file_content) {
+mn::Buf<Permitive2D> permitives2d_from_pc2_file(const mn::Str& pc2_file_content) {
 	auto s = mn::str_clone(pc2_file_content, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
 
 	expect(s, "Pict2\n");
 
-	mn::Buf<Permitive> permitives {};
+	mn::Buf<Permitive2D> permitives2d {};
 
 	while (accept(s, "ENDPICT\n") == false) {
-		Permitive permitive {};
+		Permitive2D permitive {};
 
 		auto kind_str = token_str(s, mn::memory::tmp());
 		expect(s, '\n');
 
 		if (kind_str == "LSQ") {
-			permitive.kind = Permitive::Kind::LINES;
+			permitive.kind = Permitive2D::Kind::LINES;
 		} else if (kind_str == "PLG") {
-			permitive.kind = Permitive::Kind::POLYGON;
+			permitive.kind = Permitive2D::Kind::POLYGON;
 		} else if (kind_str == "PLL") {
-			permitive.kind = Permitive::Kind::LINE_SEGMENTS;
+			permitive.kind = Permitive2D::Kind::LINE_SEGMENTS;
 		} else if (kind_str == "PST") {
-			permitive.kind = Permitive::Kind::POINTS;
+			permitive.kind = Permitive2D::Kind::POINTS;
 		} else if (kind_str == "QDR") {
-			permitive.kind = Permitive::Kind::QUADRILATERAL;
+			permitive.kind = Permitive2D::Kind::QUADRILATERAL;
 		} else if (kind_str == "GQS") {
-			permitive.kind = Permitive::Kind::GRADATION_QUAD_STRIPS;
+			permitive.kind = Permitive2D::Kind::GRADATION_QUAD_STRIPS;
 		} else if (kind_str == "QST") {
-			permitive.kind = Permitive::Kind::QUAD_STRIPS;
+			permitive.kind = Permitive2D::Kind::QUAD_STRIPS;
 		} else if (kind_str == "TRI") {
-			permitive.kind = Permitive::Kind::TRIANGLES;
+			permitive.kind = Permitive2D::Kind::TRIANGLES;
 		} else {
 			mn::panic("{}: invalid pict2 kind={}", get_line_no(s, pc2_file_content), kind_str);
 		}
@@ -2319,7 +2319,7 @@ mn::Buf<Permitive> permitives_from_pc2_file(const mn::Str& pc2_file_content) {
 		expect(s, '\n');
 		// mn::log_debug("color={}", permitive.color);
 
-		if (permitive.kind == Permitive::Kind::GRADATION_QUAD_STRIPS) {
+		if (permitive.kind == Permitive2D::Kind::GRADATION_QUAD_STRIPS) {
 			expect(s, "CL2 ");
 			permitive.color2.r = token_u8(s) / 255.0f;
 			expect(s, ' ');
@@ -2345,31 +2345,31 @@ mn::Buf<Permitive> permitives_from_pc2_file(const mn::Str& pc2_file_content) {
 
 		if (permitive.vertices.count == 0) {
 			mn::panic("{}: no vertices", get_line_no(s, pc2_file_content));
-		} else if (permitive.kind == Permitive::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
+		} else if (permitive.kind == Permitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
 			mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(s, pc2_file_content), permitive.vertices.count);
-		} else if (permitive.kind == Permitive::Kind::LINES && permitive.vertices.count % 2 != 0) {
+		} else if (permitive.kind == Permitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
 			mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(s, pc2_file_content), permitive.vertices.count);
 			mn::buf_pop(permitive.vertices);
-		} else if (permitive.kind == Permitive::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
+		} else if (permitive.kind == Permitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
 			mn::panic("{}: kind is line but has one point", get_line_no(s, pc2_file_content));
-		} else if (permitive.kind == Permitive::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
+		} else if (permitive.kind == Permitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
 			mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(s, pc2_file_content), permitive.vertices.count);
-		} else if (permitive.kind == Permitive::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
+		} else if (permitive.kind == Permitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
 			mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(s, pc2_file_content), permitive.vertices.count);
 		}
 
 		// mn::log_debug("{}", permitive);
-		mn::buf_push(permitives, permitive);
+		mn::buf_push(permitives2d, permitive);
 	}
-	// mn::log_debug("{}", permitives);
+	// mn::log_debug("{}", permitives2d);
 
-	return permitives;
+	return permitives2d;
 }
 
 int main() {
-	auto permitives = permitives_from_pc2_file(mn::str_lit(PICT2_TRI_EXAMPLE));
-	mn_defer(mn::destruct(permitives));
-	mn::log_debug("{}", permitives);
+	auto permitives2d = permitives2d_from_pc2_file(mn::str_lit(PICT2_TRI_EXAMPLE));
+	mn_defer(mn::destruct(permitives2d));
+	mn::log_debug("{}", permitives2d);
 
 	return 0;
 	test_aabbs_intersection();
