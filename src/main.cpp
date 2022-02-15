@@ -795,6 +795,36 @@ bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& 
 	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
+bool lines2d_intersect(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, const glm::vec2& p4) {
+	const glm::vec2 p43 = p4 - p3;
+	if (almost_equal(p43, {0,0})) {
+		return false;
+	}
+
+	const glm::vec2 p21 = p2 - p1;
+	if (almost_equal(p21, {0,0})) {
+		return false;
+	}
+
+	const glm::vec2 p13 = p1 - p3;
+	const double d1343 = glm::dot(p13, p43);
+	const double d4321 = glm::dot(p43, p21);
+	const double d1321 = glm::dot(p13, p21);
+	const double d4343 = glm::dot(p43, p43);
+	const double d2121 = glm::dot(p21, p21);
+
+	const double denom = d2121 * d4343 - d4321 * d4321;
+	if (almost_equal(denom, 0)) {
+		return false;
+	}
+	const double numer = d1343 * d4321 - d1321 * d4343;
+
+	const double mua = numer / denom;
+	const double mub = (d1343 + d4321 * (mua)) / d4343;
+
+	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
+}
+
 mn::Buf<uint32_t>
 polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices, const glm::vec3& center) {
 	// dbl_indices -> orig_indices -> vertices
@@ -842,6 +872,98 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 				// don't test the edge if it shares a vertex with it
 				if ((jv0 != iv0 && jv0 != iv2) && (jv1 != iv0 && jv1 != iv2)) {
 					if (lines_intersect(vertices[jv0], vertices[jv1], vertices[iv0], vertices[iv2])) {
+						is_ear = false;
+						break;
+					}
+				}
+			}
+
+			if (is_ear) {
+				mn::buf_push(out, indices[mod(i-1, indices.count)]);
+				mn::buf_push(out, indices[i]);
+				mn::buf_push(out, indices[mod(i+1, indices.count)]);
+
+				mn::buf_remove_ordered(indices, i);
+				mn::buf_remove_ordered(dbl_indices, j);
+
+				for (auto& id : dbl_indices) {
+					if (id > i) {
+						id--;
+					}
+				}
+
+				// exit the loop so that we check again the first vertex of the loop, maybe it became now a convex one
+				break;
+			}
+		}
+	}
+
+	if (indices.count != 3) {
+		mn::log_error("failed to tesselate");
+	}
+	mn::buf_concat(out, indices);
+	return out;
+}
+
+mn::Buf<uint32_t>
+polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices) {
+	glm::vec2 center {};
+	for (const auto& vertex : vertices) {
+		center += vertex;
+	}
+	center /= vertices.count;
+
+	auto orig_indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
+	mn::buf_reserve(orig_indices, vertices.count);
+	for (int i = 0; i < vertices.count; i++) {
+		mn::buf_push(orig_indices, i);
+	}
+
+	// dbl_indices -> orig_indices -> vertices
+	// vertex = vertices[orig_indices[dbl_indices[i]]]
+	// indices to indices to vertices
+	// sort dbl_indices from farthest from center to nearst
+	auto dbl_indices = mn::buf_with_allocator<size_t>(mn::memory::tmp());
+	for (size_t i = 0; i < orig_indices.count; i++) {
+		mn::buf_push(dbl_indices, i);
+	}
+	auto dist_from_center = mn::buf_with_allocator<double>(mn::memory::tmp());
+	for (const auto& v : vertices) {
+		mn::buf_push(dist_from_center, glm::distance(center, v));
+	}
+	std::sort(mn::begin(dbl_indices), mn::end(dbl_indices), [&](size_t a, size_t b) {
+		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
+	});
+
+	mn::Buf<uint32_t> out {};
+	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
+
+	// limit no of iterations to avoid inf loop
+	size_t k = indices.count + 1;
+	while (k > 0 && indices.count > 3) {
+		k--;
+
+		for (size_t j = 0; j < dbl_indices.count; j++) {
+			auto i = dbl_indices[j];
+
+			// indices
+			const uint32_t iv0 = indices[mod(i-1, indices.count)];
+			const uint32_t iv2 = indices[mod(i+1, indices.count)];
+
+			bool is_ear = true;
+
+			// segment: (v0, v2) must not intersect with any other edge in polygon
+			// for edge in edges:
+			//   if not share_vertex(segment, edge):
+			//     if intersects(segment, edge): return false
+			for (size_t j = 0; j < indices.count; j++) {
+				// edge
+				const uint32_t jv0 = indices[j];
+				const uint32_t jv1 = indices[mod(j+1, indices.count)];
+
+				// don't test the edge if it shares a vertex with it
+				if ((jv0 != iv0 && jv0 != iv2) && (jv1 != iv0 && jv1 != iv2)) {
+					if (lines2d_intersect(vertices[jv0], vertices[jv1], vertices[iv0], vertices[iv2])) {
 						is_ear = false;
 						break;
 					}
@@ -2136,7 +2258,7 @@ ENDPICT
 )";
 
 constexpr auto PICT2_LINES_EXAMPLE = R"(Pict2
-PST
+LSQ
 COL 0 87 0
 VER 00.00 00.00
 VER 00.00 50.00
@@ -2180,7 +2302,7 @@ ENDPICT
 constexpr auto PICT2_GRAD_QUAD_STRIPS_EXAMPLE = R"(Pict2
 GQS
 COL 0 87 0
-COL 255 0 0
+CL2 255 0 0
 VER 00.00 00.00
 VER 00.00 50.00
 VER 50.00 50.00
@@ -2196,10 +2318,10 @@ VER 00.00 00.00
 VER 00.00 50.00
 VER 50.00 50.00
 VER 50.00 00.00
-VER 100.00 00.00
-VER 100.00 50.00
-VER 150.00 50.00
-VER 150.00 00.00
+VER -100.00 00.00
+VER -100.00 50.00
+VER -150.00 50.00
+VER -150.00 00.00
 ENDO
 ENDPICT
 )";
@@ -2215,7 +2337,7 @@ ENDO
 ENDPICT
 )";
 
-struct Permitive2D {
+struct Primitive2D {
 	enum class Kind {
 		POINTS,                // PST
 		LINES,                 // LSQ
@@ -2229,26 +2351,44 @@ struct Permitive2D {
 
 	glm::vec3 color;
 	glm::vec3 color2; // only for kind=GRADATION_QUAD_STRIPS
+
+	// (X,Z), y=0
 	mn::Buf<glm::vec2> vertices;
+
+	struct {
+		GLuint vao, vbo;
+
+		// possible values?
+		// GL_POINTS
+		// GL_LINES
+		// GL_LINE_LOOP
+		// GL_LINE_STRIP
+		// GL_TRIANGLES
+		// GL_TRIANGLE_STRIP
+		// GL_TRIANGLE_FAN
+		GLenum primitive_type;
+
+		size_t array_count;
+	} gpu;
 };
 
 namespace fmt {
 	template<>
-	struct formatter<Permitive2D::Kind> {
+	struct formatter<Primitive2D::Kind> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const Permitive2D::Kind &v, FormatContext &ctx) {
+		auto format(const Primitive2D::Kind &v, FormatContext &ctx) {
 			switch (v) {
-			case Permitive2D::Kind::LINES:                return format_to(ctx.out(), "Permitive2D::Kind::LINES");
-			case Permitive2D::Kind::POLYGON:              return format_to(ctx.out(), "Permitive2D::Kind::POLYGON");
-			case Permitive2D::Kind::LINE_SEGMENTS:        return format_to(ctx.out(), "Permitive2D::Kind::LINE_SEGMENTS");
-			case Permitive2D::Kind::POINTS:               return format_to(ctx.out(), "Permitive2D::Kind::POINTS");
-			case Permitive2D::Kind::QUADRILATERAL:        return format_to(ctx.out(), "Permitive2D::Kind::QUADRILATERAL");
-			case Permitive2D::Kind::QUAD_STRIPS:           return format_to(ctx.out(), "Permitive2D::Kind::QUAD_STRIPS");
-			case Permitive2D::Kind::GRADATION_QUAD_STRIPS: return format_to(ctx.out(), "Permitive2D::Kind::GRADATION_QUAD_STRIPS");
-			case Permitive2D::Kind::TRIANGLES:            return format_to(ctx.out(), "Permitive2D::Kind::TRIANGLES");
+			case Primitive2D::Kind::LINES:                 return format_to(ctx.out(), "Primitive2D::Kind::LINES");
+			case Primitive2D::Kind::POLYGON:               return format_to(ctx.out(), "Primitive2D::Kind::POLYGON");
+			case Primitive2D::Kind::LINE_SEGMENTS:         return format_to(ctx.out(), "Primitive2D::Kind::LINE_SEGMENTS");
+			case Primitive2D::Kind::POINTS:                return format_to(ctx.out(), "Primitive2D::Kind::POINTS");
+			case Primitive2D::Kind::QUADRILATERAL:         return format_to(ctx.out(), "Primitive2D::Kind::QUADRILATERAL");
+			case Primitive2D::Kind::QUAD_STRIPS:           return format_to(ctx.out(), "Primitive2D::Kind::QUAD_STRIPS");
+			case Primitive2D::Kind::GRADATION_QUAD_STRIPS: return format_to(ctx.out(), "Primitive2D::Kind::GRADATION_QUAD_STRIPS");
+			case Primitive2D::Kind::TRIANGLES:             return format_to(ctx.out(), "Primitive2D::Kind::TRIANGLES");
 			default: mn_unreachable();
 			}
 			return format_to(ctx.out(), "????????");
@@ -2256,55 +2396,160 @@ namespace fmt {
 	};
 
 	template<>
-	struct formatter<Permitive2D> {
+	struct formatter<Primitive2D> {
 		template <typename ParseContext>
 		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
 		template <typename FormatContext>
-		auto format(const Permitive2D &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "Permitive2D{{kind: {}, color: {}, color2: {}, vertices: {}}}", v.kind, v.color, v.color2, v.vertices);
+		auto format(const Primitive2D &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "Primitive2D{{kind: {}, color: {}, color2: {}, vertices: {}}}", v.kind, v.color, v.color2, v.vertices);
 		}
 	};
 }
 
-void pict2permitive_free(Permitive2D& self) {
+void prmitive2d_free(Primitive2D& self) {
 	mn::buf_free(self.vertices);
 }
 
-void destruct(Permitive2D& self) {
-	pict2permitive_free(self);
+void primitive2d_load_to_gpu(Primitive2D& self) {
+	auto vertices = mn::buf_with_allocator<glm::vec2>(mn::memory::tmp());
+	switch (self.kind) {
+	case Primitive2D::Kind::POINTS:
+		self.gpu.primitive_type = GL_POINTS;
+		vertices = self.vertices;
+		break;
+	case Primitive2D::Kind::LINES:
+		self.gpu.primitive_type = GL_LINES;
+		vertices = self.vertices;
+		break;
+	case Primitive2D::Kind::LINE_SEGMENTS:
+		self.gpu.primitive_type = GL_LINE_STRIP;
+		vertices = self.vertices;
+		break;
+	case Primitive2D::Kind::TRIANGLES:
+		self.gpu.primitive_type = GL_TRIANGLES;
+		vertices = self.vertices;
+		break;
+	case Primitive2D::Kind::QUADRILATERAL:
+		self.gpu.primitive_type = GL_TRIANGLES;
+		for (int i = 0; i < (int)self.vertices.count - 3; i += 4) {
+			mn::buf_push(vertices, self.vertices[i]);
+			mn::buf_push(vertices, self.vertices[i+3]);
+			mn::buf_push(vertices, self.vertices[i+2]);
+
+			mn::buf_push(vertices, self.vertices[i]);
+			mn::buf_push(vertices, self.vertices[i+2]);
+			mn::buf_push(vertices, self.vertices[i+1]);
+		}
+		break;
+	case Primitive2D::Kind::GRADATION_QUAD_STRIPS: // same as QUAD_STRIPS but with extra color
+	case Primitive2D::Kind::QUAD_STRIPS:
+		self.gpu.primitive_type = GL_TRIANGLES;
+		for (int i = 0; i < (int)self.vertices.count - 2; i += 2) {
+			mn::buf_push(vertices, self.vertices[i]);
+			mn::buf_push(vertices, self.vertices[i+1]);
+			mn::buf_push(vertices, self.vertices[i+3]);
+
+			mn::buf_push(vertices, self.vertices[i]);
+			mn::buf_push(vertices, self.vertices[i+2]);
+			mn::buf_push(vertices, self.vertices[i+3]);
+		}
+		break;
+	case Primitive2D::Kind::POLYGON:
+	{
+		self.gpu.primitive_type = GL_TRIANGLES;
+		auto indices = polygons2d_to_triangles(self.vertices);
+		for (auto& index : indices) {
+			mn::buf_push(vertices, self.vertices[index]);
+		}
+		break;
+	}
+	default: mn_unreachable();
+	}
+	self.gpu.array_count = vertices.count;
+
+	// load vertices to gpu
+	glGenVertexArrays(1, &self.gpu.vao);
+	glBindVertexArray(self.gpu.vao);
+		glGenBuffers(1, &self.gpu.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
+		glBufferData(GL_ARRAY_BUFFER, vertices.count * sizeof(glm::vec2), vertices.ptr, GL_STATIC_DRAW);
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(
+			0,                 /*index*/
+			2,                 /*#components*/
+			GL_FLOAT,          /*type*/
+			GL_FALSE,          /*normalize*/
+			sizeof(glm::vec2), /*stride bytes*/
+			(void*)0           /*offset*/
+		);
+	glBindVertexArray(0);
+
+	GL_CATCH_ERRS();
 }
 
-mn::Buf<Permitive2D> permitives2d_from_pc2_file(const mn::Str& pc2_file_content) {
+void prmitive2d_unload_from_gpu(Primitive2D& self) {
+	glDeleteBuffers(1, &self.gpu.vbo);
+	glBindVertexArray(0);
+	glDeleteVertexArrays(1, &self.gpu.vao);
+	self.gpu = {};
+}
+
+void destruct(Primitive2D& self) {
+	prmitive2d_free(self);
+}
+
+struct Picture2D {
+	mn::Buf<Primitive2D> primitives;
+	struct {
+		glm::vec3 translation;
+		glm::vec3 rotation; // roll, pitch, yaw
+		glm::vec3 scale;
+	} current_state, initial_state;
+};
+
+void picture2d_free(Picture2D& self) {
+	mn::destruct(self.primitives);
+}
+
+void destruct(Picture2D& self) {
+	picture2d_free(self);
+}
+
+Picture2D picture2d_from_pc2_file(const mn::Str& pc2_file_content) {
 	auto s = mn::str_clone(pc2_file_content, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
 
 	expect(s, "Pict2\n");
 
-	mn::Buf<Permitive2D> permitives2d {};
+	Picture2D picture2d {};
+
+	picture2d.initial_state.scale = {1,1,1};
+	picture2d.current_state = picture2d.initial_state;
 
 	while (accept(s, "ENDPICT\n") == false) {
-		Permitive2D permitive {};
+		Primitive2D permitive {};
 
 		auto kind_str = token_str(s, mn::memory::tmp());
 		expect(s, '\n');
 
 		if (kind_str == "LSQ") {
-			permitive.kind = Permitive2D::Kind::LINES;
+			permitive.kind = Primitive2D::Kind::LINES;
 		} else if (kind_str == "PLG") {
-			permitive.kind = Permitive2D::Kind::POLYGON;
+			permitive.kind = Primitive2D::Kind::POLYGON;
 		} else if (kind_str == "PLL") {
-			permitive.kind = Permitive2D::Kind::LINE_SEGMENTS;
+			permitive.kind = Primitive2D::Kind::LINE_SEGMENTS;
 		} else if (kind_str == "PST") {
-			permitive.kind = Permitive2D::Kind::POINTS;
+			permitive.kind = Primitive2D::Kind::POINTS;
 		} else if (kind_str == "QDR") {
-			permitive.kind = Permitive2D::Kind::QUADRILATERAL;
+			permitive.kind = Primitive2D::Kind::QUADRILATERAL;
 		} else if (kind_str == "GQS") {
-			permitive.kind = Permitive2D::Kind::GRADATION_QUAD_STRIPS;
+			permitive.kind = Primitive2D::Kind::GRADATION_QUAD_STRIPS;
 		} else if (kind_str == "QST") {
-			permitive.kind = Permitive2D::Kind::QUAD_STRIPS;
+			permitive.kind = Primitive2D::Kind::QUAD_STRIPS;
 		} else if (kind_str == "TRI") {
-			permitive.kind = Permitive2D::Kind::TRIANGLES;
+			permitive.kind = Primitive2D::Kind::TRIANGLES;
 		} else {
 			mn::panic("{}: invalid pict2 kind={}", get_line_no(s, pc2_file_content), kind_str);
 		}
@@ -2319,7 +2564,7 @@ mn::Buf<Permitive2D> permitives2d_from_pc2_file(const mn::Str& pc2_file_content)
 		expect(s, '\n');
 		// mn::log_debug("color={}", permitive.color);
 
-		if (permitive.kind == Permitive2D::Kind::GRADATION_QUAD_STRIPS) {
+		if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
 			expect(s, "CL2 ");
 			permitive.color2.r = token_u8(s) / 255.0f;
 			expect(s, ' ');
@@ -2345,33 +2590,40 @@ mn::Buf<Permitive2D> permitives2d_from_pc2_file(const mn::Str& pc2_file_content)
 
 		if (permitive.vertices.count == 0) {
 			mn::panic("{}: no vertices", get_line_no(s, pc2_file_content));
-		} else if (permitive.kind == Permitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
+		} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
 			mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(s, pc2_file_content), permitive.vertices.count);
-		} else if (permitive.kind == Permitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
+		} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
 			mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(s, pc2_file_content), permitive.vertices.count);
 			mn::buf_pop(permitive.vertices);
-		} else if (permitive.kind == Permitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
+		} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
 			mn::panic("{}: kind is line but has one point", get_line_no(s, pc2_file_content));
-		} else if (permitive.kind == Permitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
+		} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
 			mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(s, pc2_file_content), permitive.vertices.count);
-		} else if (permitive.kind == Permitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
+		} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
 			mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(s, pc2_file_content), permitive.vertices.count);
 		}
 
 		// mn::log_debug("{}", permitive);
-		mn::buf_push(permitives2d, permitive);
+		mn::buf_push(picture2d.primitives, permitive);
 	}
-	// mn::log_debug("{}", permitives2d);
+	// mn::log_debug("{}", picture2d.primitives);
 
-	return permitives2d;
+	return picture2d;
+}
+
+void picture2d_load_to_gpu(Picture2D& self) {
+	for (auto& primitive : self.primitives) {
+		primitive2d_load_to_gpu(primitive);
+	}
+}
+
+void picture2d_unload_from_gpu(Picture2D& self) {
+	for (auto& primitive : self.primitives) {
+		prmitive2d_unload_from_gpu(primitive);
+	}
 }
 
 int main() {
-	auto permitives2d = permitives2d_from_pc2_file(mn::str_lit(PICT2_TRI_EXAMPLE));
-	mn_defer(mn::destruct(permitives2d));
-	mn::log_debug("{}", permitives2d);
-
-	return 0;
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
@@ -2732,6 +2984,60 @@ int main() {
 	terr_mesh_load_to_gpu(terr_mesh);
 	mn_defer(terr_mesh_unload_from_gpu(terr_mesh));
 
+	const GLuint primitives2d_gpu_program = gpu_program_new(
+		// vertex shader
+		R"GLSL(
+			#version 330 core
+			layout (location = 0) in vec2 attr_position;
+
+			uniform mat4 model_view_projection;
+			uniform bool gradation_enabled;
+
+			out float vs_color_index;
+
+			void main() {
+				gl_Position = model_view_projection * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
+
+				if (gradation_enabled) {
+					switch (gl_VertexID % 6) {
+					case 0: vs_color_index = 0; break;
+					case 1: vs_color_index = 1; break;
+					case 2: vs_color_index = 1; break;
+					case 3: vs_color_index = 0; break;
+					case 4: vs_color_index = 0; break;
+					case 5: vs_color_index = 1; break;
+					}
+				}
+			}
+		)GLSL",
+
+		// fragment shader
+		R"GLSL(
+			#version 330 core
+
+			in float vs_color_index;
+
+			uniform vec3 primitive_color, primitive_color2;
+			uniform bool gradation_enabled;
+
+			out vec4 out_fragcolor;
+
+			void main() {
+				if (gradation_enabled) {
+					out_fragcolor = vec4(mix(primitive_color, primitive_color2, vs_color_index), 1.0);
+				} else {
+					out_fragcolor = vec4(primitive_color, 1.0);
+				}
+			}
+		)GLSL"
+	);
+	mn_defer(glDeleteProgram(primitives2d_gpu_program));
+
+	auto picture2d = picture2d_from_pc2_file(mn::str_lit(PICT2_EXAMPLE));
+	mn_defer(picture2d_free(picture2d));
+	picture2d_load_to_gpu(picture2d);
+	mn_defer(picture2d_unload_from_gpu(picture2d));
+
 	struct {
 		bool enabled = true;
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
@@ -2930,7 +3236,33 @@ int main() {
 			}
 		}
 
-		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
+		// render 2d primitives
+		{
+			glUseProgram(primitives2d_gpu_program);
+
+			auto model_transformation = glm::identity<glm::mat4>();
+			model_transformation = glm::translate(model_transformation, picture2d.current_state.translation);
+			model_transformation = glm::rotate(model_transformation, picture2d.current_state.rotation[2], glm::vec3{0, 0, 1});
+			model_transformation = glm::rotate(model_transformation, picture2d.current_state.rotation[1], glm::vec3{1, 0, 0});
+			model_transformation = glm::rotate(model_transformation, picture2d.current_state.rotation[0], glm::vec3{0, 1, 0});
+			model_transformation = glm::scale(model_transformation, picture2d.current_state.scale);
+
+			const auto projection_view_model = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera) * model_transformation;
+			glUniformMatrix4fv(glGetUniformLocation(primitives2d_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
+
+			for (auto& primitive : picture2d.primitives) {
+				glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color"), 1, glm::value_ptr(primitive.color));
+
+				const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
+				glUniform1i(glGetUniformLocation(primitives2d_gpu_program, "gradation_enabled"), (GLint) gradation_enabled);
+				if (gradation_enabled) {
+					glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color2"), 1, glm::value_ptr(primitive.color2));
+				}
+
+				glBindVertexArray(primitive.gpu.vao);
+				glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
+			}
+		}
 
 		glUseProgram(meshes_gpu_program);
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
@@ -2939,11 +3271,11 @@ int main() {
 		// render terrain
 		{
 			auto model_transformation = glm::identity<glm::mat4>();
-			model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
 			model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
 			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
 			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+			model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
 			glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
 
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
@@ -2962,6 +3294,7 @@ int main() {
 		}
 
 		// render models
+		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
@@ -3456,6 +3789,23 @@ int main() {
 
 				ImGui::TreePop();
 			}
+
+			if (ImGui::TreeNode("Pict2")) {
+				if (ImGui::Button("Reset State")) {
+					picture2d.current_state = picture2d.initial_state;
+				}
+
+				if (ImGui::Button("Reload")) {
+					picture2d_unload_from_gpu(picture2d);
+					picture2d_load_to_gpu(picture2d);
+				}
+
+				ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
+				ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
+				MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
+
+				ImGui::TreePop();
+			}
 		}
 		ImGui::End();
 
@@ -3535,6 +3885,7 @@ bugs:
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
 - rotation of terrmesh doesn't work nice with scale (y,z)
+- 2 triangles on each other flicker (same Y)
 
 TODO:
 - what's PAX in dnmver 2?
@@ -3545,8 +3896,6 @@ TODO:
 - Scenery files
 	- terrmesh
 		- side color
-	- pict2
-		- render
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
@@ -3572,5 +3921,8 @@ TODO:
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
-- (optimization): store stack of nodes instead of tree in model
+
+- optimization:
+	- store stack of nodes instead of tree in model
+	- use different kinds of opengl primitives (i.e. strip/fan)
 */
