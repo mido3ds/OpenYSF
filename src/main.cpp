@@ -2248,10 +2248,6 @@ mn::Buf<Permitive> permitives_from_pc2_file(const mn::Str& pc2_file_content) {
 			vertex.y = token_float(s);
 			expect(s, '\n');
 
-			if (permitive.kind == Permitive::Kind::TRIANGLE && permitive.vertices.count >= 3) {
-				mn::panic("{}: kind is triangle but found more than 3 vertices", get_line_no(s, pc2_file_content));
-			}
-
 			// mn::log_debug("ver: (x={}, y={})", x, y);
 			mn::buf_push(permitive.vertices, vertex);
 		}
@@ -2259,6 +2255,8 @@ mn::Buf<Permitive> permitives_from_pc2_file(const mn::Str& pc2_file_content) {
 
 		if (permitive.vertices.count == 0) {
 			mn::panic("{}: no vertices", get_line_no(s, pc2_file_content));
+		} else if (permitive.kind == Permitive::Kind::TRIANGLE && permitive.vertices.count % 3 != 0) {
+			mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(s, pc2_file_content), permitive.vertices.count);
 		} else if (permitive.kind == Permitive::Kind::LINE && permitive.vertices.count % 2 != 0) {
 			mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(s, pc2_file_content), permitive.vertices.count);
 			mn::buf_pop(permitive.vertices);
