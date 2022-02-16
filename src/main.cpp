@@ -658,8 +658,8 @@ void test_aabbs_intersection() {
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	mn::Str file_abs_path;
-	bool should_open_dnm_file;
-	bool should_load_model;
+	bool should_select_file;
+	bool should_load_file;
 	bool enable_rotating_around;
 
 	mn::Map<mn::Str, Mesh> meshes;
@@ -916,7 +916,7 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 }
 
 mn::Buf<uint32_t>
-polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices) {
+polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices, mn::Allocator allocator = mn::allocator_top()) {
 	glm::vec2 center {};
 	for (const auto& vertex : vertices) {
 		center += vertex;
@@ -945,7 +945,7 @@ polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices) {
 		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
 	});
 
-	mn::Buf<uint32_t> out {};
+	auto out = mn::buf_with_allocator<uint32_t>(allocator);
 	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
 
 	// limit no of iterations to avoid inf loop
@@ -1121,7 +1121,7 @@ constexpr float YS_MAX      = 0xFFFF;
 constexpr float RADIANS_MAX = 6.283185307179586f;
 constexpr float DEGREES_MAX = 360.0f;
 
-Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
+Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	const auto dnm_file = mn::file_content_str(dnm_file_abs_path, mn::memory::tmp());
 	auto s = mn::str_clone(dnm_file, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
@@ -1529,7 +1529,7 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 
 	auto model = Model {
 		.file_abs_path = mn::str_clone(dnm_file_abs_path),
-		.should_load_model = true,
+		.should_load_file = true,
 		.meshes = surfs,
 		.initial_aabb = AABB {
 			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
@@ -2348,7 +2348,7 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 	case Primitive2D::Kind::POLYGON:
 	{
 		self.gpu.primitive_type = GL_TRIANGLES;
-		auto indices = polygons2d_to_triangles(self.vertices);
+		auto indices = polygons2d_to_triangles(self.vertices, mn::memory::tmp());
 		for (auto& index : indices) {
 			mn::buf_push(vertices, self.vertices[index]);
 		}
@@ -2486,25 +2486,30 @@ struct Field {
 	mn::Buf<TerrMesh> terr_meshes;
 	mn::Buf<Picture2D> pictures;
 	mn::Buf<FieldRegion> regions;
+
+	mn::Str file_abs_path;
+	bool should_select_file, should_load_file;
 };
 
 void field_free(Field& self) {
 	mn::destruct(self.terr_meshes);
 	mn::destruct(self.pictures);
 	mn::destruct(self.regions);
+	mn::str_free(self.file_abs_path);
 }
 
 void destruct(Field& self) {
 	field_free(self);
 }
 
-Field field_from_fld_file(const mn::Str& fld_file_content) {
-	auto s = mn::str_clone(fld_file_content, mn::memory::tmp());
-	mn::str_replace(s, "\r\n", "\n");
+Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
+	mn::Str fld_file_content = mn::file_content_str(fld_file_abs_path, mn::memory::tmp());
+	mn::str_replace(fld_file_content, "\r\n", "\n");
+	auto s = fld_file_content;
 
 	expect(s, "FIELD\n");
 
-	Field field {};
+	Field field { .file_abs_path=mn::str_clone(fld_file_abs_path) };
 
 	expect(s, "GND ");
 	field.ground_color.r = token_u8(s) / 255.0f;
@@ -3056,8 +3061,8 @@ int main() {
 	// models
 	constexpr int NUM_MODELS = 2;
 	Model models[NUM_MODELS] = {
-		model_from_dnm(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
-		model_from_dnm(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
+		model_from_dnm_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
+		model_from_dnm_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
 	};
 	mn_defer({
 		for (int i = 0; i < NUM_MODELS; i++) {
@@ -3351,8 +3356,7 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto fld_file_content = mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld", mn::memory::tmp());
-	auto field = field_from_fld_file(fld_file_content);
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
@@ -3445,6 +3449,31 @@ int main() {
 			}
 		}
 
+		if (field.should_select_file) {
+			field.should_select_file = false;
+
+			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
+			if (result.size() == 1) {
+				mn::str_free(field.file_abs_path);
+				mn::str_push(field.file_abs_path, result[0].c_str());
+				mn::log_debug("loading '{}'", field.file_abs_path);
+				field.should_load_file = true;
+			}
+		}
+		if (field.should_load_file) {
+			field.should_load_file = false;
+
+			Field new_field {};
+			if (field.file_abs_path.count > 0) {
+				new_field = field_from_fld_file(field.file_abs_path);
+				field_load_to_gpu(new_field);
+			}
+
+			field_unload_from_gpu(field);
+			field_free(field);
+			field = new_field;
+		}
+
 		if (dnm_hotreload.enabled) {
 			dnm_hotreload.last_check_time += delta_time;
 			if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
@@ -3455,7 +3484,7 @@ int main() {
 					const int64_t write_time = mn::file_last_write_time(models[i].file_abs_path);
 					if (write_time > dnm_hotreload.last_write_time) {
 						dnm_hotreload.last_write_time = write_time;
-						models[i].should_load_model = true;
+						models[i].should_load_file = true;
 						mn::log_debug("Model[{}]: file '{}' changed, will reload", i, models[i].file_abs_path);
 					}
 				}
@@ -3463,20 +3492,20 @@ int main() {
 		}
 
 		for (int i = 0; i < NUM_MODELS; i++) {
-			if (models[i].should_open_dnm_file) {
-				models[i].should_open_dnm_file = false;
+			if (models[i].should_select_file) {
+				models[i].should_select_file = false;
 
 				auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
 				if (result.size() == 1) {
 					mn::str_free(models[i].file_abs_path);
 					mn::str_push(models[i].file_abs_path, result[0].c_str());
 					mn::log_debug("loading '{}'", models[i].file_abs_path);
-					models[i].should_load_model = true;
+					models[i].should_load_file = true;
 				}
 			}
 
-			if (models[i].should_load_model) {
-				auto model = model_from_dnm(models[i].file_abs_path);
+			if (models[i].should_load_file) {
+				auto model = model_from_dnm_file(models[i].file_abs_path);
 				model_load_to_gpu(model);
 
 				// so we don't hot reload it again
@@ -3487,7 +3516,7 @@ int main() {
 				models[i] = model;
 
 				mn::log_debug("loaded '{}'", models[i].file_abs_path);
-				models[i].should_load_model = false;
+				models[i].should_load_file = false;
 			}
 		}
 
@@ -3997,8 +4026,8 @@ int main() {
 			for (int i = 0; i < NUM_MODELS; i++) {
 				Model& model = models[i];
 				if (ImGui::TreeNode(mn::str_tmpf("Model {}", i).ptr)) {
-					models[i].should_open_dnm_file = ImGui::Button("Load DNM");
-					models[i].should_load_model = ImGui::Button("Reload");
+					models[i].should_select_file = ImGui::Button("Load DNM");
+					models[i].should_load_file = ImGui::Button("Reload");
 
 					if (ImGui::Button("Reset State")) {
 						model.current_state = {};
@@ -4100,46 +4129,63 @@ int main() {
 				}
 			}
 
-			for (auto& terr_mesh : field.terr_meshes) {
-				if (ImGui::TreeNode(terr_mesh.name.ptr)) {
-					if (ImGui::Button("Reset State")) {
-						terr_mesh.current_state = terr_mesh.initial_state;
+			if (ImGui::TreeNode("Field")) {
+				field.should_select_file = ImGui::Button("Open FLD");
+				field.should_load_file = ImGui::Button("Reload");
+
+				MyImGui::EnumsCombo("Default Area", &field.default_area, {
+					{AreaKind::LAND, "LAND"},
+					{AreaKind::WATER, "WATER"},
+					{AreaKind::NOAREA, "NOAREA"},
+				});
+				ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
+				ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
+
+				ImGui::BulletText("TerrMesh:");
+				for (auto& terr_mesh : field.terr_meshes) {
+					if (ImGui::TreeNode(terr_mesh.name.ptr)) {
+						if (ImGui::Button("Reset State")) {
+							terr_mesh.current_state = terr_mesh.initial_state;
+						}
+
+						if (ImGui::Button("Reload")) {
+							terr_mesh_unload_from_gpu(terr_mesh);
+							terr_mesh_load_to_gpu(terr_mesh);
+						}
+
+						ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
+
+						ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
+						ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
+						MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
+
+						ImGui::TreePop();
 					}
-
-					if (ImGui::Button("Reload")) {
-						terr_mesh_unload_from_gpu(terr_mesh);
-						terr_mesh_load_to_gpu(terr_mesh);
-					}
-
-					ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
-
-					ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
-					ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
-					MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
-
-					ImGui::TreePop();
 				}
-			}
 
-			for (auto& picture2d : field.pictures) {
-				if (ImGui::TreeNode(picture2d.name.ptr)) {
-					if (ImGui::Button("Reset State")) {
-						picture2d.current_state = picture2d.initial_state;
+				ImGui::BulletText("Pict2:");
+				for (auto& picture2d : field.pictures) {
+					if (ImGui::TreeNode(picture2d.name.ptr)) {
+						if (ImGui::Button("Reset State")) {
+							picture2d.current_state = picture2d.initial_state;
+						}
+
+						if (ImGui::Button("Reload")) {
+							picture2d_unload_from_gpu(picture2d);
+							picture2d_load_to_gpu(picture2d);
+						}
+
+						ImGui::Checkbox("Visible", &picture2d.current_state.visible);
+
+						ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
+						ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
+						MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
+
+						ImGui::TreePop();
 					}
-
-					if (ImGui::Button("Reload")) {
-						picture2d_unload_from_gpu(picture2d);
-						picture2d_load_to_gpu(picture2d);
-					}
-
-					ImGui::Checkbox("Visible", &picture2d.current_state.visible);
-
-					ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
-					ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
-					MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
-
-					ImGui::TreePop();
 				}
+
+				ImGui::TreePop();
 			}
 		}
 		ImGui::End();
@@ -4228,17 +4274,32 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
-	- load file
-	- hot reload file
+	- load other files
+		- airstrike
+		- aomori
+		- atoll
+		- atsugi
+		- crescent
+		- gourd
+		- hawaii
+		- heathrow
+		- naha
+		- newta
+		- n-kyusyu
+		- ocean
+		- race_desert
+		- race_valley
+		- slapstick
+		- small
+		- tohoku
+		- yamoto
+	- hot reload file?
 	- small.fld bugs:
 		- biggest pic doesn't render correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh sides colors
 	- read PST at end of fld
-	- imgui
-		- default area
-		- sky color
-		- ground_color
+- render water
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
