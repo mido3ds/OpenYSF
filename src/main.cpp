@@ -2480,21 +2480,34 @@ void destruct(FieldRegion& self) {
 }
 
 struct Field {
+	mn::Str name;
+	FieldID id;
+
 	AreaKind default_area;
 	glm::vec3 ground_color, sky_color;
 
 	mn::Buf<TerrMesh> terr_meshes;
 	mn::Buf<Picture2D> pictures;
 	mn::Buf<FieldRegion> regions;
+	mn::Buf<Field> subfields;
 
 	mn::Str file_abs_path;
 	bool should_select_file, should_load_file;
+
+	struct {
+		glm::vec3 translation;
+		glm::vec3 rotation; // roll, pitch, yaw
+		glm::vec3 scale;
+		bool visible = true;
+	} current_state, initial_state;
 };
 
 void field_free(Field& self) {
+	mn::str_free(self.name);
 	mn::destruct(self.terr_meshes);
 	mn::destruct(self.pictures);
 	mn::destruct(self.regions);
+	mn::destruct(self.subfields);
 	mn::str_free(self.file_abs_path);
 }
 
@@ -2502,10 +2515,9 @@ void destruct(Field& self) {
 	field_free(self);
 }
 
-Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
-	mn::Str fld_file_content = mn::file_content_str(fld_file_abs_path, mn::memory::tmp());
-	mn::str_replace(fld_file_content, "\r\n", "\n");
-	auto s = fld_file_content;
+Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn::Str& fld_file_abs_path, const size_t bytes_to_read) {
+	mn_assert(s.count >= bytes_to_read);
+	const size_t bytes_to_keep = s.count - bytes_to_read;
 
 	expect(s, "FIELD\n");
 
@@ -2555,7 +2567,19 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 		// mn::log_debug("total_lines_count={}", total_lines_count);
 
 		const size_t first_line_no = get_line_no(fld_file_content, s);
-		if (accept(s, "TerrMesh\n")) {
+		if (peek(s, "FIELD\n")) {
+			size_t subfield_total_bytes = 0;
+			size_t counted_lines = total_lines_count;
+			while (counted_lines > 0) {
+				while (s[subfield_total_bytes++] != '\n') {}
+				counted_lines--;
+			}
+
+			auto subfield = _field_from_fld_str(s, fld_file_content, fld_file_abs_path, subfield_total_bytes);
+			subfield.name = name;
+
+			mn::buf_push(field.subfields, subfield);
+		} else if (accept(s, "TerrMesh\n")) {
 			TerrMesh terr_mesh { .name=name };
 
 			expect(s, "NBL ");
@@ -2699,10 +2723,10 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 
 			mn::buf_push(field.terr_meshes, terr_mesh);
 		} else if (accept(s, "Pict2\n")) {
-			Picture2D picture2d { .name=name };
+			Picture2D picture { .name=name };
 
-			picture2d.initial_state.scale = {1,1,1};
-			picture2d.current_state = picture2d.initial_state;
+			picture.initial_state.scale = {1,1,1};
+			picture.current_state = picture.initial_state;
 
 			while (accept(s, "ENDPICT\n") == false) {
 				Primitive2D permitive {};
@@ -2780,11 +2804,13 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 				}
 
 				// mn::log_debug("{}", permitive);
-				mn::buf_push(picture2d.primitives, permitive);
+				mn::buf_push(picture.primitives, permitive);
 			}
-			// mn::log_debug("{}", picture2d.primitives);
+			// mn::log_debug("{}", picture.primitives);
 
-			mn::buf_push(field.pictures, picture2d);
+			mn::buf_push(field.pictures, picture);
+		} else {
+			mn::panic("{}: invalid type '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
 		}
 
 		const size_t last_line_no = get_line_no(fld_file_content, s);
@@ -2796,8 +2822,46 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 		expect(s, "\n\n");
 	}
 
-	while (s.count > 0) {
-		if (accept(s, "TER\n")) {
+	while (s.count > bytes_to_keep) {
+		if (accept(s, "FLD\n")) {
+			expect(s, "FIL ");
+			auto name = token_str(s, mn::memory::tmp());
+			mn::str_trim(name, "\"");
+			expect(s, '\n');
+			// mn::log_debug("name={}", name);
+
+			Field* subfield = nullptr;
+			for (auto& sf : field.subfields) {
+				if (sf.name == name) {
+					subfield = &sf;
+					break;
+				}
+			}
+			if (subfield == nullptr) {
+				mn::panic("{}: didn't find FLD with name='{}'", get_line_no(fld_file_content, s), name);
+			}
+
+			expect(s, "POS ");
+			subfield->initial_state.translation.x = token_float(s);
+			expect(s, ' ');
+			subfield->initial_state.translation.y = token_float(s);
+			expect(s, ' ');
+			subfield->initial_state.translation.z = token_float(s);
+			expect(s, ' ');
+
+			subfield->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			subfield->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			subfield->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, '\n');
+			subfield->current_state = subfield->initial_state;
+
+			expect(s, "ID ");
+			subfield->id = (FieldID) token_u8(s);
+			// mn::log_debug("id={}", subfield->id);
+			expect(s, "\nEND\n");
+		} else if (accept(s, "TER\n")) {
 			expect(s, "FIL ");
 			auto name = token_str(s, mn::memory::tmp());
 			mn::str_trim(name, "\"");
@@ -2877,6 +2941,7 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 			FieldRegion region {};
 
 			expect(s, "ARE ");
+			while (accept(s, ' ')) {}
 			region.min.x = token_float(s);
 			while (accept(s, ' ')) {}
 			region.min.y = token_float(s);
@@ -2913,16 +2978,23 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 			region.id = (FieldID) token_u8(s);
 			expect(s, '\n');
 
-			expect(s, "TAG ");
-			region.tag = token_str(s);
-			mn::str_trim(region.tag, "\"");
-			expect(s, "\nEND\n");
+			if (accept(s, "TAG ")) {
+				region.tag = token_str(s);
+				mn::str_trim(region.tag, "\"");
+				expect(s, '\n');
+			}
+
+			expect(s, "END\n");
 
 			// mn::log_debug("region={}", region);
 			mn::buf_push(field.regions, region);
 		} else if (accept(s, "PST\n")) {
 			// TODO
 			mn::log_warning("{}: found PST, can't parse, skip now", get_line_no(fld_file_content, s));
+			skip_after(s, mn::str_lit("END\n"));
+		} else if (accept(s, "GOB\n")) {
+			// TODO
+			mn::log_warning("{}: found GOB, can't parse, skip now", get_line_no(fld_file_content, s));
 			skip_after(s, mn::str_lit("END\n"));
 		} else {
 			mn::panic("{}: found invalid type = '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
@@ -2933,6 +3005,15 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 	return field;
 }
 
+Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
+	mn::Str fld_file_content = mn::file_content_str(fld_file_abs_path, mn::memory::tmp());
+	mn::str_replace(fld_file_content, "\r\n", "\n");
+	auto s = fld_file_content;
+	auto field = _field_from_fld_str(s, fld_file_content, fld_file_abs_path, s.count);
+	field.name = mn::file_name(fld_file_abs_path);
+	return field;
+}
+
 void field_load_to_gpu(Field& self) {
 	for (auto& terr_mesh : self.terr_meshes) {
 		terr_mesh_load_to_gpu(terr_mesh);
@@ -2940,9 +3021,15 @@ void field_load_to_gpu(Field& self) {
 	for (auto& pict : self.pictures) {
 		picture2d_load_to_gpu(pict);
 	}
+	for (auto& subfield : self.subfields) {
+		field_load_to_gpu(subfield);
+	}
 }
 
 void field_unload_from_gpu(Field& self) {
+	for (auto& subfield : self.subfields) {
+		field_unload_from_gpu(subfield);
+	}
 	for (auto& terr_mesh : self.terr_meshes) {
 		terr_mesh_unload_from_gpu(terr_mesh);
 	}
@@ -3356,7 +3443,7 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld"));
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\airstrike.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
@@ -3584,68 +3671,90 @@ int main() {
 			}
 		}
 
-		// render 2d pictures
-		for (auto& picture2d : field.pictures) {
-			if (picture2d.current_state.visible == false) {
-				continue;
-			}
-
-			glUseProgram(primitives2d_gpu_program);
-
-			auto model_transformation = glm::identity<glm::mat4>();
-			model_transformation = glm::translate(model_transformation, picture2d.current_state.translation);
-			model_transformation = glm::rotate(model_transformation, picture2d.current_state.rotation[2], glm::vec3{0, 0, 1});
-			model_transformation = glm::rotate(model_transformation, picture2d.current_state.rotation[1], glm::vec3{1, 0, 0});
-			model_transformation = glm::rotate(model_transformation, picture2d.current_state.rotation[0], glm::vec3{0, 1, 0});
-			model_transformation = glm::scale(model_transformation, picture2d.current_state.scale);
-
-			const auto projection_view_model = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera) * model_transformation;
-			glUniformMatrix4fv(glGetUniformLocation(primitives2d_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
-
-			for (auto& primitive : picture2d.primitives) {
-				glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color"), 1, glm::value_ptr(primitive.color));
-
-				const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
-				glUniform1i(glGetUniformLocation(primitives2d_gpu_program, "gradation_enabled"), (GLint) gradation_enabled);
-				if (gradation_enabled) {
-					glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color2"), 1, glm::value_ptr(primitive.color2));
-				}
-
-				glBindVertexArray(primitive.gpu.vao);
-				glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
-			}
-		}
-
 		glUseProgram(meshes_gpu_program);
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
-		// render terrain
-		for (auto& terr_mesh : field.terr_meshes) {
-			if (terr_mesh.current_state.visible == false) {
+		// render fields
+		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
+		mn::buf_push(fields_to_render, &field);
+		while (fields_to_render.count > 0) {
+			Field* field_to_render = mn::buf_top(fields_to_render);
+			mn::buf_pop(fields_to_render);
+
+			if (field_to_render->current_state.visible == false) {
 				continue;
 			}
 
-			auto model_transformation = glm::identity<glm::mat4>();
-			model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
-			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-			model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
-			glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
-
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
-			if (terr_mesh.gradiant.enabled) {
-				glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_y"), terr_mesh.gradiant.bottom_y);
-				glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_top_y"), terr_mesh.gradiant.top_y);
-				glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_color"), 1, glm::value_ptr(terr_mesh.gradiant.bottom_color));
-				glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_top_color"), 1, glm::value_ptr(terr_mesh.gradiant.top_color));
+			for (Field& child : field_to_render->subfields) {
+				mn::buf_push(fields_to_render, &child);
 			}
 
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
-			glBindVertexArray(terr_mesh.gpu.vao);
-			glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
+			// render 2d pictures
+			glUseProgram(primitives2d_gpu_program);
+			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
+			int count = 0;
+			for (auto& picture : field_to_render->pictures) {
+				if (picture.current_state.visible == false) {
+					continue;
+				}
+				count++;
 
+				auto model_transformation = glm::identity<glm::mat4>();
+				model_transformation = glm::translate(model_transformation, picture.current_state.translation);
+				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
+				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
+				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
+				model_transformation = glm::scale(model_transformation, picture.current_state.scale);
+
+				const auto projection_view_model = projection_view * model_transformation;
+				glUniformMatrix4fv(glGetUniformLocation(primitives2d_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
+
+				for (auto& primitive : picture.primitives) {
+					glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color"), 1, glm::value_ptr(primitive.color));
+
+					const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
+					glUniform1i(glGetUniformLocation(primitives2d_gpu_program, "gradation_enabled"), (GLint) gradation_enabled);
+					if (gradation_enabled) {
+						glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color2"), 1, glm::value_ptr(primitive.color2));
+					}
+
+					glBindVertexArray(primitive.gpu.vao);
+					glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
+				}
+			}
+			overlay_text = mn::strf(overlay_text, "pictures:{}\n", count);
+
+			// render terrain
+			glUseProgram(meshes_gpu_program);
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
+			count = 0;
+			for (auto& terr_mesh : field_to_render->terr_meshes) {
+				if (terr_mesh.current_state.visible == false) {
+					continue;
+				}
+				count++;
+
+				auto model_transformation = glm::identity<glm::mat4>();
+				model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
+				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
+				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
+				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+				model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
+
+				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
+				if (terr_mesh.gradiant.enabled) {
+					glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_y"), terr_mesh.gradiant.bottom_y);
+					glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_top_y"), terr_mesh.gradiant.top_y);
+					glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_color"), 1, glm::value_ptr(terr_mesh.gradiant.bottom_color));
+					glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_top_color"), 1, glm::value_ptr(terr_mesh.gradiant.top_color));
+				}
+
+				glBindVertexArray(terr_mesh.gpu.vao);
+				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
+			}
+			overlay_text = mn::strf(overlay_text, "terr:{}\n", count);
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
 		}
 
@@ -4129,64 +4238,108 @@ int main() {
 				}
 			}
 
-			if (ImGui::TreeNode("Field")) {
-				field.should_select_file = ImGui::Button("Open FLD");
-				field.should_load_file = ImGui::Button("Reload");
-
-				MyImGui::EnumsCombo("Default Area", &field.default_area, {
-					{AreaKind::LAND, "LAND"},
-					{AreaKind::WATER, "WATER"},
-					{AreaKind::NOAREA, "NOAREA"},
-				});
-				ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
-				ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
-
-				ImGui::BulletText("TerrMesh:");
-				for (auto& terr_mesh : field.terr_meshes) {
-					if (ImGui::TreeNode(terr_mesh.name.ptr)) {
-						if (ImGui::Button("Reset State")) {
-							terr_mesh.current_state = terr_mesh.initial_state;
-						}
-
-						if (ImGui::Button("Reload")) {
-							terr_mesh_unload_from_gpu(terr_mesh);
-							terr_mesh_load_to_gpu(terr_mesh);
-						}
-
-						ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
-
-						ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
-						ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
-						MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
-
-						ImGui::TreePop();
+			std::function<void(Field&,bool)> renderFieldImgui;
+			renderFieldImgui = [&renderFieldImgui, &imgui_angle_max](Field& field, bool is_root) {
+				if (ImGui::TreeNode(mn::str_tmpf("Field {}", field.name).ptr)) {
+					if (is_root) {
+						field.should_select_file = ImGui::Button("Open FLD");
+						field.should_load_file = ImGui::Button("Reload");
 					}
-				}
 
-				ImGui::BulletText("Pict2:");
-				for (auto& picture2d : field.pictures) {
-					if (ImGui::TreeNode(picture2d.name.ptr)) {
-						if (ImGui::Button("Reset State")) {
-							picture2d.current_state = picture2d.initial_state;
-						}
-
-						if (ImGui::Button("Reload")) {
-							picture2d_unload_from_gpu(picture2d);
-							picture2d_load_to_gpu(picture2d);
-						}
-
-						ImGui::Checkbox("Visible", &picture2d.current_state.visible);
-
-						ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
-						ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
-						MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
-
-						ImGui::TreePop();
+					if (ImGui::Button("Reset State")) {
+						field.current_state = field.initial_state;
 					}
-				}
 
-				ImGui::TreePop();
-			}
+					MyImGui::EnumsCombo("ID", &field.id, {
+						{FieldID::NONE, "NONE"},
+						{FieldID::RUNWAY, "RUNWAY"},
+						{FieldID::TAXIWAY, "TAXIWAY"},
+						{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+						{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+						{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+						{FieldID::TOWER, "TOWER"},
+						{FieldID::VIEW_POINT, "VIEW_POINT"},
+					});
+
+					MyImGui::EnumsCombo("Default Area", &field.default_area, {
+						{AreaKind::LAND, "LAND"},
+						{AreaKind::WATER, "WATER"},
+						{AreaKind::NOAREA, "NOAREA"},
+					});
+					ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
+					ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
+
+					ImGui::Checkbox("Visible", &field.current_state.visible);
+
+					ImGui::DragFloat3("Scale", glm::value_ptr(field.current_state.scale), 0.2f);
+					ImGui::DragFloat3("Translation", glm::value_ptr(field.current_state.translation));
+					MyImGui::SliderAngle3("Rotation", &field.current_state.rotation, imgui_angle_max);
+
+					ImGui::BulletText("Sub Fields:");
+					for (auto& subfield : field.subfields) {
+						renderFieldImgui(subfield, false);
+					}
+
+					ImGui::BulletText("TerrMesh:");
+					for (auto& terr_mesh : field.terr_meshes) {
+						if (ImGui::TreeNode(terr_mesh.name.ptr)) {
+							if (ImGui::Button("Reset State")) {
+								terr_mesh.current_state = terr_mesh.initial_state;
+							}
+
+							MyImGui::EnumsCombo("ID", &terr_mesh.id, {
+								{FieldID::NONE, "NONE"},
+								{FieldID::RUNWAY, "RUNWAY"},
+								{FieldID::TAXIWAY, "TAXIWAY"},
+								{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+								{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+								{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+								{FieldID::TOWER, "TOWER"},
+								{FieldID::VIEW_POINT, "VIEW_POINT"},
+							});
+
+							ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
+
+							ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
+							ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
+							MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
+
+							ImGui::TreePop();
+						}
+					}
+
+					ImGui::BulletText("Pict2:");
+					for (auto& picture : field.pictures) {
+						if (ImGui::TreeNode(picture.name.ptr)) {
+							if (ImGui::Button("Reset State")) {
+								picture.current_state = picture.initial_state;
+							}
+
+							MyImGui::EnumsCombo("ID", &picture.id, {
+								{FieldID::NONE, "NONE"},
+								{FieldID::RUNWAY, "RUNWAY"},
+								{FieldID::TAXIWAY, "TAXIWAY"},
+								{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+								{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+								{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+								{FieldID::TOWER, "TOWER"},
+								{FieldID::VIEW_POINT, "VIEW_POINT"},
+							});
+
+							ImGui::Checkbox("Visible", &picture.current_state.visible);
+
+							ImGui::DragFloat3("Scale", glm::value_ptr(picture.current_state.scale), 0.01f);
+							ImGui::DragFloat3("Translation", glm::value_ptr(picture.current_state.translation));
+							MyImGui::SliderAngle3("Rotation", &picture.current_state.rotation, imgui_angle_max);
+
+							ImGui::TreePop();
+						}
+					}
+
+					ImGui::TreePop();
+				}
+			};
+			renderFieldImgui(field, true);
 		}
 		ImGui::End();
 
@@ -4275,7 +4428,6 @@ TODO:
 
 - Scenery files
 	- load other files
-		- airstrike
 		- aomori
 		- atoll
 		- atsugi
@@ -4299,6 +4451,7 @@ TODO:
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh sides colors
 	- read PST at end of fld
+	- read GOB at end of fld
 - render water
 - refactor rendering
 	- primitives?
