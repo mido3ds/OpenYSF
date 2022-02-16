@@ -130,6 +130,7 @@ mn::Str smaller_str(const mn::Str& s) {
 		mn::str_resize(s2, 90);
 		mn::str_push(s2, "....");
 	}
+	mn::str_replace(s2, "\n", "\\n");
 	return s2;
 }
 
@@ -267,6 +268,15 @@ void skip_after(mn::Str& s, char c) {
 	}
 	s.ptr += index + 1;
 	s.count -= index + 1;
+}
+
+void skip_after(mn::Str& s, const mn::Str& s2) {
+	const size_t index = mn::str_find(s, s2, 0);
+	if (index == SIZE_MAX) {
+		mn::panic("failed to find '{}' in '{}'", s2, smaller_str(s));
+	}
+	s.ptr += index + s2.count;
+	s.count -= index + s2.count;
 }
 
 struct Face {
@@ -1834,15 +1844,41 @@ GLuint gpu_program_new(const char* vertex_shader_src, const char* fragment_shade
 }
 
 // from YSFLIGHT SCENERY EDITOR 2009
-enum class RectRegionID {
+// ???
+enum class FieldID {
 	NONE=0,
 	RUNWAY=1,
 	TAXIWAY=2,
 	AIRPORT_AREA=4,
 	ENEMY_TANK_GENERATOR=6,
 	FRIENDLY_TANK_GENERATOR=7,
+	TOWER=10, // ???? not sure (from small.fld)
 	VIEW_POINT=20,
 };
+
+namespace fmt {
+	template<>
+	struct formatter<FieldID> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const FieldID &v, FormatContext &ctx) {
+			switch (v) {
+			case FieldID::NONE:                    return format_to(ctx.out(), "FieldID::NONE");
+			case FieldID::RUNWAY:                  return format_to(ctx.out(), "FieldID::RUNWAY");
+			case FieldID::TAXIWAY:                 return format_to(ctx.out(), "FieldID::TAXIWAY");
+			case FieldID::AIRPORT_AREA:            return format_to(ctx.out(), "FieldID::AIRPORT_AREA");
+			case FieldID::ENEMY_TANK_GENERATOR:    return format_to(ctx.out(), "FieldID::ENEMY_TANK_GENERATOR");
+			case FieldID::FRIENDLY_TANK_GENERATOR: return format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
+			case FieldID::TOWER:                   return format_to(ctx.out(), "FieldID::TOWER");
+			case FieldID::VIEW_POINT:              return format_to(ctx.out(), "FieldID::VIEW_POINT");
+			default: mn::log_error("found unknown ID = {}", (int) v);
+			}
+			return format_to(ctx.out(), "FieldID::????");
+		}
+	};
+}
 
 constexpr auto TER_EXAMPLE = R"(TerrMesh
 NBL 3 3
@@ -1897,6 +1933,9 @@ namespace fmt {
 }
 
 struct TerrMesh {
+	mn::Str name;
+	FieldID id;
+
 	// [z][x] where (z=0,x=0) is bot-left most
 	mn::Buf<mn::Buf<float>> nodes_height;
 	mn::Buf<mn::Buf<Block>> blocks;
@@ -1922,6 +1961,7 @@ struct TerrMesh {
 };
 
 void terr_mesh_free(TerrMesh& self) {
+	mn::str_free(self.name);
 	mn::destruct(self.nodes_height);
 	mn::destruct(self.blocks);
 }
@@ -1938,16 +1978,17 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const TerrMesh &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "TerrMesh{{scale: {}, translation: {}, rotation: {}, "
+			return format_to(ctx.out(), "TerrMesh{{name: {}, id: {}, scale: {}, translation: {}, rotation: {}, "
 				"gradiant: {{enabled: {}, bottom_y: {}, top_y: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
 				"sides: [top={}, bot={}, right={}, left={}]}}",
-				v.current_state.scale, v.current_state.translation, v.current_state.rotation,
+				v.name, v.id, v.current_state.scale, v.current_state.translation, v.current_state.rotation,
 				v.gradiant.enabled, v.gradiant.bottom_y, v.gradiant.top_y, v.gradiant.bottom_color, v.gradiant.top_color,
 				v.nodes_height, v.blocks, v.top_side_color, v.bottom_side_color, v.right_side_color, v.left_side_color);
 		}
 	};
 }
 
+// TODO: remove
 TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file_content) {
 	auto s = mn::str_clone(ter_file_content, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
@@ -2053,7 +2094,7 @@ TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file_content) {
 			} else if (accept(s, " L ")) {
 				self.blocks[z][x].orientation = Block::LEFT;
 			} else {
-				mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(s, ter_file_content), smaller_str(s));
+				mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(ter_file_content, s), smaller_str(s));
 			}
 
 			// face 0
@@ -2501,6 +2542,9 @@ void destruct(Primitive2D& self) {
 }
 
 struct Picture2D {
+	mn::Str name;
+	FieldID id;
+
 	mn::Buf<Primitive2D> primitives;
 	struct {
 		glm::vec3 translation;
@@ -2510,6 +2554,7 @@ struct Picture2D {
 };
 
 void picture2d_free(Picture2D& self) {
+	mn::str_free(self.name);
 	mn::destruct(self.primitives);
 }
 
@@ -2517,6 +2562,7 @@ void destruct(Picture2D& self) {
 	picture2d_free(self);
 }
 
+// TODO remove
 Picture2D picture2d_from_pc2_file(const mn::Str& pc2_file_content) {
 	auto s = mn::str_clone(pc2_file_content, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
@@ -2551,7 +2597,7 @@ Picture2D picture2d_from_pc2_file(const mn::Str& pc2_file_content) {
 		} else if (kind_str == "TRI") {
 			permitive.kind = Primitive2D::Kind::TRIANGLES;
 		} else {
-			mn::panic("{}: invalid pict2 kind={}", get_line_no(s, pc2_file_content), kind_str);
+			mn::panic("{}: invalid pict2 kind={}", get_line_no(pc2_file_content, s), kind_str);
 		}
 		// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
 
@@ -2589,18 +2635,18 @@ Picture2D picture2d_from_pc2_file(const mn::Str& pc2_file_content) {
 		// mn::log_debug("vertices={}", permitive.vertices);
 
 		if (permitive.vertices.count == 0) {
-			mn::panic("{}: no vertices", get_line_no(s, pc2_file_content));
+			mn::panic("{}: no vertices", get_line_no(pc2_file_content, s));
 		} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
-			mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(s, pc2_file_content), permitive.vertices.count);
+			mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(pc2_file_content, s), permitive.vertices.count);
 		} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
-			mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(s, pc2_file_content), permitive.vertices.count);
+			mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(pc2_file_content, s), permitive.vertices.count);
 			mn::buf_pop(permitive.vertices);
 		} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
-			mn::panic("{}: kind is line but has one point", get_line_no(s, pc2_file_content));
+			mn::panic("{}: kind is line but has one point", get_line_no(pc2_file_content, s));
 		} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
-			mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(s, pc2_file_content), permitive.vertices.count);
+			mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(pc2_file_content, s), permitive.vertices.count);
 		} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
-			mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(s, pc2_file_content), permitive.vertices.count);
+			mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(pc2_file_content, s), permitive.vertices.count);
 		}
 
 		// mn::log_debug("{}", permitive);
@@ -2623,7 +2669,514 @@ void picture2d_unload_from_gpu(Picture2D& self) {
 	}
 }
 
+enum class AreaKind {
+	NOAREA=0,
+	LAND,
+	WATER,
+};
+
+namespace fmt {
+	template<>
+	struct formatter<AreaKind> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const AreaKind &v, FormatContext &ctx) {
+			switch (v) {
+			case AreaKind::NOAREA: return format_to(ctx.out(), "AreaKind::NOAREA");
+			case AreaKind::LAND:   return format_to(ctx.out(), "AreaKind::LAND");
+			case AreaKind::WATER:  return format_to(ctx.out(), "AreaKind::WATER");
+			default: mn_unreachable();
+			}
+			return format_to(ctx.out(), "????????");
+		}
+	};
+}
+
+// runway or viewpoint
+struct FieldRegion {
+	// (X,Z) y=0
+	glm::vec2 min, max;
+	glm::mat4 transformation;
+	FieldID id;
+	mn::Str tag;
+};
+
+namespace fmt {
+	template<>
+	struct formatter<FieldRegion> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const FieldRegion &v, FormatContext &ctx) {
+			return format_to(ctx.out(), "FieldRegion{{min: {}, max: {}, transformation: {}, id: {}, tag: {}}}", v.min, v.max, v.transformation, v.id, v.tag);
+		}
+	};
+}
+
+void region_free(FieldRegion& self) {
+	mn::str_free(self.tag);
+}
+
+void destruct(FieldRegion& self) {
+	region_free(self);
+}
+
+struct Field {
+	AreaKind default_area;
+	glm::vec3 gnd_color, sky_color;
+
+	mn::Buf<TerrMesh> terr_meshes;
+	mn::Buf<Picture2D> pictures;
+	mn::Buf<FieldRegion> regions;
+};
+
+void field_free(Field& self) {
+	mn::destruct(self.terr_meshes);
+	mn::destruct(self.pictures);
+	mn::destruct(self.regions);
+}
+
+void destruct(Field& self) {
+	field_free(self);
+}
+
+Field field_from_fld_file(const mn::Str& fld_file_content) {
+	auto s = mn::str_clone(fld_file_content, mn::memory::tmp());
+	mn::str_replace(s, "\r\n", "\n");
+
+	expect(s, "FIELD\n");
+
+	Field field {};
+
+	expect(s, "GND ");
+	field.gnd_color.r = token_u8(s) / 255.0f;
+	expect(s, ' ');
+	field.gnd_color.g = token_u8(s) / 255.0f;
+	expect(s, ' ');
+	field.gnd_color.b = token_u8(s) / 255.0f;
+	expect(s, '\n');
+	// mn::log_debug("field.gnd_color={}", field.gnd_color);
+
+	expect(s, "SKY ");
+	field.sky_color.r = token_u8(s) / 255.0f;
+	expect(s, ' ');
+	field.sky_color.g = token_u8(s) / 255.0f;
+	expect(s, ' ');
+	field.sky_color.b = token_u8(s) / 255.0f;
+	expect(s, '\n');
+	// mn::log_debug("field.sky_color={}", field.sky_color);
+
+	expect(s, "DEFAREA ");
+	const auto default_area_str = token_str(s, mn::memory::tmp());
+	expect(s, '\n');
+	if (default_area_str == "NOAREA") {
+		field.default_area = AreaKind::NOAREA;
+	} else if (default_area_str == "LAND") {
+		field.default_area = AreaKind::LAND;
+	} else if (default_area_str == "WATER") {
+		field.default_area = AreaKind::WATER;
+	} else {
+		mn::panic("{}: unrecognized area '{}'", get_line_no(fld_file_content, s), default_area_str);
+	}
+	// mn::log_debug("default_area_str={}", default_area_str);
+	// mn::log_debug("field.default_area={}", field.default_area);
+
+	while (accept(s, "PCK ")) {
+		auto name = token_str(s);
+		mn::str_trim(name, "\"");
+		expect(s, ' ');
+		// mn::log_debug("name={}", name);
+
+		const auto total_lines_count = token_u32(s);
+		expect(s, '\n');
+		// mn::log_debug("total_lines_count={}", total_lines_count);
+
+		const size_t first_line_no = get_line_no(fld_file_content, s);
+		if (accept(s, "TerrMesh\n")) {
+			TerrMesh terr_mesh { .name=name };
+
+			expect(s, "NBL ");
+			const auto num_blocks_x = token_u32(s);
+			expect(s, ' ');
+			const auto num_blocks_z = token_u32(s);
+			expect(s, '\n');
+
+			expect(s, "TMS ");
+			// TODO: multiply by 10?
+			terr_mesh.initial_state.scale = {1, 1, 1};
+			terr_mesh.initial_state.scale.x = token_float(s); //* 10.0f;
+			expect(s, ' ');
+			terr_mesh.initial_state.scale.z = token_float(s); //* 10.0f;
+			expect(s, '\n');
+			// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
+
+			terr_mesh.current_state = terr_mesh.initial_state;
+
+			if (accept(s, "CBE ")) {
+				terr_mesh.gradiant.enabled = true;
+
+				terr_mesh.gradiant.top_y = token_float(s);
+				expect(s, ' ');
+				terr_mesh.gradiant.bottom_y = -token_float(s);
+				expect(s, ' ');
+
+				terr_mesh.gradiant.top_color.r = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				terr_mesh.gradiant.top_color.g = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				terr_mesh.gradiant.top_color.b = token_u8(s) / 255.0f;
+				expect(s, ' ');
+
+				terr_mesh.gradiant.bottom_color.r = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				terr_mesh.gradiant.bottom_color.g = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				terr_mesh.gradiant.bottom_color.b = token_u8(s) / 255.0f;
+				expect(s, '\n');
+			}
+			// if (terr_mesh.gradiant.enabled) {
+			// 	mn::log_debug("gradiant: bottom_y={}, top_y={}, bottom_color={}, top_color={}", terr_mesh.gradiant.bottom_y, terr_mesh.gradiant.top_y, terr_mesh.gradiant.bottom_color, terr_mesh.gradiant.top_color);
+			// } else {
+			// 	mn::log_debug("gradiant not enabled");
+			// }
+
+			// NOTE: assumed order in file
+			for (auto [side_str, side] : {
+				std::pair{"BOT ", &terr_mesh.bottom_side_color},
+				std::pair{"RIG ", &terr_mesh.right_side_color},
+				std::pair{"TOP ", &terr_mesh.top_side_color},
+				std::pair{"LEF ", &terr_mesh.left_side_color},
+			}) {
+				if (accept(s, side_str)) {
+					side->a = 1;
+					side->r = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					side->g = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					side->b = token_u8(s) / 255.0f;
+					expect(s, '\n');
+				}
+
+				// mn::log_debug("{}: {} and color={}", side_str, side->enabled, side->color);
+			}
+
+			// create blocks
+			terr_mesh.blocks = mn::buf_with_count<mn::Buf<Block>>(num_blocks_z);
+			for (auto& row : terr_mesh.blocks) {
+				row = mn::buf_with_count<Block>(num_blocks_x);
+			}
+
+			// create nodes
+			terr_mesh.nodes_height = mn::buf_with_count<mn::Buf<float>>(num_blocks_z+1);
+			for (auto& row : terr_mesh.nodes_height) {
+				row = mn::buf_with_count<float>(num_blocks_x+1);
+			}
+
+			// parse blocks and nodes
+			for (size_t z = 0; z < terr_mesh.nodes_height.count; z++) {
+				for (size_t x = 0; x < terr_mesh.nodes_height[z].count; x++) {
+					expect(s, "BLO ");
+					terr_mesh.nodes_height[z][x] = token_float(s);
+
+					// don't read rest of block if node is on edge/wedge
+					if (z == terr_mesh.nodes_height.count-1 || x == terr_mesh.nodes_height[z].count-1) {
+						skip_after(s, '\n');
+						continue;
+					}
+
+					// from here the node has a block
+					if (accept(s, '\n')) {
+						continue;
+					} else if (accept(s, " R ")) {
+						terr_mesh.blocks[z][x].orientation = Block::RIGHT;
+					} else if (accept(s, " L ")) {
+						terr_mesh.blocks[z][x].orientation = Block::LEFT;
+					} else {
+						mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(fld_file_content, s), smaller_str(s));
+					}
+
+					// face 0
+					if (accept(s, "OFF ") || accept(s, "0 ")) {
+						terr_mesh.blocks[z][x].faces_color[0].a = 0;
+					} else if (accept(s, "ON ") || accept(s, "1 ")) {
+						terr_mesh.blocks[z][x].faces_color[0].a = 1;
+					} else {
+						skip_after(s, ' ');
+						terr_mesh.blocks[z][x].faces_color[0].a = 1;
+					}
+
+					terr_mesh.blocks[z][x].faces_color[0].r = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					terr_mesh.blocks[z][x].faces_color[0].g = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					terr_mesh.blocks[z][x].faces_color[0].b = token_u8(s) / 255.0f;
+					expect(s, ' ');
+
+					// face 1
+					if (accept(s, "OFF ") || accept(s, "0 ")) {
+						terr_mesh.blocks[z][x].faces_color[1].a = 0;
+					} else if (accept(s, "ON ") || accept(s, "1 ")) {
+						terr_mesh.blocks[z][x].faces_color[1].a = 1;
+					} else {
+						skip_after(s, ' ');
+						terr_mesh.blocks[z][x].faces_color[1].a = 1;
+					}
+
+					terr_mesh.blocks[z][x].faces_color[1].r = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					terr_mesh.blocks[z][x].faces_color[1].g = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					terr_mesh.blocks[z][x].faces_color[1].b = token_u8(s) / 255.0f;
+					expect(s, '\n');
+				}
+			}
+			// mn::log_debug("{}", terr_mesh.nodes_height);
+
+			expect(s, "END\n");
+
+			mn::buf_push(field.terr_meshes, terr_mesh);
+		} else if (accept(s, "Pict2\n")) {
+			Picture2D picture2d { .name=name };
+
+			picture2d.initial_state.scale = {1,1,1};
+			picture2d.current_state = picture2d.initial_state;
+
+			while (accept(s, "ENDPICT\n") == false) {
+				Primitive2D permitive {};
+
+				auto kind_str = token_str(s, mn::memory::tmp());
+				expect(s, '\n');
+
+				if (kind_str == "LSQ") {
+					permitive.kind = Primitive2D::Kind::LINES;
+				} else if (kind_str == "PLG") {
+					permitive.kind = Primitive2D::Kind::POLYGON;
+				} else if (kind_str == "PLL") {
+					permitive.kind = Primitive2D::Kind::LINE_SEGMENTS;
+				} else if (kind_str == "PST") {
+					permitive.kind = Primitive2D::Kind::POINTS;
+				} else if (kind_str == "QDR") {
+					permitive.kind = Primitive2D::Kind::QUADRILATERAL;
+				} else if (kind_str == "GQS") {
+					permitive.kind = Primitive2D::Kind::GRADATION_QUAD_STRIPS;
+				} else if (kind_str == "QST") {
+					permitive.kind = Primitive2D::Kind::QUAD_STRIPS;
+				} else if (kind_str == "TRI") {
+					permitive.kind = Primitive2D::Kind::TRIANGLES;
+				} else {
+					mn::panic("{}: invalid pict2 kind={}", get_line_no(fld_file_content, s), kind_str);
+				}
+				// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
+
+				expect(s, "COL ");
+				permitive.color.r = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				permitive.color.g = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				permitive.color.b = token_u8(s) / 255.0f;
+				expect(s, '\n');
+				// mn::log_debug("color={}", permitive.color);
+
+				if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
+					expect(s, "CL2 ");
+					permitive.color2.r = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					permitive.color2.g = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					permitive.color2.b = token_u8(s) / 255.0f;
+					expect(s, '\n');
+					// mn::log_debug("color2={}", permitive.color2);
+				}
+
+				while (accept(s, "ENDO\n") == false) {
+					glm::vec2 vertex {};
+					expect(s, "VER ");
+					vertex.x = token_float(s);
+					expect(s, ' ');
+					vertex.y = token_float(s);
+					expect(s, '\n');
+
+					// mn::log_debug("ver: (x={}, y={})", x, y);
+					mn::buf_push(permitive.vertices, vertex);
+				}
+				// mn::log_debug("vertices={}", permitive.vertices);
+
+				if (permitive.vertices.count == 0) {
+					mn::panic("{}: no vertices", get_line_no(fld_file_content, s));
+				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
+					mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(fld_file_content, s), permitive.vertices.count);
+				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
+					mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(fld_file_content, s), permitive.vertices.count);
+					mn::buf_pop(permitive.vertices);
+				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
+					mn::panic("{}: kind is line but has one point", get_line_no(fld_file_content, s));
+				} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
+					mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(fld_file_content, s), permitive.vertices.count);
+				} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
+					mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(fld_file_content, s), permitive.vertices.count);
+				}
+
+				// mn::log_debug("{}", permitive);
+				mn::buf_push(picture2d.primitives, permitive);
+			}
+			// mn::log_debug("{}", picture2d.primitives);
+
+			mn::buf_push(field.pictures, picture2d);
+		}
+
+		const size_t last_line_no = get_line_no(fld_file_content, s);
+		const size_t curr_lines_count = last_line_no - first_line_no;
+		if (curr_lines_count != total_lines_count) {
+			mn::panic("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
+		}
+
+		expect(s, "\n\n");
+	}
+
+	while (s.count > 0) {
+		if (accept(s, "TER\n")) {
+			expect(s, "FIL ");
+			auto name = token_str(s, mn::memory::tmp());
+			mn::str_trim(name, "\"");
+			expect(s, '\n');
+			// mn::log_debug("name={}", name);
+
+			TerrMesh* terr_mesh = nullptr;
+			for (auto& terr : field.terr_meshes) {
+				if (terr.name == name) {
+					terr_mesh = &terr;
+					break;
+				}
+			}
+			if (terr_mesh == nullptr) {
+				mn::panic("{}: didn't find TER with name='{}'", get_line_no(fld_file_content, s), name);
+			}
+
+			expect(s, "POS ");
+			terr_mesh->initial_state.translation.x = token_float(s);
+			expect(s, ' ');
+			terr_mesh->initial_state.translation.y = token_float(s);
+			expect(s, ' ');
+			terr_mesh->initial_state.translation.z = token_float(s);
+			expect(s, ' ');
+
+			terr_mesh->initial_state.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			terr_mesh->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			terr_mesh->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, '\n');
+
+			expect(s, "ID ");
+			terr_mesh->id = (FieldID) token_u8(s);
+			// mn::log_debug("id={}", terr_mesh->id);
+			expect(s, "\nEND\n");
+		} else if (accept(s, "PC2\n") || accept(s, "PLT\n")) {
+			expect(s, "FIL ");
+			auto name = token_str(s, mn::memory::tmp());
+			mn::str_trim(name, "\"");
+			expect(s, '\n');
+			// mn::log_debug("name={}", name);
+
+			Picture2D* picture = nullptr;
+			for (auto& pict : field.pictures) {
+				if (pict.name == name) {
+					picture = &pict;
+					break;
+				}
+			}
+			if (picture == nullptr) {
+				mn::panic("{}: didn't find TER with name='{}'", get_line_no(fld_file_content, s), name);
+			}
+
+			expect(s, "POS ");
+			picture->initial_state.translation.x = token_float(s);
+			expect(s, ' ');
+			picture->initial_state.translation.y = token_float(s);
+			expect(s, ' ');
+			picture->initial_state.translation.z = token_float(s);
+			expect(s, ' ');
+
+			picture->initial_state.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			picture->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			picture->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, '\n');
+
+			expect(s, "ID ");
+			picture->id = (FieldID) token_u8(s);
+			// mn::log_debug("id={}", picture->id);
+			expect(s, "\nEND\n");
+		} else if (accept(s, "RGN\n")) {
+			FieldRegion region {};
+
+			expect(s, "ARE ");
+			region.min.x = token_float(s);
+			while (accept(s, ' ')) {}
+			region.min.y = token_float(s);
+			while (accept(s, ' ')) {}
+			region.max.x = token_float(s);
+			while (accept(s, ' ')) {}
+			region.max.y = token_float(s);
+			expect(s, '\n');
+
+			expect(s, "POS ");
+			glm::vec3 translation {};
+			translation.x = token_float(s);
+			expect(s, ' ');
+			translation.y = token_float(s);
+			expect(s, ' ');
+			translation.z = token_float(s);
+			expect(s, ' ');
+
+			glm::vec3 rotation {};
+			rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, '\n');
+
+			region.transformation = glm::identity<glm::mat4>();
+			region.transformation = glm::translate(region.transformation, translation);
+			region.transformation = glm::rotate(region.transformation, rotation[2], glm::vec3{0, 0, 1});
+			region.transformation = glm::rotate(region.transformation, rotation[1], glm::vec3{1, 0, 0});
+			region.transformation = glm::rotate(region.transformation, rotation[0], glm::vec3{0, 1, 0});
+
+			expect(s, "ID ");
+			region.id = (FieldID) token_u8(s);
+			expect(s, '\n');
+
+			expect(s, "TAG ");
+			region.tag = token_str(s);
+			mn::str_trim(region.tag, "\"");
+			expect(s, "\nEND\n");
+
+			// mn::log_debug("region={}", region);
+			mn::buf_push(field.regions, region);
+		} else if (accept(s, "PST\n")) {
+			// TODO
+			mn::log_warning("{}: found PST, can't parse, skip now", get_line_no(fld_file_content, s));
+			skip_after(s, mn::str_lit("END\n"));
+		} else {
+			mn::panic("{}: found invalid type = '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
+		}
+	}
+	// mn::log_debug("done");
+
+	return field;
+}
+
 int main() {
+	auto fld_file_content = mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld", mn::memory::tmp());
+	auto field = field_from_fld_file(fld_file_content);
+	mn_defer(field_free(field));
+
+	return 0;
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
@@ -3894,8 +4447,10 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
+	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh
 		- side color
+	- read PST at end
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
@@ -3921,6 +4476,7 @@ TODO:
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
+- Mesh contains mn::Buf<Mesh> instead of names
 
 - optimization:
 	- store stack of nodes instead of tree in model
