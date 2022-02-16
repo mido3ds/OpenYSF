@@ -1401,7 +1401,7 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 			expect(s, ' ');
 
 			// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-			sta.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			sta.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 			sta.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
@@ -1432,7 +1432,7 @@ Model model_from_dnm(const mn::Str& dnm_file_abs_path) {
 				expect(s, ' ');
 
 				// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-				surf->value.initial_state.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+				surf->value.initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
 				expect(s, ' ');
 				surf->value.initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
 				expect(s, ' ');
@@ -1957,6 +1957,7 @@ struct TerrMesh {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
 		glm::vec3 scale;
+		bool visible = true;
 	} current_state, initial_state;
 };
 
@@ -2398,6 +2399,7 @@ struct Picture2D {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
 		glm::vec3 scale;
+		bool visible = true;
 	} current_state, initial_state;
 };
 
@@ -2816,12 +2818,13 @@ Field field_from_fld_file(const mn::Str& fld_file_content) {
 			terr_mesh->initial_state.translation.z = token_float(s);
 			expect(s, ' ');
 
-			terr_mesh->initial_state.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			terr_mesh->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 			terr_mesh->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 			terr_mesh->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, '\n');
+			terr_mesh->current_state = terr_mesh->initial_state;
 
 			expect(s, "ID ");
 			terr_mesh->id = (FieldID) token_u8(s);
@@ -2853,12 +2856,13 @@ Field field_from_fld_file(const mn::Str& fld_file_content) {
 			picture->initial_state.translation.z = token_float(s);
 			expect(s, ' ');
 
-			picture->initial_state.rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			picture->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 			picture->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 			picture->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, '\n');
+			picture->current_state = picture->initial_state;
 
 			expect(s, "ID ");
 			picture->id = (FieldID) token_u8(s);
@@ -2887,7 +2891,7 @@ Field field_from_fld_file(const mn::Str& fld_file_content) {
 			expect(s, ' ');
 
 			glm::vec3 rotation {};
-			rotation.x = token_float(s) / YS_MAX * RADIANS_MAX;
+			rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
 			rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
 			expect(s, ' ');
@@ -3553,6 +3557,10 @@ int main() {
 
 		// render 2d pictures
 		for (auto& picture2d : field.pictures) {
+			if (picture2d.current_state.visible == false) {
+				continue;
+			}
+
 			glUseProgram(primitives2d_gpu_program);
 
 			auto model_transformation = glm::identity<glm::mat4>();
@@ -3585,6 +3593,10 @@ int main() {
 
 		// render terrain
 		for (auto& terr_mesh : field.terr_meshes) {
+			if (terr_mesh.current_state.visible == false) {
+				continue;
+			}
+
 			auto model_transformation = glm::identity<glm::mat4>();
 			model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
 			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
@@ -4088,41 +4100,47 @@ int main() {
 				}
 			}
 
-			// TODO: tree
-			// if (ImGui::TreeNode("TerrMesh")) {
-			// 	if (ImGui::Button("Reset State")) {
-			// 		terr_mesh.current_state = terr_mesh.initial_state;
-			// 	}
+			for (auto& terr_mesh : field.terr_meshes) {
+				if (ImGui::TreeNode(terr_mesh.name.ptr)) {
+					if (ImGui::Button("Reset State")) {
+						terr_mesh.current_state = terr_mesh.initial_state;
+					}
 
-			// 	if (ImGui::Button("Reload")) {
-			// 		terr_mesh_unload_from_gpu(terr_mesh);
-			// 		terr_mesh_load_to_gpu(terr_mesh);
-			// 	}
+					if (ImGui::Button("Reload")) {
+						terr_mesh_unload_from_gpu(terr_mesh);
+						terr_mesh_load_to_gpu(terr_mesh);
+					}
 
-			// 	ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
-			// 	ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
-			// 	MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
+					ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
 
-			// 	ImGui::TreePop();
-			// }
+					ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
+					ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
+					MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
 
-			// TODO: tree
-			// if (ImGui::TreeNode("Pict2")) {
-			// 	if (ImGui::Button("Reset State")) {
-			// 		picture2d.current_state = picture2d.initial_state;
-			// 	}
+					ImGui::TreePop();
+				}
+			}
 
-			// 	if (ImGui::Button("Reload")) {
-			// 		picture2d_unload_from_gpu(picture2d);
-			// 		picture2d_load_to_gpu(picture2d);
-			// 	}
+			for (auto& picture2d : field.pictures) {
+				if (ImGui::TreeNode(picture2d.name.ptr)) {
+					if (ImGui::Button("Reset State")) {
+						picture2d.current_state = picture2d.initial_state;
+					}
 
-			// 	ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
-			// 	ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
-			// 	MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
+					if (ImGui::Button("Reload")) {
+						picture2d_unload_from_gpu(picture2d);
+						picture2d_load_to_gpu(picture2d);
+					}
 
-			// 	ImGui::TreePop();
-			// }
+					ImGui::Checkbox("Visible", &picture2d.current_state.visible);
+
+					ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
+					ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
+					MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
+
+					ImGui::TreePop();
+				}
+			}
 		}
 		ImGui::End();
 
@@ -4201,7 +4219,6 @@ bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
-- rotation of terrmesh doesn't work nice with scale (y,z)
 - 2 triangles on each other flicker (same Y)
 
 TODO:
@@ -4211,10 +4228,10 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
+	- load file
+	- hot reload file
 	- small.fld bugs:
 		- biggest pic doesn't render correctly (from left side)
-		- all terrains are too near to each other
-		- runways not in correct pos
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh sides colors
 	- read PST at end of fld
@@ -4222,8 +4239,6 @@ TODO:
 		- default area
 		- sky color
 		- ground_color
-		- terrmesh
-		- pictures
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
