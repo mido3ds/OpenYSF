@@ -270,7 +270,8 @@ void skip_after(mn::Str& s, char c) {
 	s.count -= index + 1;
 }
 
-void skip_after(mn::Str& s, const mn::Str& s2) {
+void skip_after(mn::Str& s, const char* s2_) {
+	const auto s2 = mn::str_lit(s2_);
 	const size_t index = mn::str_find(s, s2, 0);
 	if (index == SIZE_MAX) {
 		mn::panic("failed to find '{}' in '{}'", s2, smaller_str(s));
@@ -1657,7 +1658,7 @@ struct Camera {
 
 		struct {
 			float near         = 0.1f;
-			float far          = 50000.000;
+			float far          = 100000;
 			float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
 			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
 			bool custom_aspect = false;
@@ -2485,6 +2486,7 @@ struct Field {
 
 	AreaKind default_area;
 	glm::vec3 ground_color, sky_color;
+	bool ground_specular; // ????
 
 	mn::Buf<TerrMesh> terr_meshes;
 	mn::Buf<Picture2D> pictures;
@@ -2523,6 +2525,17 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 
 	Field field { .file_abs_path=mn::str_clone(fld_file_abs_path) };
 
+	if (accept(s, "FLDNAME ")) {
+		field.name = token_str(s);
+		expect(s, '\n');
+	}
+
+	if (accept(s, "TEXMAN")) {
+		// TODO
+		mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", get_line_no(fld_file_content, s));
+		skip_after(s, "TEXMAN ENDTEXTURE\n");
+	}
+
 	expect(s, "GND ");
 	field.ground_color.r = token_u8(s) / 255.0f;
 	expect(s, ' ');
@@ -2541,6 +2554,15 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 	expect(s, '\n');
 	// mn::log_debug("field.sky_color={}", field.sky_color);
 
+	if (accept(s, "GNDSPECULAR ")) {
+		if (accept(s, "TRUE\n")) {
+			field.ground_specular = true;
+		} else {
+			field.ground_specular = false;
+			expect(s, "FALSE\n");
+		}
+	}
+
 	expect(s, "DEFAREA ");
 	const auto default_area_str = token_str(s, mn::memory::tmp());
 	expect(s, '\n');
@@ -2555,6 +2577,29 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 	}
 	// mn::log_debug("default_area_str={}", default_area_str);
 	// mn::log_debug("field.default_area={}", field.default_area);
+
+	if (accept(s, "BASEELV ")) {
+		// TODO
+		mn::log_warning("{}: found BASEELV, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+		skip_after(s, '\n');
+	}
+
+	if (accept(s, "MAGVAR ")) {
+		// TODO
+		mn::log_warning("{}: found MAGVAR, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+		skip_after(s, '\n');
+	}
+
+	if (accept(s, "CANRESUME TRUE\n") || accept(s, "CANRESUME FALSE\n")) {
+		// TODO
+		mn::log_warning("{}: found CANRESUME, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+	}
+
+	while (accept(s, "AIRROUTE\n")) {
+		// TODO
+		mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+		skip_after(s, "ENDAIRROUTE\n");
+	}
 
 	while (accept(s, "PCK ")) {
 		auto name = token_str(s);
@@ -2581,6 +2626,11 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 			mn::buf_push(field.subfields, subfield);
 		} else if (accept(s, "TerrMesh\n")) {
 			TerrMesh terr_mesh { .name=name };
+
+			if (accept(s, "SPEC TRUE\n") || accept(s, "SPEC FALSE\n")) {
+				// TODO
+				mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			}
 
 			expect(s, "NBL ");
 			const auto num_blocks_x = token_u32(s);
@@ -2751,7 +2801,9 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 				} else if (kind_str == "TRI") {
 					permitive.kind = Primitive2D::Kind::TRIANGLES;
 				} else {
-					mn::panic("{}: invalid pict2 kind={}", get_line_no(fld_file_content, s), kind_str);
+					mn::log_warning("{}: invalid pict2 kind={}, skip for now", get_line_no(fld_file_content, s), kind_str);
+					skip_after(s, "ENDO\n");
+					continue;
 				}
 				// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
 
@@ -2776,6 +2828,22 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 				}
 
 				while (accept(s, "ENDO\n") == false) {
+					if (accept(s, "SPEC TRUE\n") || accept(s, "SPEC FALSE\n")) {
+						// TODO
+						mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+						continue;
+					}
+
+					if (accept(s, "TXL")) {
+						// TODO
+						mn::log_warning("{}: found TXL, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+						skip_after(s, '\n');
+						while (accept(s, "TXC")) {
+							skip_after(s, '\n');
+						}
+						continue;
+					}
+
 					glm::vec2 vertex {};
 					expect(s, "VER ");
 					vertex.x = token_float(s);
@@ -2808,6 +2876,7 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 			}
 			// mn::log_debug("{}", picture.primitives);
 
+
 			mn::buf_push(field.pictures, picture);
 		} else {
 			mn::panic("{}: invalid type '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
@@ -2816,10 +2885,13 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 		const size_t last_line_no = get_line_no(fld_file_content, s);
 		const size_t curr_lines_count = last_line_no - first_line_no;
 		if (curr_lines_count != total_lines_count) {
-			mn::panic("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
+			mn::log_error("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
 		}
 
 		expect(s, "\n\n");
+
+		// aomori.fld contains more than 2 empty lines
+		while (accept(s, '\n')) {}
 	}
 
 	while (s.count > bytes_to_keep) {
@@ -2990,12 +3062,18 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 			mn::buf_push(field.regions, region);
 		} else if (accept(s, "PST\n")) {
 			// TODO
-			mn::log_warning("{}: found PST, can't parse, skip now", get_line_no(fld_file_content, s));
-			skip_after(s, mn::str_lit("END\n"));
+			mn::log_warning("{}: found PST, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, "END\n");
 		} else if (accept(s, "GOB\n")) {
 			// TODO
-			mn::log_warning("{}: found GOB, can't parse, skip now", get_line_no(fld_file_content, s));
-			skip_after(s, mn::str_lit("END\n"));
+			mn::log_warning("{}: found GOB, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, "END\n");
+		} else if (accept(s, "AOB\n")) {
+			// TODO
+			mn::log_warning("{}: found AOB, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, "END\n");
+		} else if (accept(s, '\n')) {
+			// aomori.fld adds extra spaces
 		} else {
 			mn::panic("{}: found invalid type = '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
 		}
@@ -3010,7 +3088,9 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 	mn::str_replace(fld_file_content, "\r\n", "\n");
 	auto s = fld_file_content;
 	auto field = _field_from_fld_str(s, fld_file_content, fld_file_abs_path, s.count);
-	field.name = mn::file_name(fld_file_abs_path);
+	if (field.name.count == 0) {
+		field.name = mn::file_name(fld_file_abs_path);
+	}
 	return field;
 }
 
@@ -3443,7 +3523,7 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\airstrike.fld"));
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\aomori.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
@@ -3693,12 +3773,10 @@ int main() {
 			// render 2d pictures
 			glUseProgram(primitives2d_gpu_program);
 			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
-			int count = 0;
 			for (auto& picture : field_to_render->pictures) {
 				if (picture.current_state.visible == false) {
 					continue;
 				}
-				count++;
 
 				auto model_transformation = glm::identity<glm::mat4>();
 				model_transformation = glm::translate(model_transformation, picture.current_state.translation);
@@ -3723,17 +3801,14 @@ int main() {
 					glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
 				}
 			}
-			overlay_text = mn::strf(overlay_text, "pictures:{}\n", count);
 
 			// render terrain
 			glUseProgram(meshes_gpu_program);
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
-			count = 0;
 			for (auto& terr_mesh : field_to_render->terr_meshes) {
 				if (terr_mesh.current_state.visible == false) {
 					continue;
 				}
-				count++;
 
 				auto model_transformation = glm::identity<glm::mat4>();
 				model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
@@ -3754,7 +3829,6 @@ int main() {
 				glBindVertexArray(terr_mesh.gpu.vao);
 				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
-			overlay_text = mn::strf(overlay_text, "terr:{}\n", count);
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
 		}
 
@@ -4238,8 +4312,8 @@ int main() {
 				}
 			}
 
-			std::function<void(Field&,bool)> renderFieldImgui;
-			renderFieldImgui = [&renderFieldImgui, &imgui_angle_max](Field& field, bool is_root) {
+			std::function<void(Field&,bool)> render_field_imgui;
+			render_field_imgui = [&render_field_imgui, &imgui_angle_max](Field& field, bool is_root) {
 				if (ImGui::TreeNode(mn::str_tmpf("Field {}", field.name).ptr)) {
 					if (is_root) {
 						field.should_select_file = ImGui::Button("Open FLD");
@@ -4268,6 +4342,7 @@ int main() {
 					});
 					ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
 					ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
+					ImGui::Checkbox("GND Specular", &field.ground_specular);
 
 					ImGui::Checkbox("Visible", &field.current_state.visible);
 
@@ -4277,7 +4352,7 @@ int main() {
 
 					ImGui::BulletText("Sub Fields:");
 					for (auto& subfield : field.subfields) {
-						renderFieldImgui(subfield, false);
+						render_field_imgui(subfield, false);
 					}
 
 					ImGui::BulletText("TerrMesh:");
@@ -4339,7 +4414,7 @@ int main() {
 					ImGui::TreePop();
 				}
 			};
-			renderFieldImgui(field, true);
+			render_field_imgui(field, true);
 		}
 		ImGui::End();
 
@@ -4428,7 +4503,6 @@ TODO:
 
 - Scenery files
 	- load other files
-		- aomori
 		- atoll
 		- atsugi
 		- crescent
@@ -4452,6 +4526,17 @@ TODO:
 	- terrmesh sides colors
 	- read PST at end of fld
 	- read GOB at end of fld
+	- aomori.fld:
+		- what is BASEELV?
+		- what is MAGVAR?
+		- what is CANRESUME?
+		- what is APL?
+		- read TEXMAN
+		- read TXL/TXC
+		- render texture
+		- what is AOB?
+		- read AIRROUTE
+		- failed to tesselate
 - render water
 - refactor rendering
 	- primitives?
