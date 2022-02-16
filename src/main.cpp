@@ -1618,7 +1618,7 @@ constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
 constexpr Uint32 WND_FLAGS      = SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED;
 constexpr float IMGUI_WNDS_BG_ALPHA = 0.8f;
-constexpr glm::vec3 BG_COLOR {0.392f, 0.584f, 0.929f};
+constexpr glm::vec3 CORNFLOWER_BLU_COLOR {0.392f, 0.584f, 0.929f};
 
 constexpr auto GL_CONTEXT_PROFILE = SDL_GL_CONTEXT_PROFILE_CORE;
 constexpr int  GL_CONTEXT_MAJOR = 3;
@@ -1630,7 +1630,7 @@ enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTI
 struct Camera {
 	struct {
 		bool identity           = false;
-		float movement_speed    = 2.5f;
+		float movement_speed    = 1000.0f;
 		float mouse_sensitivity = 1.4;
 
 		glm::vec3 pos      = glm::vec3{0.0f, 0.0f, 3.0f};
@@ -1657,7 +1657,7 @@ struct Camera {
 
 		struct {
 			float near         = 0.1f;
-			float far          = 1000.0f;
+			float far          = 50000.000;
 			float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
 			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
 			bool custom_aspect = false;
@@ -1986,158 +1986,6 @@ namespace fmt {
 				v.nodes_height, v.blocks, v.top_side_color, v.bottom_side_color, v.right_side_color, v.left_side_color);
 		}
 	};
-}
-
-// TODO: remove
-TerrMesh terr_mesh_from_ter_file(const mn::Str& ter_file_content) {
-	auto s = mn::str_clone(ter_file_content, mn::memory::tmp());
-	mn::str_replace(s, "\r\n", "\n");
-
-	expect(s, "TerrMesh\n");
-
-	TerrMesh self {};
-
-	expect(s, "NBL ");
-	const auto num_blocks_x = token_u32(s);
-	expect(s, ' ');
-	const auto num_blocks_z = token_u32(s);
-	expect(s, '\n');
-
-	expect(s, "TMS ");
-	// TODO: multiply by 10?
-	self.initial_state.scale = {1, 1, 1};
-	self.initial_state.scale.x = token_float(s); //* 10.0f;
-	expect(s, ' ');
-	self.initial_state.scale.z = token_float(s); //* 10.0f;
-	expect(s, '\n');
-	// mn::log_debug("self.scale.x={}, self.scale.y={}", self.scale.x, self.scale.y);
-
-	self.current_state = self.initial_state;
-
-	if (accept(s, "CBE ")) {
-		self.gradiant.enabled = true;
-
-		self.gradiant.top_y = token_float(s);
-		expect(s, ' ');
-		self.gradiant.bottom_y = -token_float(s);
-		expect(s, ' ');
-
-		self.gradiant.top_color.r = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		self.gradiant.top_color.g = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		self.gradiant.top_color.b = token_u8(s) / 255.0f;
-		expect(s, ' ');
-
-		self.gradiant.bottom_color.r = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		self.gradiant.bottom_color.g = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		self.gradiant.bottom_color.b = token_u8(s) / 255.0f;
-		expect(s, '\n');
-	}
-	// if (self.gradiant.enabled) {
-	// 	mn::log_debug("gradiant: bottom_y={}, top_y={}, bottom_color={}, top_color={}", self.gradiant.bottom_y, self.gradiant.top_y, self.gradiant.bottom_color, self.gradiant.top_color);
-	// } else {
-	// 	mn::log_debug("gradiant not enabled");
-	// }
-
-	// NOTE: assumed order in file
-	for (auto [side_str, side] : {
-		std::pair{"BOT ", &self.bottom_side_color},
-		std::pair{"RIG ", &self.right_side_color},
-		std::pair{"TOP ", &self.top_side_color},
-		std::pair{"LEF ", &self.left_side_color},
-	}) {
-		if (accept(s, side_str)) {
-			side->a = 1;
-			side->r = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			side->g = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			side->b = token_u8(s) / 255.0f;
-			expect(s, '\n');
-		}
-
-		// mn::log_debug("{}: {} and color={}", side_str, side->enabled, side->color);
-	}
-
-	// create blocks
-	self.blocks = mn::buf_with_count<mn::Buf<Block>>(num_blocks_z);
-	for (auto& row : self.blocks) {
-		row = mn::buf_with_count<Block>(num_blocks_x);
-	}
-
-	// create nodes
-	self.nodes_height = mn::buf_with_count<mn::Buf<float>>(num_blocks_z+1);
-	for (auto& row : self.nodes_height) {
-		row = mn::buf_with_count<float>(num_blocks_x+1);
-	}
-
-	// parse blocks and nodes
-	for (size_t z = 0; z < self.nodes_height.count; z++) {
-		for (size_t x = 0; x < self.nodes_height[z].count; x++) {
-			expect(s, "BLO ");
-			self.nodes_height[z][x] = token_float(s);
-
-			// don't read rest of block if node is on edge/wedge
-			if (z == self.nodes_height.count-1 || x == self.nodes_height[z].count-1) {
-				skip_after(s, '\n');
-				continue;
-			}
-
-			// from here the node has a block
-			if (accept(s, '\n')) {
-				continue;
-			} else if (accept(s, " R ")) {
-				self.blocks[z][x].orientation = Block::RIGHT;
-			} else if (accept(s, " L ")) {
-				self.blocks[z][x].orientation = Block::LEFT;
-			} else {
-				mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(ter_file_content, s), smaller_str(s));
-			}
-
-			// face 0
-			if (accept(s, "OFF ") || accept(s, "0 ")) {
-				self.blocks[z][x].faces_color[0].a = 0;
-			} else if (accept(s, "ON ") || accept(s, "1 ")) {
-				self.blocks[z][x].faces_color[0].a = 1;
-			} else {
-				skip_after(s, ' ');
-				self.blocks[z][x].faces_color[0].a = 1;
-			}
-
-			self.blocks[z][x].faces_color[0].r = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			self.blocks[z][x].faces_color[0].g = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			self.blocks[z][x].faces_color[0].b = token_u8(s) / 255.0f;
-			expect(s, ' ');
-
-			// face 1
-			if (accept(s, "OFF ") || accept(s, "0 ")) {
-				self.blocks[z][x].faces_color[1].a = 0;
-			} else if (accept(s, "ON ") || accept(s, "1 ")) {
-				self.blocks[z][x].faces_color[1].a = 1;
-			} else {
-				skip_after(s, ' ');
-				self.blocks[z][x].faces_color[1].a = 1;
-			}
-
-			self.blocks[z][x].faces_color[1].r = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			self.blocks[z][x].faces_color[1].g = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			self.blocks[z][x].faces_color[1].b = token_u8(s) / 255.0f;
-			expect(s, '\n');
-		}
-	}
-	// mn::log_debug("{}", self.nodes_height);
-
-	expect(s, "END\n");
-
-	// mn::log_debug("{}", self);
-	return self;
 }
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
@@ -2562,101 +2410,6 @@ void destruct(Picture2D& self) {
 	picture2d_free(self);
 }
 
-// TODO remove
-Picture2D picture2d_from_pc2_file(const mn::Str& pc2_file_content) {
-	auto s = mn::str_clone(pc2_file_content, mn::memory::tmp());
-	mn::str_replace(s, "\r\n", "\n");
-
-	expect(s, "Pict2\n");
-
-	Picture2D picture2d {};
-
-	picture2d.initial_state.scale = {1,1,1};
-	picture2d.current_state = picture2d.initial_state;
-
-	while (accept(s, "ENDPICT\n") == false) {
-		Primitive2D permitive {};
-
-		auto kind_str = token_str(s, mn::memory::tmp());
-		expect(s, '\n');
-
-		if (kind_str == "LSQ") {
-			permitive.kind = Primitive2D::Kind::LINES;
-		} else if (kind_str == "PLG") {
-			permitive.kind = Primitive2D::Kind::POLYGON;
-		} else if (kind_str == "PLL") {
-			permitive.kind = Primitive2D::Kind::LINE_SEGMENTS;
-		} else if (kind_str == "PST") {
-			permitive.kind = Primitive2D::Kind::POINTS;
-		} else if (kind_str == "QDR") {
-			permitive.kind = Primitive2D::Kind::QUADRILATERAL;
-		} else if (kind_str == "GQS") {
-			permitive.kind = Primitive2D::Kind::GRADATION_QUAD_STRIPS;
-		} else if (kind_str == "QST") {
-			permitive.kind = Primitive2D::Kind::QUAD_STRIPS;
-		} else if (kind_str == "TRI") {
-			permitive.kind = Primitive2D::Kind::TRIANGLES;
-		} else {
-			mn::panic("{}: invalid pict2 kind={}", get_line_no(pc2_file_content, s), kind_str);
-		}
-		// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
-
-		expect(s, "COL ");
-		permitive.color.r = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		permitive.color.g = token_u8(s) / 255.0f;
-		expect(s, ' ');
-		permitive.color.b = token_u8(s) / 255.0f;
-		expect(s, '\n');
-		// mn::log_debug("color={}", permitive.color);
-
-		if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
-			expect(s, "CL2 ");
-			permitive.color2.r = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			permitive.color2.g = token_u8(s) / 255.0f;
-			expect(s, ' ');
-			permitive.color2.b = token_u8(s) / 255.0f;
-			expect(s, '\n');
-			// mn::log_debug("color2={}", permitive.color2);
-		}
-
-		while (accept(s, "ENDO\n") == false) {
-			glm::vec2 vertex {};
-			expect(s, "VER ");
-			vertex.x = token_float(s);
-			expect(s, ' ');
-			vertex.y = token_float(s);
-			expect(s, '\n');
-
-			// mn::log_debug("ver: (x={}, y={})", x, y);
-			mn::buf_push(permitive.vertices, vertex);
-		}
-		// mn::log_debug("vertices={}", permitive.vertices);
-
-		if (permitive.vertices.count == 0) {
-			mn::panic("{}: no vertices", get_line_no(pc2_file_content, s));
-		} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
-			mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(pc2_file_content, s), permitive.vertices.count);
-		} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
-			mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(pc2_file_content, s), permitive.vertices.count);
-			mn::buf_pop(permitive.vertices);
-		} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
-			mn::panic("{}: kind is line but has one point", get_line_no(pc2_file_content, s));
-		} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
-			mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(pc2_file_content, s), permitive.vertices.count);
-		} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
-			mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(pc2_file_content, s), permitive.vertices.count);
-		}
-
-		// mn::log_debug("{}", permitive);
-		mn::buf_push(picture2d.primitives, permitive);
-	}
-	// mn::log_debug("{}", picture2d.primitives);
-
-	return picture2d;
-}
-
 void picture2d_load_to_gpu(Picture2D& self) {
 	for (auto& primitive : self.primitives) {
 		primitive2d_load_to_gpu(primitive);
@@ -2726,7 +2479,7 @@ void destruct(FieldRegion& self) {
 
 struct Field {
 	AreaKind default_area;
-	glm::vec3 gnd_color, sky_color;
+	glm::vec3 ground_color, sky_color;
 
 	mn::Buf<TerrMesh> terr_meshes;
 	mn::Buf<Picture2D> pictures;
@@ -2752,13 +2505,13 @@ Field field_from_fld_file(const mn::Str& fld_file_content) {
 	Field field {};
 
 	expect(s, "GND ");
-	field.gnd_color.r = token_u8(s) / 255.0f;
+	field.ground_color.r = token_u8(s) / 255.0f;
 	expect(s, ' ');
-	field.gnd_color.g = token_u8(s) / 255.0f;
+	field.ground_color.g = token_u8(s) / 255.0f;
 	expect(s, ' ');
-	field.gnd_color.b = token_u8(s) / 255.0f;
+	field.ground_color.b = token_u8(s) / 255.0f;
 	expect(s, '\n');
-	// mn::log_debug("field.gnd_color={}", field.gnd_color);
+	// mn::log_debug("field.ground_color={}", field.ground_color);
 
 	expect(s, "SKY ");
 	field.sky_color.r = token_u8(s) / 255.0f;
@@ -3171,12 +2924,25 @@ Field field_from_fld_file(const mn::Str& fld_file_content) {
 	return field;
 }
 
-int main() {
-	auto fld_file_content = mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld", mn::memory::tmp());
-	auto field = field_from_fld_file(fld_file_content);
-	mn_defer(field_free(field));
+void field_load_to_gpu(Field& self) {
+	for (auto& terr_mesh : self.terr_meshes) {
+		terr_mesh_load_to_gpu(terr_mesh);
+	}
+	for (auto& pict : self.pictures) {
+		picture2d_load_to_gpu(pict);
+	}
+}
 
-	return 0;
+void field_unload_from_gpu(Field& self) {
+	for (auto& terr_mesh : self.terr_meshes) {
+		terr_mesh_unload_from_gpu(terr_mesh);
+	}
+	for (auto& pict : self.pictures) {
+		picture2d_unload_from_gpu(pict);
+	}
+}
+
+int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
@@ -3532,11 +3298,6 @@ int main() {
 		GL_CATCH_ERRS();
 	}
 
-	auto terr_mesh = terr_mesh_from_ter_file(mn::str_lit(TER_EXAMPLE));
-	mn_defer(terr_mesh_free(terr_mesh));
-	terr_mesh_load_to_gpu(terr_mesh);
-	mn_defer(terr_mesh_unload_from_gpu(terr_mesh));
-
 	const GLuint primitives2d_gpu_program = gpu_program_new(
 		// vertex shader
 		R"GLSL(
@@ -3586,10 +3347,11 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto picture2d = picture2d_from_pc2_file(mn::str_lit(PICT2_EXAMPLE));
-	mn_defer(picture2d_free(picture2d));
-	picture2d_load_to_gpu(picture2d);
-	mn_defer(picture2d_unload_from_gpu(picture2d));
+	auto fld_file_content = mn::file_content_str("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld", mn::memory::tmp());
+	auto field = field_from_fld_file(fld_file_content);
+	mn_defer(field_free(field));
+	field_load_to_gpu(field);
+	mn_defer(field_unload_from_gpu(field));
 
 	struct {
 		bool enabled = true;
@@ -3727,7 +3489,7 @@ int main() {
 
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
-		glClearColor(BG_COLOR.x, BG_COLOR.y, BG_COLOR.z, 0.0f);
+		glClearColor(field.sky_color.x, field.sky_color.y, field.sky_color.z, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glEnable(GL_BLEND);
@@ -3789,8 +3551,8 @@ int main() {
 			}
 		}
 
-		// render 2d primitives
-		{
+		// render 2d pictures
+		for (auto& picture2d : field.pictures) {
 			glUseProgram(primitives2d_gpu_program);
 
 			auto model_transformation = glm::identity<glm::mat4>();
@@ -3822,7 +3584,7 @@ int main() {
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
 		// render terrain
-		{
+		for (auto& terr_mesh : field.terr_meshes) {
 			auto model_transformation = glm::identity<glm::mat4>();
 			model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
 			model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
@@ -4111,7 +3873,7 @@ int main() {
 				ImGui::Checkbox("Identity", &camera.view.identity);
 
 				ImGui::BeginDisabled(camera.view.identity);
-					ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 0.5, 1, 10);
+					ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 5, 50, 1000);
 					ImGui::DragFloat("mouse_sensitivity", &camera.view.mouse_sensitivity, 1, 0.5, 10);
 					ImGui::SliderAngle("yaw", &camera.view.yaw);
 					ImGui::SliderAngle("pitch", &camera.view.pitch, -89, 89);
@@ -4326,39 +4088,41 @@ int main() {
 				}
 			}
 
-			if (ImGui::TreeNode("TerrMesh")) {
-				if (ImGui::Button("Reset State")) {
-					terr_mesh.current_state = terr_mesh.initial_state;
-				}
+			// TODO: tree
+			// if (ImGui::TreeNode("TerrMesh")) {
+			// 	if (ImGui::Button("Reset State")) {
+			// 		terr_mesh.current_state = terr_mesh.initial_state;
+			// 	}
 
-				if (ImGui::Button("Reload")) {
-					terr_mesh_unload_from_gpu(terr_mesh);
-					terr_mesh_load_to_gpu(terr_mesh);
-				}
+			// 	if (ImGui::Button("Reload")) {
+			// 		terr_mesh_unload_from_gpu(terr_mesh);
+			// 		terr_mesh_load_to_gpu(terr_mesh);
+			// 	}
 
-				ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
-				ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
-				MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
+			// 	ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
+			// 	ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
+			// 	MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, imgui_angle_max);
 
-				ImGui::TreePop();
-			}
+			// 	ImGui::TreePop();
+			// }
 
-			if (ImGui::TreeNode("Pict2")) {
-				if (ImGui::Button("Reset State")) {
-					picture2d.current_state = picture2d.initial_state;
-				}
+			// TODO: tree
+			// if (ImGui::TreeNode("Pict2")) {
+			// 	if (ImGui::Button("Reset State")) {
+			// 		picture2d.current_state = picture2d.initial_state;
+			// 	}
 
-				if (ImGui::Button("Reload")) {
-					picture2d_unload_from_gpu(picture2d);
-					picture2d_load_to_gpu(picture2d);
-				}
+			// 	if (ImGui::Button("Reload")) {
+			// 		picture2d_unload_from_gpu(picture2d);
+			// 		picture2d_load_to_gpu(picture2d);
+			// 	}
 
-				ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
-				ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
-				MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
+			// 	ImGui::DragFloat3("Scale", glm::value_ptr(picture2d.current_state.scale), 0.01f);
+			// 	ImGui::DragFloat3("Translation", glm::value_ptr(picture2d.current_state.translation));
+			// 	MyImGui::SliderAngle3("Rotation", &picture2d.current_state.rotation, imgui_angle_max);
 
-				ImGui::TreePop();
-			}
+			// 	ImGui::TreePop();
+			// }
 		}
 		ImGui::End();
 
@@ -4447,10 +4211,19 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
+	- small.fld bugs:
+		- biggest pic doesn't render correctly (from left side)
+		- all terrains are too near to each other
+		- runways not in correct pos
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
-	- terrmesh
-		- side color
-	- read PST at end
+	- terrmesh sides colors
+	- read PST at end of fld
+	- imgui
+		- default area
+		- sky color
+		- ground_color
+		- terrmesh
+		- pictures
 - refactor rendering
 	- primitives?
 - AABB for each mesh?
