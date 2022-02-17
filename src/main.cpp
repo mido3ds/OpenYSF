@@ -3738,31 +3738,6 @@ int main() {
 			}
 		}
 
-		glEnable(GL_DEPTH_TEST);
-		glClearDepth(1);
-		glClearColor(field.sky_color.x, field.sky_color.y, field.sky_color.z, 0.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		if (rendering.smooth_lines) {
-			glEnable(GL_LINE_SMOOTH);
-			glLineWidth(rendering.line_width);
-		} else {
-			glDisable(GL_LINE_SMOOTH);
-		}
-		glPointSize(rendering.point_size);
-		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
-
-		if (rendering.culling_enabled) {
-			glCullFace(rendering.culling_face_type);
-			glFrontFace(rendering.culling_front_face_type);
-			glEnable(GL_CULL_FACE);
-		} else {
-			glDisable(GL_CULL_FACE);
-		}
-
 		// test intersection
 		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
 		for (int i = 0; i < NUM_MODELS-1; i++) {
@@ -3802,6 +3777,31 @@ int main() {
 			}
 		}
 
+		glEnable(GL_DEPTH_TEST);
+		glClearDepth(1);
+		glClearColor(field.sky_color.x, field.sky_color.y, field.sky_color.z, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		if (rendering.smooth_lines) {
+			glEnable(GL_LINE_SMOOTH);
+			glLineWidth(rendering.line_width);
+		} else {
+			glDisable(GL_LINE_SMOOTH);
+		}
+		glPointSize(rendering.point_size);
+		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
+
+		if (rendering.culling_enabled) {
+			glCullFace(rendering.culling_face_type);
+			glFrontFace(rendering.culling_front_face_type);
+			glEnable(GL_CULL_FACE);
+		} else {
+			glDisable(GL_CULL_FACE);
+		}
+
 		glUseProgram(meshes_gpu_program);
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
@@ -3824,6 +3824,7 @@ int main() {
 			// render 2d pictures
 			glUseProgram(primitives2d_gpu_program);
 			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
+			glDisable(GL_DEPTH_TEST);
 			for (auto& picture : field_to_render->pictures) {
 				if (picture.current_state.visible == false) {
 					continue;
@@ -3852,6 +3853,7 @@ int main() {
 					glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
 				}
 			}
+			glEnable(GL_DEPTH_TEST);
 
 			// render terrain
 			glUseProgram(meshes_gpu_program);
@@ -4546,7 +4548,6 @@ bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
-- 2 triangles on each other flicker (same Y)
 
 TODO:
 - what's PAX in dnmver 2?
