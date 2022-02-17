@@ -29,6 +29,33 @@
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/gtc/type_ptr.hpp> // glm::value_ptr
 
+#ifdef NDEBUG
+#	define GL_CATCH_ERRS() ((void)0)
+#else
+void glCheckError_(const char *file, int line) {
+	GLenum err_code;
+	int errors = 0;
+    while ((err_code = glGetError()) != GL_NO_ERROR) {
+        std::string error;
+        switch (err_code) {
+		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
+		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
+		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
+		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
+		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
+		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
+		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
+        }
+		mn::log_error("GL::{} at {}:{}\n", error, file, line);
+		errors++;
+    }
+	if (errors > 0) {
+		mn::panic("found {} opengl errors");
+	}
+}
+#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
+#endif
+
 namespace fmt {
 	template<>
 	struct formatter<glm::uvec2> {
@@ -467,8 +494,47 @@ namespace fmt {
 	};
 }
 
+// from YSFLIGHT SCENERY EDITOR 2009
+// ???
+enum class FieldID {
+	NONE=0,
+	RUNWAY=1,
+	TAXIWAY=2,
+	AIRPORT_AREA=4,
+	ENEMY_TANK_GENERATOR=6,
+	FRIENDLY_TANK_GENERATOR=7,
+	TOWER=10, // ???? not sure (from small.fld)
+	VIEW_POINT=20,
+};
+
+namespace fmt {
+	template<>
+	struct formatter<FieldID> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const FieldID &v, FormatContext &ctx) {
+			switch (v) {
+			case FieldID::NONE:                    return format_to(ctx.out(), "FieldID::NONE");
+			case FieldID::RUNWAY:                  return format_to(ctx.out(), "FieldID::RUNWAY");
+			case FieldID::TAXIWAY:                 return format_to(ctx.out(), "FieldID::TAXIWAY");
+			case FieldID::AIRPORT_AREA:            return format_to(ctx.out(), "FieldID::AIRPORT_AREA");
+			case FieldID::ENEMY_TANK_GENERATOR:    return format_to(ctx.out(), "FieldID::ENEMY_TANK_GENERATOR");
+			case FieldID::FRIENDLY_TANK_GENERATOR: return format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
+			case FieldID::TOWER:                   return format_to(ctx.out(), "FieldID::TOWER");
+			case FieldID::VIEW_POINT:              return format_to(ctx.out(), "FieldID::VIEW_POINT");
+			default: mn::log_error("found unknown ID = {}", (int) v);
+			}
+			return format_to(ctx.out(), "FieldID::????");
+		}
+	};
+}
+
 // SURF
 struct Mesh {
+	FieldID id;
+
 	bool is_light_source = false;
 	AnimationClass animation_type = AnimationClass::UNKNOWN;
 
@@ -530,6 +596,69 @@ void destruct(Mesh &self) {
 	mesh_free(self);
 }
 
+void mesh_load_to_gpu(Mesh& self) {
+	struct Stride {
+		glm::vec3 vertex;
+		glm::vec4 color;
+		glm::vec3 normal;
+	};
+	auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
+	for (const auto& face : self.faces) {
+		for (size_t i = 0; i < face.vertices_ids.count; i++) {
+			mn::buf_push(buffer, Stride {
+				.vertex=self.vertices[face.vertices_ids[i]],
+				.color=face.color,
+				.normal=face.normal,
+			});
+		}
+	}
+	self.gpu.array_count = buffer.count;
+
+	glGenVertexArrays(1, &self.gpu.vao);
+	glBindVertexArray(self.gpu.vao);
+		glGenBuffers(1, &self.gpu.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
+		glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+
+		size_t offset = 0;
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(
+			0,              /*index*/
+			3,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			sizeof(Stride), /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(Stride::vertex);
+
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(
+			1,              /*index*/
+			4,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			sizeof(Stride), /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(Stride::color);
+
+		glEnableVertexAttribArray(2);
+		glVertexAttribPointer(
+			2,              /*index*/
+			3,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			sizeof(Stride), /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(Stride::normal);
+	glBindVertexArray(0);
+
+	GL_CATCH_ERRS();
+}
+
 void mesh_unload_from_gpu(Mesh& self) {
 	glDeleteBuffers(1, &self.gpu.vbo);
 	glBindVertexArray(0);
@@ -553,33 +682,6 @@ namespace fmt {
 		}
 	};
 }
-
-#ifdef NDEBUG
-#	define GL_CATCH_ERRS() ((void)0)
-#else
-void glCheckError_(const char *file, int line) {
-	GLenum err_code;
-	int errors = 0;
-    while ((err_code = glGetError()) != GL_NO_ERROR) {
-        std::string error;
-        switch (err_code) {
-		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
-		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
-		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
-		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
-		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
-		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
-		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
-        }
-		mn::log_error("GL::{} at {}:{}\n", error, file, line);
-		errors++;
-    }
-	if (errors > 0) {
-		mn::panic("found {} opengl errors");
-	}
-}
-#	define GL_CATCH_ERRS() glCheckError_(__FILE__, __LINE__)
-#endif
 
 // region R = { (x, y, z) | min.x<=x<=max.x, min.y<=y<=max.y, min.z<=z<=max.z }
 struct AABB {
@@ -679,66 +781,7 @@ struct Model {
 
 void model_load_to_gpu(Model& self) {
 	for (auto& [_, mesh] : self.meshes.values) {
-		struct Stride {
-			glm::vec3 vertex;
-			glm::vec4 color;
-			glm::vec3 normal;
-		};
-		auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
-		for (const auto& face : mesh.faces) {
-			for (size_t i = 0; i < face.vertices_ids.count; i++) {
-				mn::buf_push(buffer, Stride {
-					.vertex=mesh.vertices[face.vertices_ids[i]],
-					.color=face.color,
-					.normal=face.normal,
-				});
-			}
-		}
-		mesh.gpu.array_count = buffer.count;
-
-		glGenVertexArrays(1, &mesh.gpu.vao);
-		glBindVertexArray(mesh.gpu.vao);
-			glGenBuffers(1, &mesh.gpu.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, mesh.gpu.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
-
-			size_t offset = 0;
-
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(
-				0,              /*index*/
-				3,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::vertex);
-
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(
-				1,              /*index*/
-				4,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::color);
-
-			glEnableVertexAttribArray(2);
-			glVertexAttribPointer(
-				2,              /*index*/
-				3,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::normal);
-		glBindVertexArray(0);
-
-		GL_CATCH_ERRS();
+		mesh_load_to_gpu(mesh);
 	}
 }
 
@@ -1122,9 +1165,221 @@ constexpr float YS_MAX      = 0xFFFF;
 constexpr float RADIANS_MAX = 6.283185307179586f;
 constexpr float DEGREES_MAX = 360.0f;
 
+Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::Str& name, size_t dnm_version = 1) {
+	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
+	if ((accept(s, "SURF\n") || accept(s, "Surf\n")) == false) {
+		mn::panic("'{}':{} failed to find SURF/Surf for start of mesh, '{}'", name, get_line_no(srf_file_content, s), smaller_str(s));
+	}
+	Mesh mesh { .name=mn::str_clone(name) };
+
+	// V {x} {y} {z}[ R]\n
+	while (accept(s, "V ")) {
+		glm::vec3 v {};
+
+		v.x = token_float(s);
+		expect(s, ' ');
+		v.y = -token_float(s);
+		expect(s, ' ');
+		v.z = token_float(s);
+		bool smooth_shading = accept(s, " R");
+
+		// aircraft/cessna172r.dnm has spaces after end if V
+		while (accept(s, " ")) {}
+
+		expect(s, '\n');
+
+		mn::buf_push(mesh.vertices, v);
+		mn::buf_push(mesh.vertices_has_smooth_shading, smooth_shading);
+	}
+	if (mesh.vertices.count == 0) {
+		mn::log_error("'{}': doesn't have any vertices!", name);
+	}
+
+	// <Face>+
+	auto faces_unshaded_light_source = mn::buf_with_allocator<bool>(mn::memory::tmp());
+	while (accept(s, "F\n")) {
+		Face face {};
+		bool parsed_color = false,
+			parsed_normal = false,
+			parsed_vertices = false,
+			is_light_source = false;
+
+		while (!accept(s, "E\n")) {
+			if (accept(s, "C ")) {
+				if (parsed_color) {
+					mn::panic("'{}': found more than one color", name);
+				}
+				parsed_color = true;
+
+				face.color.r = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				face.color.g = token_u8(s) / 255.0f;
+				expect(s, ' ');
+				face.color.b = token_u8(s) / 255.0f;
+
+				// aircraft/cessna172r.dnm allows alpha value in color
+				if (accept(s, ' ')) {
+					face.color.a = token_u8(s) / 255.0f;
+				} else {
+					face.color.a = 1.0f; // maybe overwritten in ZA line
+				}
+
+				expect(s, '\n');
+			} else if (accept(s, "N ")) {
+				if (parsed_normal) {
+					mn::panic("'{}': found more than one normal", name);
+				}
+				parsed_normal = true;
+
+				face.center.x = token_float(s);
+				expect(s, ' ');
+				face.center.y = token_float(s);
+				expect(s, ' ');
+				face.center.z = token_float(s);
+				expect(s, ' ');
+
+				face.normal.x = token_float(s);
+				expect(s, ' ');
+				face.normal.y = token_float(s);
+				expect(s, ' ');
+				face.normal.z = token_float(s);
+				expect(s, '\n');
+			} else if (accept(s, 'V')) {
+				// V {x}...
+				auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
+				while (accept(s, ' ')) {
+					uint32_t id = token_u32(s);
+					if (id >= mesh.vertices.count) {
+						mn::panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.count);
+					}
+					mn::buf_push(polygon_vertices_ids, (uint32_t) id);
+				}
+				expect(s, '\n');
+
+				if (parsed_vertices) {
+					mn::log_error("'{}': found more than one vertices line, ignore others", name);
+				} else {
+					parsed_vertices = true;
+
+					if (polygon_vertices_ids.count < 3) {
+						mn::log_error("'{}': face has count of ids={}, it should be >= 3, {}", name, polygon_vertices_ids.count, smaller_str(s));
+					}
+
+					face.vertices_ids = polygons_to_triangles(mesh.vertices, polygon_vertices_ids, face.center);
+					if (face.vertices_ids.count % 3 != 0) {
+						auto orig_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
+						for (auto id : polygon_vertices_ids) {
+							mn::buf_push(orig_vertices, mesh.vertices[id]);
+						}
+						auto new_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
+						for (auto id : face.vertices_ids) {
+							mn::buf_push(new_vertices, mesh.vertices[id]);
+						}
+						mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, get_line_no(srf_file_content, s),
+							face.vertices_ids.count, orig_vertices, new_vertices);
+					}
+				}
+			} else if (accept(s, "B\n")) {
+				if (is_light_source) {
+					mn::log_error("'{}': found more than 1 B for same face", name);
+				}
+				is_light_source = true;
+			} else {
+				mn::panic("'{}': unexpected line, '{}'", name, smaller_str(s));
+			}
+		}
+
+		if (!parsed_color) {
+			mn::log_error("'{}': face has no color", name);
+		}
+		if (!parsed_normal) {
+			mn::log_error("'{}': face has no normal", name);
+		}
+		if (!parsed_vertices) {
+			mn::log_error("'{}': face has no vertices", name);
+		}
+
+		mn::buf_push(faces_unshaded_light_source, is_light_source);
+		mn::buf_push(mesh.faces, face);
+	}
+
+	size_t zl_count = 0;
+	size_t zz_count = 0;
+	while (true) {
+		if (accept(s, '\n')) {
+			// nothing
+		} else if (accept(s, "GE") || accept(s, "ZE") || accept(s, "GL")) {
+			skip_after(s, '\n');
+		} else if (accept(s, "GF")) { // [GF< {u64}>+\n]+
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= mesh.faces.count) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				}
+				mn::buf_push(mesh.gfs, id);
+			}
+			expect(s, '\n');
+		} else if (accept(s, "ZA")) { // [ZA< {u64} {u8}>+\n]+
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= mesh.faces.count) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				}
+				expect(s, ' ');
+				mesh.faces[id].color.a = (255 - token_u8(s)) / 255.0f;
+				// because alpha came as: 0 -> obaque, 255 -> clear
+				// we revert it so it becomes: 1 -> obaque, 0 -> clear
+			}
+			expect(s, '\n');
+		} else if (accept(s, "ZL")) { // [ZL< {u64}>+\n]
+			zl_count++;
+			if (dnm_version == 1) {
+				if (zl_count > 1) {
+					mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
+				}
+			}
+
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= mesh.faces.count) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				}
+				mn::buf_push(mesh.zls, id);
+			}
+			expect(s, '\n');
+		} else if  (accept(s, "ZZ")) { // [ZZ< {u64}>+\n]
+			zz_count++;
+			if (zz_count > 1) {
+				mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
+			}
+
+			while (accept(s, ' ')) {
+				auto id = token_u64(s);
+				if (id >= mesh.faces.count) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				}
+				mn::buf_push(mesh.zzs, id);
+			}
+			expect(s, '\n');
+		} else {
+			break;
+		}
+	}
+
+	size_t unshaded_count = 0;
+	for (auto unshaded : faces_unshaded_light_source) {
+		if (unshaded) {
+			unshaded_count++;
+		}
+	}
+	mesh.is_light_source = (unshaded_count == faces_unshaded_light_source.count);
+
+	return mesh;
+}
+
 Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
-	const auto dnm_file = mn::file_content_str(dnm_file_abs_path, mn::memory::tmp());
-	auto s = mn::str_clone(dnm_file, mn::memory::tmp());
+	const auto dnm_file_content = mn::file_content_str(dnm_file_abs_path, mn::memory::tmp());
+	auto s = mn::str_clone(dnm_file_content, mn::memory::tmp());
 	mn::str_replace(s, "\r\n", "\n");
 
 	expect(s, "DYNAMODEL\nDNMVER ");
@@ -1134,233 +1389,40 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	}
 	expect(s, '\n');
 
-	auto surfs = mn::map_new<mn::Str, Mesh>();
+	auto meshes = mn::map_new<mn::Str, Mesh>();
 	while (accept(s, "PCK ")) {
 		auto name = token_str(s, mn::memory::tmp());
 		expect(s, ' ');
 		const auto pck_expected_linenos = token_u64(s);
 		expect(s, '\n');
 
-		const auto pck_first_lineno = get_line_no(dnm_file, s);
+		const auto pck_first_lineno = get_line_no(dnm_file_content, s);
 
-		// aircraft/cessna172r.dnm has Surf instead of SURF
-		if ((accept(s, "SURF\n") || accept(s, "Surf\n")) == false) {
-			mn::panic("'{}':{} failed to find SURF/Surf for start of mesh", name, get_line_no(dnm_file, s));
-		}
-		Mesh surf {};
+		mn::Str s2 = s;
+		for (size_t i = 0, lines = 0; i < s.count; i++) {
+			if (lines == pck_expected_linenos) {
+				s2.count = i;
 
-		// V {x} {y} {z}[ R]\n
-		while (accept(s, "V ")) {
-			glm::vec3 v {};
+				s.ptr   += s2.count;
+				s.cap   -= s2.count;
+				s.count -= s2.count;
 
-			v.x = token_float(s);
-			expect(s, ' ');
-			v.y = -token_float(s);
-			expect(s, ' ');
-			v.z = token_float(s);
-			bool smooth_shading = accept(s, " R");
-
-			// aircraft/cessna172r.dnm has spaces after end if V
-			while (accept(s, " ")) {}
-
-			expect(s, '\n');
-
-			mn::buf_push(surf.vertices, v);
-			mn::buf_push(surf.vertices_has_smooth_shading, smooth_shading);
-		}
-		if (surf.vertices.count == 0) {
-			mn::log_error("'{}': doesn't have any vertices!", name);
-		}
-
-		// <Face>+
-		auto faces_unshaded_light_source = mn::buf_with_allocator<bool>(mn::memory::tmp());
-		while (accept(s, "F\n")) {
-			Face face {};
-			bool parsed_color = false,
-				parsed_normal = false,
-				parsed_vertices = false,
-				is_light_source = false;
-
-			while (!accept(s, "E\n")) {
-				if (accept(s, "C ")) {
-					if (parsed_color) {
-						mn::panic("'{}': found more than one color", name);
-					}
-					parsed_color = true;
-
-					face.color.r = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					face.color.g = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					face.color.b = token_u8(s) / 255.0f;
-
-					// aircraft/cessna172r.dnm allows alpha value in color
-					if (accept(s, ' ')) {
-						face.color.a = token_u8(s) / 255.0f;
-					} else {
-						face.color.a = 1.0f; // maybe overwritten in ZA line
-					}
-
-					expect(s, '\n');
-				} else if (accept(s, "N ")) {
-					if (parsed_normal) {
-						mn::panic("'{}': found more than one normal", name);
-					}
-					parsed_normal = true;
-
-					face.center.x = token_float(s);
-					expect(s, ' ');
-					face.center.y = token_float(s);
-					expect(s, ' ');
-					face.center.z = token_float(s);
-					expect(s, ' ');
-
-					face.normal.x = token_float(s);
-					expect(s, ' ');
-					face.normal.y = token_float(s);
-					expect(s, ' ');
-					face.normal.z = token_float(s);
-					expect(s, '\n');
-				} else if (accept(s, 'V')) {
-					// V {x}...
-					auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
-					while (accept(s, ' ')) {
-						uint32_t id = token_u32(s);
-						if (id >= surf.vertices.count) {
-							mn::panic("'{}': id={} out of bounds={}", name, id, surf.vertices.count);
-						}
-						mn::buf_push(polygon_vertices_ids, (uint32_t) id);
-					}
-					expect(s, '\n');
-
-					if (parsed_vertices) {
-						mn::log_error("'{}': found more than one vertices line, ignore others", name);
-					} else {
-						parsed_vertices = true;
-
-						if (polygon_vertices_ids.count < 3) {
-							mn::log_error("'{}': face has count of ids={}, it should be >= 3, {}", name, polygon_vertices_ids.count, smaller_str(s));
-						}
-
-						face.vertices_ids = polygons_to_triangles(surf.vertices, polygon_vertices_ids, face.center);
-						if (face.vertices_ids.count % 3 != 0) {
-							auto orig_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
-							for (auto id : polygon_vertices_ids) {
-								mn::buf_push(orig_vertices, surf.vertices[id]);
-							}
-							auto new_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
-							for (auto id : face.vertices_ids) {
-								mn::buf_push(new_vertices, surf.vertices[id]);
-							}
-							mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, get_line_no(dnm_file, s),
-								face.vertices_ids.count, orig_vertices, new_vertices);
-						}
-					}
-				} else if (accept(s, "B\n")) {
-					if (is_light_source) {
-						mn::log_error("'{}': found more than 1 B for same face", name);
-					}
-					is_light_source = true;
-				} else {
-					mn::panic("'{}': unexpected line, '{}'", name, smaller_str(s));
-				}
-			}
-
-			if (!parsed_color) {
-				mn::log_error("'{}': face has no color", name);
-			}
-			if (!parsed_normal) {
-				mn::log_error("'{}': face has no normal", name);
-			}
-			if (!parsed_vertices) {
-				mn::log_error("'{}': face has no vertices", name);
-			}
-
-			mn::buf_push(faces_unshaded_light_source, is_light_source);
-			mn::buf_push(surf.faces, face);
-		}
-
-		size_t zl_count = 0;
-		size_t zz_count = 0;
-		while (true) {
-			if (accept(s, '\n')) {
-				// nothing
-			} else if (accept(s, "GE") || accept(s, "ZE") || accept(s, "GL")) {
-				skip_after(s, '\n');
-			} else if (accept(s, "GF")) { // [GF< {u64}>+\n]+
-				while (accept(s, ' ')) {
-					auto id = token_u64(s);
-					if (id >= surf.faces.count) {
-						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
-					}
-					mn::buf_push(surf.gfs, id);
-				}
-				expect(s, '\n');
-			} else if (accept(s, "ZA")) { // [ZA< {u64} {u8}>+\n]+
-				while (accept(s, ' ')) {
-					auto id = token_u64(s);
-					if (id >= surf.faces.count) {
-						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
-					}
-					expect(s, ' ');
-					surf.faces[id].color.a = (255 - token_u8(s)) / 255.0f;
-					// because alpha came as: 0 -> obaque, 255 -> clear
-					// we revert it so it becomes: 1 -> obaque, 0 -> clear
-				}
-				expect(s, '\n');
-			} else if (accept(s, "ZL")) { // [ZL< {u64}>+\n]
-				zl_count++;
-				if (dnm_version == 1) {
-					if (zl_count > 1) {
-						mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
-					}
-				}
-
-				while (accept(s, ' ')) {
-					auto id = token_u64(s);
-					if (id >= surf.faces.count) {
-						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
-					}
-					mn::buf_push(surf.zls, id);
-				}
-				expect(s, '\n');
-			} else if  (accept(s, "ZZ")) { // [ZZ< {u64}>+\n]
-				zz_count++;
-				if (zz_count > 1) {
-					mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
-				}
-
-				while (accept(s, ' ')) {
-					auto id = token_u64(s);
-					if (id >= surf.faces.count) {
-						mn::panic("'{}': out of range faceid={}, range={}", name, id, surf.faces.count);
-					}
-					mn::buf_push(surf.zzs, id);
-				}
-				expect(s, '\n');
-			} else {
 				break;
 			}
-		}
-
-		// last line
-		{
-			const auto current_lineno = get_line_no(dnm_file, s);
-			const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
-			if (pck_found_linenos != pck_expected_linenos) {
-				mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_linenos, pck_found_linenos);
+			if (s[i] == '\n') {
+				lines++;
 			}
 		}
+		const auto mesh = mesh_from_srf_str(s2, dnm_file_content, name);
+		expect(s, "\n");
 
-		size_t unshaded_count = 0;
-		for (auto unshaded : faces_unshaded_light_source) {
-			if (unshaded) {
-				unshaded_count++;
-			}
+		const auto current_lineno = get_line_no(dnm_file_content, s);
+		const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
+		if (pck_found_linenos != pck_expected_linenos) {
+			mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_linenos, pck_found_linenos);
 		}
-		surf.is_light_source = (unshaded_count == faces_unshaded_light_source.count);
 
-		mn::map_insert(surfs, name, surf);
+		mn::map_insert(meshes, name, mesh);
 	}
 
 	while (accept(s, "SRF ")) {
@@ -1374,10 +1436,11 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		expect(s, "FIL ");
 		auto fil = token_str(s, mn::memory::tmp());
 		expect(s, '\n');
-		auto surf = mn::map_lookup(surfs, fil);
+		auto surf = mn::map_lookup(meshes, fil);
 		if (!surf) {
 			mn::panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
+		mn::str_free(surf->value.name);
 		surf->value.name = name;
 
 		expect(s, "CLA ");
@@ -1413,7 +1476,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			if (visible == 1 || visible == 0) {
 				sta.visible = (visible == 1);
 			} else {
-				mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file, s), visible);
+				mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file_content, s), visible);
 			}
 			expect(s, '\n');
 
@@ -1445,7 +1508,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 					if (visible == 1 || visible == 0) {
 						surf->value.initial_state.visible = (visible == 1);
 					} else {
-						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file, s), visible);
+						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file_content, s), visible);
 					}
 				} else {
 					surf->value.initial_state.visible = true;
@@ -1490,22 +1553,22 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		}
 
 		if (read_pos == false) {
-			mn::panic("'{}':{} failed to find POS", name, get_line_no(dnm_file, s));
+			mn::panic("'{}':{} failed to find POS", name, get_line_no(dnm_file_content, s));
 		}
 		if (read_cnt == false) {
-			mn::panic("'{}':{} failed to find CNT", name, get_line_no(dnm_file, s));
+			mn::panic("'{}':{} failed to find CNT", name, get_line_no(dnm_file_content, s));
 		}
 		if (read_rel_dep == false) {
 			// aircraft/cessna172r.dnm doesn't have REL DEP
-			mn::log_error("'{}':{} failed to find REL DEP", name, get_line_no(dnm_file, s));
+			mn::log_error("'{}':{} failed to find REL DEP", name, get_line_no(dnm_file_content, s));
 		}
 		if (read_nch == false) {
-			mn::panic("'{}':{} failed to find NCH", name, get_line_no(dnm_file, s));
+			mn::panic("'{}':{} failed to find NCH", name, get_line_no(dnm_file_content, s));
 		}
 
 		// reinsert with name instead of FIL
-		surf = mn::map_insert(surfs, mn::str_clone(name), surf->value);
-		if (!mn::map_remove(surfs, fil)) {
+		surf = mn::map_insert(meshes, mn::str_clone(name), surf->value);
+		if (!mn::map_remove(meshes, fil)) {
 			mn::panic("'{}': must be able to remove {} from meshes", name, fil);
 		}
 
@@ -1517,9 +1580,9 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	}
 
 	// check children exist
-	for (const auto [_, srf] : surfs.values) {
+	for (const auto [_, srf] : meshes.values) {
 		for (const auto child : srf.children) {
-			auto srf2 = mn::map_lookup(surfs, child);
+			auto srf2 = mn::map_lookup(meshes, child);
 			if (srf2 == nullptr) {
 				mn::panic("SURF {} contains child {} that doesn't exist", srf.name, child);
 			} else if (srf2->value.name == srf.name) {
@@ -1531,7 +1594,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	auto model = Model {
 		.file_abs_path = mn::str_clone(dnm_file_abs_path),
 		.should_load_file = true,
-		.meshes = surfs,
+		.meshes = meshes,
 		.initial_aabb = AABB {
 			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
 			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
@@ -1540,13 +1603,13 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 
 	// top level nodes = nodes without parents
 	auto surfs_wth_parents = mn::set_with_allocator<mn::Str>(mn::memory::tmp());
-	for (const auto& [_, surf] : surfs.values) {
+	for (const auto& [_, surf] : meshes.values) {
 		for (const auto& child : surf.children) {
 			mn::set_insert(surfs_wth_parents, child);
 		}
 	}
-	for (size_t i = 0; i < surfs.values.count; i++) {
-		if (mn::set_lookup(surfs_wth_parents, surfs.values[i].key) == nullptr) {
+	for (size_t i = 0; i < meshes.values.count; i++) {
+		if (mn::set_lookup(surfs_wth_parents, meshes.values[i].key) == nullptr) {
 			mn::buf_push(model.root_meshes_indices, i);
 		}
 	}
@@ -1842,43 +1905,6 @@ GLuint gpu_program_new(const char* vertex_shader_src, const char* fragment_shade
     glDeleteShader(fragment_shader);
 
 	return gpu_program;
-}
-
-// from YSFLIGHT SCENERY EDITOR 2009
-// ???
-enum class FieldID {
-	NONE=0,
-	RUNWAY=1,
-	TAXIWAY=2,
-	AIRPORT_AREA=4,
-	ENEMY_TANK_GENERATOR=6,
-	FRIENDLY_TANK_GENERATOR=7,
-	TOWER=10, // ???? not sure (from small.fld)
-	VIEW_POINT=20,
-};
-
-namespace fmt {
-	template<>
-	struct formatter<FieldID> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const FieldID &v, FormatContext &ctx) {
-			switch (v) {
-			case FieldID::NONE:                    return format_to(ctx.out(), "FieldID::NONE");
-			case FieldID::RUNWAY:                  return format_to(ctx.out(), "FieldID::RUNWAY");
-			case FieldID::TAXIWAY:                 return format_to(ctx.out(), "FieldID::TAXIWAY");
-			case FieldID::AIRPORT_AREA:            return format_to(ctx.out(), "FieldID::AIRPORT_AREA");
-			case FieldID::ENEMY_TANK_GENERATOR:    return format_to(ctx.out(), "FieldID::ENEMY_TANK_GENERATOR");
-			case FieldID::FRIENDLY_TANK_GENERATOR: return format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
-			case FieldID::TOWER:                   return format_to(ctx.out(), "FieldID::TOWER");
-			case FieldID::VIEW_POINT:              return format_to(ctx.out(), "FieldID::VIEW_POINT");
-			default: mn::log_error("found unknown ID = {}", (int) v);
-			}
-			return format_to(ctx.out(), "FieldID::????");
-		}
-	};
 }
 
 constexpr auto TER_EXAMPLE = R"(TerrMesh
@@ -2493,14 +2519,16 @@ struct Field {
 	mn::Buf<Picture2D> pictures;
 	mn::Buf<FieldRegion> regions;
 	mn::Buf<Field> subfields;
+	mn::Buf<Mesh> meshes;
 
 	mn::Str file_abs_path;
 	bool should_select_file, should_load_file;
 
+	glm::mat4 transformation;
+
 	struct {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
-		glm::vec3 scale;
 		bool visible = true;
 	} current_state, initial_state;
 };
@@ -2511,6 +2539,7 @@ void field_free(Field& self) {
 	mn::destruct(self.pictures);
 	mn::destruct(self.regions);
 	mn::destruct(self.subfields);
+	mn::destruct(self.meshes);
 	mn::str_free(self.file_abs_path);
 }
 
@@ -2529,8 +2558,8 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			mn::log_warning("{}: found FLDVERSION, doesn't support it, skip for now", get_line_no(fld_file_content, s));
 			skip_after(s, '\n');
 		} else if (accept(s, "FLDNAME ")) {
-			field.name = token_str(s);
-			expect(s, '\n');
+			mn::log_warning("{}: found FLDNAME, doesn't support it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, '\n');
 		} else if (accept(s, "TEXMAN")) {
 			// TODO
 			mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", get_line_no(fld_file_content, s));
@@ -2623,8 +2652,11 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			for (size_t i = 0, lines = 0; i < s.count; i++) {
 				if (lines == total_lines_count) {
 					s2.count = i;
+
+					s.ptr   += s2.count;
+					s.cap   -= s2.count;
 					s.count -= s2.count;
-					s.ptr += s2.count;
+
 					break;
 				}
 				if (s[i] == '\n') {
@@ -2901,19 +2933,27 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			// mn::log_debug("{}", picture.primitives);
 
 			mn::buf_push(field.pictures, picture);
-		} else if (accept(s, "Surf\n")) {
-			// TODO
-			mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+		} else if (peek(s, "Surf\n")) {
+			mn::Str s2 = s;
+			for (size_t i = 0, lines = 0; i < s.count; i++) {
+				if (lines == total_lines_count) {
+					s2.count = i;
 
-			size_t surf_total_bytes = 0;
-			size_t counted_lines = total_lines_count;
-			while (counted_lines > 1) {
-				while (s[surf_total_bytes++] != '\n') {}
-				counted_lines--;
+					s.ptr   += s2.count;
+					s.cap   -= s2.count;
+					s.count -= s2.count;
+
+					break;
+				}
+				if (s[i] == '\n') {
+					lines++;
+				}
 			}
-			s.ptr   += surf_total_bytes;
-			s.count -= surf_total_bytes;
-			s.cap   -= surf_total_bytes;
+
+			auto mesh = mesh_from_srf_str(s2, fld_file_content, name);
+			mn::str_free(name);
+
+			mn::buf_push(field.meshes, mesh);
 		} else {
 			mn::panic("{}: invalid type '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
 		}
@@ -3122,9 +3162,46 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			mn::log_warning("{}: found AOB, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
 			skip_after(s, "END\n");
 		} else if (accept(s, "SRF\n")) {
-			// TODO
-			mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, "END\n");
+			expect(s, "FIL ");
+			auto name = token_str(s, mn::memory::tmp());
+			mn::str_trim(name, "\"");
+			expect(s, '\n');
+			// mn::log_debug("name={}", name);
+
+			Mesh* mesh = nullptr;
+			for (auto& m : field.meshes) {
+				if (m.name == name) {
+					mesh = &m;
+					break;
+				}
+			}
+			if (mesh == nullptr) {
+				mn::panic("{}: didn't find TER with name='{}'", get_line_no(fld_file_content, s), name);
+			}
+
+			expect(s, "POS ");
+			mesh->initial_state.translation.x = token_float(s);
+			expect(s, ' ');
+			mesh->initial_state.translation.y = token_float(s);
+			expect(s, ' ');
+			mesh->initial_state.translation.z = token_float(s);
+			expect(s, ' ');
+
+			mesh->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			mesh->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, ' ');
+			mesh->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
+			expect(s, '\n');
+			mesh->initial_state.visible = true;
+			mesh->current_state = mesh->initial_state;
+
+			expect(s, "ID ");
+			mesh->id = (FieldID) token_u8(s);
+			expect(s, '\n');
+			// mn::log_debug("id={}", mesh->id);
+
+			expect(s, "END\n");
 		} else if (accept(s, '\n')) {
 			// aomori.fld adds extra spaces
 		} else {
@@ -3160,6 +3237,9 @@ void field_load_to_gpu(Field& self) {
 	for (auto& subfield : self.subfields) {
 		field_load_to_gpu(subfield);
 	}
+	for (auto& mesh : self.meshes) {
+		mesh_load_to_gpu(mesh);
+	}
 }
 
 void field_unload_from_gpu(Field& self) {
@@ -3171,6 +3251,9 @@ void field_unload_from_gpu(Field& self) {
 	}
 	for (auto& pict : self.pictures) {
 		picture2d_unload_from_gpu(pict);
+	}
+	for (auto& mesh : self.meshes) {
+		mesh_unload_from_gpu(mesh);
 	}
 }
 
@@ -3579,7 +3662,7 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\airstrike.fld"));
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\race_desert.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
@@ -3782,6 +3865,8 @@ int main() {
 			}
 		}
 
+		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
+
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
 		glClearColor(field.sky_color.x, field.sky_color.y, field.sky_color.z, 0.0f);
@@ -3813,6 +3898,7 @@ int main() {
 
 		// render 2d pictures
 		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
+		field.transformation = glm::identity<glm::mat4>();
 		mn::buf_push(fields_to_render, &field);
 		glDisable(GL_DEPTH_TEST);
 		while (fields_to_render.count > 0) {
@@ -3823,7 +3909,13 @@ int main() {
 				continue;
 			}
 
+			field_to_render->transformation = glm::translate(field_to_render->transformation, field_to_render->current_state.translation);
+			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[2], glm::vec3{0, 0, 1});
+			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[1], glm::vec3{1, 0, 0});
+			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[0], glm::vec3{0, 1, 0});
+
 			for (int i = (int)field_to_render->subfields.count-1; i >= 0; i--) {
+				field_to_render->subfields[i].transformation = field_to_render->transformation;
 				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
 			}
 
@@ -3834,7 +3926,7 @@ int main() {
 					continue;
 				}
 
-				auto model_transformation = glm::identity<glm::mat4>();
+				auto model_transformation = field_to_render->transformation;
 				model_transformation = glm::translate(model_transformation, picture.current_state.translation);
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
@@ -3860,8 +3952,9 @@ int main() {
 		}
 		glEnable(GL_DEPTH_TEST);
 
-		// render terrains
+		// render terrains and meshes in field
 		mn::buf_push(fields_to_render, &field);
+		glUseProgram(meshes_gpu_program);
 		while (fields_to_render.count > 0) {
 			Field* field_to_render = mn::buf_top(fields_to_render);
 			mn::buf_pop(fields_to_render);
@@ -3870,18 +3963,18 @@ int main() {
 				continue;
 			}
 
-			for (Field& child : field_to_render->subfields) {
-				mn::buf_push(fields_to_render, &child);
+			for (int i = (int)field_to_render->subfields.count-1; i >= 0; i--) {
+				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
 			}
 
-			glUseProgram(meshes_gpu_program);
+			// render terrains
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
 			for (auto& terr_mesh : field_to_render->terr_meshes) {
 				if (terr_mesh.current_state.visible == false) {
 					continue;
 				}
 
-				auto model_transformation = glm::identity<glm::mat4>();
+				auto model_transformation = field_to_render->transformation;
 				model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
@@ -3901,10 +3994,39 @@ int main() {
 				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
+
+			// meshes
+			for (auto& mesh : field_to_render->meshes) {
+				if (mesh.current_state.visible == false) {
+					continue;
+				}
+
+				if (mesh.render_cnt_axis) {
+					mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
+				}
+
+				// apply mesh transformation
+				mesh.transformation = field_to_render->transformation;
+				mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
+				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
+				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
+				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+
+				if (mesh.render_pos_axis) {
+					mn::buf_push(axis_instances, mesh.transformation);
+				}
+
+				// upload transofmation model
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh.transformation));
+
+				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
+
+				glBindVertexArray(mesh.gpu.vao);
+				glDrawArrays(mesh.is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh.gpu.array_count);
+			}
 		}
 
 		// render models
-		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
@@ -4417,7 +4539,6 @@ int main() {
 
 					ImGui::Checkbox("Visible", &field.current_state.visible);
 
-					ImGui::DragFloat3("Scale", glm::value_ptr(field.current_state.scale), 0.2f);
 					ImGui::DragFloat3("Translation", glm::value_ptr(field.current_state.translation));
 					MyImGui::SliderAngle3("Rotation", &field.current_state.rotation, imgui_angle_max);
 
@@ -4426,7 +4547,7 @@ int main() {
 						render_field_imgui(subfield, false);
 					}
 
-					ImGui::BulletText("TerrMesh:");
+					ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.count);
 					for (auto& terr_mesh : field.terr_meshes) {
 						if (ImGui::TreeNode(terr_mesh.name.ptr)) {
 							if (ImGui::Button("Reset State")) {
@@ -4456,7 +4577,7 @@ int main() {
 						}
 					}
 
-					ImGui::BulletText("Pict2:");
+					ImGui::BulletText("Pict2: %d", (int)field.pictures.count);
 					for (auto& picture : field.pictures) {
 						if (ImGui::TreeNode(picture.name.ptr)) {
 							if (ImGui::Button("Reset State")) {
@@ -4479,6 +4600,15 @@ int main() {
 							ImGui::DragFloat3("Scale", glm::value_ptr(picture.current_state.scale), 0.01f);
 							ImGui::DragFloat3("Translation", glm::value_ptr(picture.current_state.translation));
 							MyImGui::SliderAngle3("Rotation", &picture.current_state.rotation, imgui_angle_max);
+
+							ImGui::TreePop();
+						}
+					}
+
+					ImGui::BulletText("Meshes: %d", (int)field.meshes.count);
+					// TODO: add meshes imgui here
+					for (auto& mesh : field.meshes) {
+						if (ImGui::TreeNode(mesh.name.ptr)) {
 
 							ImGui::TreePop();
 						}
@@ -4591,12 +4721,9 @@ TODO:
 		- what is AOB?
 		- read AIRROUTE
 		- failed to tesselate
-	- bug: crescent.fld and hawaii.fld have gigantic mountain over the airport
 	- what is DST in heathrow.fld pictures ?
-	- race_valley.fld and reace_desert.fld render mountains in wrong positions
-	- tohoku.fld: runway in water
-	- load surf in race_desert.fld
 	- hot reload file?
+	- meshes imgui in field
 - render water
 - refactor rendering
 	- primitives?
