@@ -1934,7 +1934,7 @@ namespace fmt {
 }
 
 struct TerrMesh {
-	mn::Str name;
+	mn::Str name, tag;
 	FieldID id;
 
 	// [z][x] where (z=0,x=0) is bot-left most
@@ -1964,6 +1964,7 @@ struct TerrMesh {
 
 void terr_mesh_free(TerrMesh& self) {
 	mn::str_free(self.name);
+	mn::str_free(self.tag);
 	mn::destruct(self.nodes_height);
 	mn::destruct(self.blocks);
 }
@@ -2525,15 +2526,21 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 
 	Field field { .file_abs_path=mn::str_clone(fld_file_abs_path) };
 
-	if (accept(s, "FLDNAME ")) {
-		field.name = token_str(s);
-		expect(s, '\n');
-	}
-
-	if (accept(s, "TEXMAN")) {
-		// TODO
-		mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", get_line_no(fld_file_content, s));
-		skip_after(s, "TEXMAN ENDTEXTURE\n");
+	while (true) {
+		if (accept(s, "FLDVERSION ")) {
+			// TODO
+			mn::log_warning("{}: found FLDVERSION, doesn't support it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, '\n');
+		} else if (accept(s, "FLDNAME ")) {
+			field.name = token_str(s);
+			expect(s, '\n');
+		} else if (accept(s, "TEXMAN")) {
+			// TODO
+			mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, "TEXMAN ENDTEXTURE\n");
+		} else {
+			break;
+		}
 	}
 
 	expect(s, "GND ");
@@ -2563,20 +2570,22 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 		}
 	}
 
-	expect(s, "DEFAREA ");
-	const auto default_area_str = token_str(s, mn::memory::tmp());
-	expect(s, '\n');
-	if (default_area_str == "NOAREA") {
-		field.default_area = AreaKind::NOAREA;
-	} else if (default_area_str == "LAND") {
-		field.default_area = AreaKind::LAND;
-	} else if (default_area_str == "WATER") {
-		field.default_area = AreaKind::WATER;
-	} else {
-		mn::panic("{}: unrecognized area '{}'", get_line_no(fld_file_content, s), default_area_str);
+	field.default_area = AreaKind::NOAREA;
+	if (accept(s, "DEFAREA ")) {
+		const auto default_area_str = token_str(s, mn::memory::tmp());
+		expect(s, '\n');
+		if (default_area_str == "NOAREA") {
+			field.default_area = AreaKind::NOAREA;
+		} else if (default_area_str == "LAND") {
+			field.default_area = AreaKind::LAND;
+		} else if (default_area_str == "WATER") {
+			field.default_area = AreaKind::WATER;
+		} else {
+			mn::panic("{}: unrecognized area '{}'", get_line_no(fld_file_content, s), default_area_str);
+		}
+		// mn::log_debug("default_area_str={}", default_area_str);
+		// mn::log_debug("field.default_area={}", field.default_area);
 	}
-	// mn::log_debug("default_area_str={}", default_area_str);
-	// mn::log_debug("field.default_area={}", field.default_area);
 
 	if (accept(s, "BASEELV ")) {
 		// TODO
@@ -2630,6 +2639,12 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 			if (accept(s, "SPEC TRUE\n") || accept(s, "SPEC FALSE\n")) {
 				// TODO
 				mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			}
+
+			if (accept(s, "TEX MAIN")) {
+				// TODO
+				mn::log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+				skip_after(s, "\n");
 			}
 
 			expect(s, "NBL ");
@@ -2807,6 +2822,12 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 				}
 				// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
 
+				if (accept(s, "DST ")) {
+					// TODO
+					mn::log_warning("{}: found DST, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+					skip_after(s, '\n');
+				}
+
 				expect(s, "COL ");
 				permitive.color.r = token_u8(s) / 255.0f;
 				expect(s, ' ');
@@ -2878,6 +2899,19 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 
 
 			mn::buf_push(field.pictures, picture);
+		} else if (accept(s, "Surf\n")) {
+			// TODO
+			mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+
+			size_t surf_total_bytes = 0;
+			size_t counted_lines = total_lines_count;
+			while (counted_lines > 1) {
+				while (s[surf_total_bytes++] != '\n') {}
+				counted_lines--;
+			}
+			s.ptr   += surf_total_bytes;
+			s.count -= surf_total_bytes;
+			s.cap   -= surf_total_bytes;
 		} else {
 			mn::panic("{}: invalid type '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
 		}
@@ -2969,8 +3003,16 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 
 			expect(s, "ID ");
 			terr_mesh->id = (FieldID) token_u8(s);
+			expect(s, '\n');
 			// mn::log_debug("id={}", terr_mesh->id);
-			expect(s, "\nEND\n");
+
+			if (accept(s, "TAG ")) {
+				terr_mesh->tag = token_str(s);
+				mn::str_trim(terr_mesh->tag, "\"");
+				expect(s, '\n');
+			}
+
+			expect(s, "END\n");
 		} else if (accept(s, "PC2\n") || accept(s, "PLT\n")) {
 			expect(s, "FIL ");
 			auto name = token_str(s, mn::memory::tmp());
@@ -3023,6 +3065,11 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 			region.max.y = token_float(s);
 			expect(s, '\n');
 
+			if (accept(s, "SUB DEADLOCKFREEAP\n")) {
+				// TODO
+				mn::log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			}
+
 			expect(s, "POS ");
 			glm::vec3 translation {};
 			translation.x = token_float(s);
@@ -3071,6 +3118,10 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 		} else if (accept(s, "AOB\n")) {
 			// TODO
 			mn::log_warning("{}: found AOB, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+			skip_after(s, "END\n");
+		} else if (accept(s, "SRF\n")) {
+			// TODO
+			mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
 			skip_after(s, "END\n");
 		} else if (accept(s, '\n')) {
 			// aomori.fld adds extra spaces
@@ -3523,7 +3574,7 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\aomori.fld"));
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
@@ -4362,6 +4413,8 @@ int main() {
 								terr_mesh.current_state = terr_mesh.initial_state;
 							}
 
+							ImGui::Text("Tag: %s", terr_mesh.tag.ptr);
+
 							MyImGui::EnumsCombo("ID", &terr_mesh.id, {
 								{FieldID::NONE, "NONE"},
 								{FieldID::RUNWAY, "RUNWAY"},
@@ -4502,23 +4555,6 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
-	- load other files
-		- atoll
-		- atsugi
-		- crescent
-		- gourd
-		- hawaii
-		- heathrow
-		- naha
-		- newta
-		- n-kyusyu
-		- ocean
-		- race_desert
-		- race_valley
-		- slapstick
-		- small
-		- tohoku
-		- yamoto
 	- hot reload file?
 	- small.fld bugs:
 		- biggest pic doesn't render correctly (from left side)
@@ -4537,6 +4573,11 @@ TODO:
 		- what is AOB?
 		- read AIRROUTE
 		- failed to tesselate
+	- bug: crescent.fld and hawaii.fld have gigantic mountain over the airport
+	- what is DST in heathrow.fld pictures ?
+	- race_valley.fld and reace_desert.fld render mountains in wrong positions
+	- tohoku.fld: runway in water
+	- load surf in race_desert.fld
 - render water
 - refactor rendering
 	- primitives?
