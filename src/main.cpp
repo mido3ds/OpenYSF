@@ -2518,13 +2518,10 @@ void destruct(Field& self) {
 	field_free(self);
 }
 
-Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn::Str& fld_file_abs_path, const size_t bytes_to_read) {
-	mn_assert(s.count >= bytes_to_read);
-	const size_t bytes_to_keep = s.count - bytes_to_read;
-
+Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 	expect(s, "FIELD\n");
 
-	Field field { .file_abs_path=mn::str_clone(fld_file_abs_path) };
+	Field field {};
 
 	while (true) {
 		if (accept(s, "FLDVERSION ")) {
@@ -2622,14 +2619,20 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 
 		const size_t first_line_no = get_line_no(fld_file_content, s);
 		if (peek(s, "FIELD\n")) {
-			size_t subfield_total_bytes = 0;
-			size_t counted_lines = total_lines_count;
-			while (counted_lines > 0) {
-				while (s[subfield_total_bytes++] != '\n') {}
-				counted_lines--;
+			mn::Str s2 = s;
+			for (size_t i = 0, lines = 0; i < s.count; i++) {
+				if (lines == total_lines_count) {
+					s2.count = i;
+					s.count -= s2.count;
+					s.ptr += s2.count;
+					break;
+				}
+				if (s[i] == '\n') {
+					lines++;
+				}
 			}
 
-			auto subfield = _field_from_fld_str(s, fld_file_content, fld_file_abs_path, subfield_total_bytes);
+			auto subfield = _field_from_fld_str(s2, fld_file_content);
 			subfield.name = name;
 
 			mn::buf_push(field.subfields, subfield);
@@ -2897,7 +2900,6 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 			}
 			// mn::log_debug("{}", picture.primitives);
 
-
 			mn::buf_push(field.pictures, picture);
 		} else if (accept(s, "Surf\n")) {
 			// TODO
@@ -2928,7 +2930,7 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content, const mn:
 		while (accept(s, '\n')) {}
 	}
 
-	while (s.count > bytes_to_keep) {
+	while (s.count > 0) {
 		if (accept(s, "FLD\n")) {
 			expect(s, "FIL ");
 			auto name = token_str(s, mn::memory::tmp());
@@ -3138,10 +3140,13 @@ Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
 	mn::Str fld_file_content = mn::file_content_str(fld_file_abs_path, mn::memory::tmp());
 	mn::str_replace(fld_file_content, "\r\n", "\n");
 	auto s = fld_file_content;
-	auto field = _field_from_fld_str(s, fld_file_content, fld_file_abs_path, s.count);
+
+	auto field = _field_from_fld_str(s, fld_file_content);
+	field.file_abs_path = mn::str_clone(fld_file_abs_path);
 	if (field.name.count == 0) {
 		field.name = mn::file_name(fld_file_abs_path);
 	}
+
 	return field;
 }
 
@@ -3574,7 +3579,7 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld"));
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\airstrike.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
@@ -3806,9 +3811,10 @@ int main() {
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
 		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
-		// render fields
+		// render 2d pictures
 		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
 		mn::buf_push(fields_to_render, &field);
+		glDisable(GL_DEPTH_TEST);
 		while (fields_to_render.count > 0) {
 			Field* field_to_render = mn::buf_top(fields_to_render);
 			mn::buf_pop(fields_to_render);
@@ -3817,14 +3823,12 @@ int main() {
 				continue;
 			}
 
-			for (Field& child : field_to_render->subfields) {
-				mn::buf_push(fields_to_render, &child);
+			for (int i = (int)field_to_render->subfields.count-1; i >= 0; i--) {
+				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
 			}
 
-			// render 2d pictures
 			glUseProgram(primitives2d_gpu_program);
 			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
-			glDisable(GL_DEPTH_TEST);
 			for (auto& picture : field_to_render->pictures) {
 				if (picture.current_state.visible == false) {
 					continue;
@@ -3853,9 +3857,23 @@ int main() {
 					glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
 				}
 			}
-			glEnable(GL_DEPTH_TEST);
+		}
+		glEnable(GL_DEPTH_TEST);
 
-			// render terrain
+		// render terrains
+		mn::buf_push(fields_to_render, &field);
+		while (fields_to_render.count > 0) {
+			Field* field_to_render = mn::buf_top(fields_to_render);
+			mn::buf_pop(fields_to_render);
+
+			if (field_to_render->current_state.visible == false) {
+				continue;
+			}
+
+			for (Field& child : field_to_render->subfields) {
+				mn::buf_push(fields_to_render, &child);
+			}
+
 			glUseProgram(meshes_gpu_program);
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
 			for (auto& terr_mesh : field_to_render->terr_meshes) {
@@ -4556,9 +4574,8 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
-	- hot reload file?
 	- small.fld bugs:
-		- biggest pic doesn't render correctly (from left side)
+		- biggest pic doesn't render/(tesselat?) correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh sides colors
 	- read PST at end of fld
@@ -4579,6 +4596,7 @@ TODO:
 	- race_valley.fld and reace_desert.fld render mountains in wrong positions
 	- tohoku.fld: runway in water
 	- load surf in race_desert.fld
+	- hot reload file?
 - render water
 - refactor rendering
 	- primitives?
