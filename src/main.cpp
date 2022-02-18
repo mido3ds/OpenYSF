@@ -3694,14 +3694,6 @@ int main() {
 	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = _glGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
 	const GLfloat POINT_SIZE_GRANULARITY        = _glGetFloat(GL_POINT_SIZE_GRANULARITY);
 
-	// struct {
-	// 	bool enabled = true;
-
-	// 	float check_rate_secs = 1.0f;
-	// 	float last_check_time = 0; // when checked file
-	// 	int64_t last_write_time = 0; // when file was written to (by some other progrem)
-	// } dnm_hotreload;
-
 	float imgui_angle_max = DEGREES_MAX;
 
 	struct {
@@ -4018,22 +4010,6 @@ int main() {
 			field = new_field;
 		}
 
-		// if (dnm_hotreload.enabled) {
-		// 	dnm_hotreload.last_check_time += delta_time;
-		// 	if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
-		// 		dnm_hotreload.last_check_time = 0;
-
-		// 		for (int i = 0; i < NUM_MODELS; i++) {
-		// 			const int64_t write_time = mn::file_last_write_time(models[i].file_abs_path);
-		// 			if (write_time > dnm_hotreload.last_write_time) {
-		// 				dnm_hotreload.last_write_time = write_time;
-		// 				models[i].should_load_file = true;
-		// 				mn::log_debug("Model[{}]: file '{}' changed, will reload", i, models[i].file_abs_path);
-		// 			}
-		// 		}
-		// 	}
-		// }
-
 		for (int i = 0; i < NUM_MODELS; i++) {
 			if (models[i].should_select_file) {
 				models[i].should_select_file = false;
@@ -4050,9 +4026,6 @@ int main() {
 			if (models[i].should_load_file) {
 				auto model = model_from_dnm_file(models[i].file_abs_path);
 				model_load_to_gpu(model);
-
-				// // so we don't hot reload it again
-				// dnm_hotreload.last_write_time = mn::file_last_write_time(models[i].file_abs_path);
 
 				model_unload_from_gpu(models[i]);
 				model_free(models[i]);
@@ -4447,13 +4420,6 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			// if (ImGui::TreeNode("DNM Hotreload")) {
-			// 	ImGui::Checkbox("Enabled", &dnm_hotreload.enabled);
-			// 	ImGui::InputFloat("Check Rate (secs)", &dnm_hotreload.check_rate_secs, 0.5f, 2.0f);
-
-			// 	ImGui::TreePop();
-			// }
-
 			if (ImGui::TreeNodeEx("Window")) {
 				ImGui::Checkbox("Limit FPS", &should_limit_fps);
 				ImGui::BeginDisabled(!should_limit_fps); {
