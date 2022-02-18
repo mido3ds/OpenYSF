@@ -1327,18 +1327,33 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 					mn::panic("'{}': found more than one color", name);
 				}
 				parsed_color = true;
+				face.color.a = 1.0f;
 
-				face.color.r = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				face.color.g = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				face.color.b = token_u8(s) / 255.0f;
+				const uint32_t num = token_u32(s);
 
-				// aircraft/cessna172r.dnm allows alpha value in color
 				if (accept(s, ' ')) {
-					face.color.a = token_u8(s) / 255.0f;
+					face.color.r = num / 255.0f;
+					face.color.g = token_u8(s) / 255.0f;
+					expect(s, ' ');
+					face.color.b = token_u8(s) / 255.0f;
+
+					// aircraft/cessna172r.dnm allows alpha value in color
+					// otherwise, maybe overwritten in ZA line
+					if (accept(s, ' ')) {
+						face.color.a = token_u8(s) / 255.0f;
+					}
 				} else {
-					face.color.a = 1.0f; // maybe overwritten in ZA line
+					union {
+						uint32_t as_long;
+						struct { uint8_t r, b, g, padding; } as_struct;
+					} packed_color;
+					static_assert(sizeof(packed_color) == sizeof(uint32_t));
+					packed_color.as_long = num;
+
+					face.color.r = packed_color.as_struct.r / 255.0f;
+					face.color.g = packed_color.as_struct.g / 255.0f;
+					face.color.b = packed_color.as_struct.b / 255.0f;
+					mn_assert(packed_color.as_struct.padding == 0);
 				}
 
 				expect(s, '\n');
@@ -1531,7 +1546,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			}
 		}
 		const auto mesh = mesh_from_srf_str(s2, dnm_file_content, name);
-		expect(s, "\n");
+		while (accept(s, "\n")) {}
 
 		const auto current_lineno = get_line_no(dnm_file_content, s);
 		const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
