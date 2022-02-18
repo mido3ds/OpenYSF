@@ -1,6 +1,8 @@
 # OpenYSF
+A [ysflight](https://ysflight.org/) clone, for learning and fun.
+Aims to be backward compatible with ysflight assets
+
 ![screenshot](./screenshot.png)
-A [ysflight](https://ysflight.org/) clone, for learning and fun
 
 # Assets
 OpenYSF uses assets from the original game.
