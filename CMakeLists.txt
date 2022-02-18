@@ -89,3 +89,8 @@ set_property(TARGET jfs
 		CMAKE_CXX_STANDARD_REQUIRED YES
 		CMAKE_CXX_EXTENSIONS NO
 )
+
+target_compile_definitions(jfs
+	PUBLIC
+	ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+)

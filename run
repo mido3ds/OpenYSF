@@ -1,0 +1,2 @@
+#!/bin/bash
+cmake --build build -j --target jfs && ./build/bin/Debug/jfs

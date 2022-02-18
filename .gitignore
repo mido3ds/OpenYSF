@@ -33,3 +33,7 @@
 
 build*
 .vscode
+
+assets/*
+
+jfs-imgui.ini

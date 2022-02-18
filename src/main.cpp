@@ -3551,6 +3551,10 @@ int main() {
 		mn::panic("failed to init imgui implementation for OpenGL3");
 	}
 	mn_defer(ImGui_ImplOpenGL3_Shutdown());
+	{
+		const auto imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "jfs-imgui.ini");
+		ImGui::GetIO().IniFilename = imgui_ini_file_path.ptr;
+	}
 
 	const GLuint meshes_gpu_program = gpu_program_new(
 		// vertex shader
@@ -3608,7 +3612,7 @@ int main() {
 	constexpr int NUM_MODELS = 2;
 	Model models[NUM_MODELS];
 	for (auto& model : models) {
-		model = model_from_dnm_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm"));
+		model = model_from_dnm_file(mn::str_lit(ASSETS_DIR "/aircraft/ys11.dnm"));
 		model_load_to_gpu(model);
 	}
 	mn_defer({
@@ -3619,13 +3623,13 @@ int main() {
 	});
 
 	// field
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld"));
+	auto field = field_from_fld_file(mn::str_lit(ASSETS_DIR "/scenery/small.fld"));
 	mn_defer(field_free(field));
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
 
 	// start infos
-	auto start_infos = start_info_from_stp_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.stp"));
+	auto start_infos = start_info_from_stp_file(mn::str_lit(ASSETS_DIR "/scenery/small.stp"));
 	mn_defer(mn::destruct(start_infos));
 	mn::buf_insert(start_infos, 0, StartInfo {
 		.name=mn::str_from_c("-NULL-")
