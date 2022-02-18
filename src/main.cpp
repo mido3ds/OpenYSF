@@ -571,6 +571,24 @@ namespace fmt {
 	};
 }
 
+size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
+	size_t all_lines = 0;
+	for (auto c : str1) {
+		if (c == '\n') {
+			all_lines++;
+		}
+	}
+
+	size_t partial_lines = 0;
+	for (auto c : str2) {
+		if (c == '\n') {
+			partial_lines++;
+		}
+	}
+
+	return all_lines - partial_lines + 1;
+}
+
 // SURF
 struct Mesh {
 	FieldID id;
@@ -798,6 +816,77 @@ void test_aabbs_intersection() {
 	mn::log_debug("test_aabbs_intersection: all passed");
 }
 
+struct StartInfo {
+	mn::Str name;
+	glm::vec3 position;
+	glm::vec3 attitude;
+	float speed;
+	float throttle;
+	bool landing_gear_is_out = true;
+};
+
+void start_info_free(StartInfo& self) {
+	mn::str_free(self.name);
+}
+
+void destruct(StartInfo& self) {
+	start_info_free(self);
+}
+
+mn::Buf<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
+	auto stp_file_content = mn::file_content_str(stp_file_abs_path, mn::memory::tmp());
+	mn::str_replace(stp_file_content, "\r\n", "\n");
+	auto s = stp_file_content;
+
+	auto start_infos = mn::buf_new<StartInfo>();
+
+	while (s.count > 0) {
+		StartInfo start_info {};
+
+		expect(s, "N ");
+		start_info.name = token_str(s);
+		expect(s, '\n');
+
+		while (accept(s, "C ")) {
+			if (accept(s, "POSITION ")) {
+				start_info.position.x = token_distance(s);
+				expect(s, ' ');
+				start_info.position.y = -token_distance(s);
+				expect(s, ' ');
+				start_info.position.z = token_distance(s);
+				expect(s, '\n');
+			} else if (accept(s, "ATTITUDE ")) {
+				start_info.attitude.x = token_angle(s);
+				expect(s, ' ');
+				start_info.attitude.y = token_angle(s);
+				expect(s, ' ');
+				start_info.attitude.z = token_angle(s);
+				expect(s, '\n');
+			} else if (accept(s, "INITSPED ")) {
+				start_info.speed = token_float(s);
+				expect(s, "MACH\n");
+			} else if (accept(s, "CTLTHROT ")) {
+				start_info.throttle = token_float(s);
+				expect(s, '\n');
+				if (start_info.throttle > 1 || start_info.throttle < 0) {
+					mn::panic("throttle={} out of bounds [0,1]", start_info.throttle);
+				}
+			} else if (accept(s, "CTLLDGEA ")) {
+				start_info.landing_gear_is_out = token_bool(s);
+				expect(s, '\n');
+			} else {
+				mn::panic("{}: unrecognized type: {}", get_line_no(stp_file_content, s), token_str(s, mn::memory::tmp()));
+			}
+
+			while (accept(s, '\n')) {}
+		}
+
+		mn::buf_push(start_infos, start_info);
+	}
+
+	return start_infos;
+}
+
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	mn::Str file_abs_path;
@@ -816,6 +905,9 @@ struct Model {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
+		float speed;
+		float throttle;
+		bool landing_gear_is_out = true;
 	} current_state;
 };
 
@@ -829,6 +921,14 @@ void model_unload_from_gpu(Model& self) {
 	for (auto& [_, mesh] : self.meshes.values) {
 		mesh_unload_from_gpu(mesh);
 	}
+}
+
+void model_set_start(Model& self, StartInfo& start_info) {
+	self.current_state.translation = start_info.position;
+	self.current_state.rotation = start_info.attitude;
+	self.current_state.landing_gear_is_out = start_info.landing_gear_is_out;
+	self.current_state.throttle = start_info.throttle;
+	self.current_state.speed = start_info.speed;
 }
 
 // margin of error
@@ -1180,24 +1280,6 @@ void test_polygons_to_triangles() {
 	}
 
 	mn::log_debug("test_polygons_to_triangles: all passed");
-}
-
-size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
-	size_t all_lines = 0;
-	for (auto c : str1) {
-		if (c == '\n') {
-			all_lines++;
-		}
-	}
-
-	size_t partial_lines = 0;
-	for (auto c : str2) {
-		if (c == '\n') {
-			partial_lines++;
-		}
-	}
-
-	return all_lines - partial_lines + 1;
 }
 
 Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::Str& name, size_t dnm_version = 1) {
@@ -1628,7 +1710,6 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 
 	auto model = Model {
 		.file_abs_path = mn::str_clone(dnm_file_abs_path),
-		.should_load_file = true,
 		.meshes = meshes,
 		.initial_aabb = AABB {
 			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
@@ -3401,82 +3482,7 @@ C CTLLDGEA FALSE
 
 )";
 
-struct StartInfo {
-	mn::Str name;
-	glm::vec3 position;
-	glm::vec3 attitude;
-	float speed;
-	float throttle;
-	bool landing_gear_is_out = true;
-};
-
-void start_info_free(StartInfo& self) {
-	mn::str_free(self.name);
-}
-
-void destruct(StartInfo& self) {
-	start_info_free(self);
-}
-
-mn::Buf<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
-	auto stp_file_content = mn::file_content_str(stp_file_abs_path, mn::memory::tmp());
-	mn::str_replace(stp_file_content, "\r\n", "\n");
-	auto s = stp_file_content;
-
-	auto start_infos = mn::buf_new<StartInfo>();
-
-	while (s.count > 0) {
-		StartInfo start_info {};
-
-		expect(s, "N ");
-		start_info.name = token_str(s);
-		expect(s, '\n');
-
-		while (accept(s, "C ")) {
-			if (accept(s, "POSITION ")) {
-				start_info.position.x = token_distance(s);
-				expect(s, ' ');
-				start_info.position.y = token_distance(s);
-				expect(s, ' ');
-				start_info.position.z = token_distance(s);
-				expect(s, '\n');
-			} else if (accept(s, "ATTITUDE ")) {
-				start_info.attitude.x = token_angle(s);
-				expect(s, ' ');
-				start_info.attitude.y = token_angle(s);
-				expect(s, ' ');
-				start_info.attitude.z = token_angle(s);
-				expect(s, '\n');
-			} else if (accept(s, "INITSPED ")) {
-				start_info.speed = token_float(s);
-				expect(s, "MACH\n");
-			} else if (accept(s, "CTLTHROT ")) {
-				start_info.throttle = token_float(s);
-				expect(s, '\n');
-				if (start_info.throttle > 1 || start_info.throttle < 0) {
-					mn::panic("throttle={} out of bounds [0,1]", start_info.throttle);
-				}
-			} else if (accept(s, "CTLLDGEA ")) {
-				start_info.landing_gear_is_out = token_bool(s);
-				expect(s, '\n');
-			} else {
-				mn::panic("{}: unrecognized type: {}", get_line_no(stp_file_content, s), token_str(s, mn::memory::tmp()));
-			}
-
-			while (accept(s, '\n')) {}
-		}
-
-		mn::buf_push(start_infos, start_info);
-	}
-
-	return start_infos;
-}
-
 int main() {
-	auto start_infos = start_info_from_stp_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.stp"));
-	mn_defer(mn::destruct(start_infos));
-
-	return 0;
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
@@ -3585,18 +3591,36 @@ int main() {
 
 	// models
 	constexpr int NUM_MODELS = 2;
-	Model models[NUM_MODELS] = {
-		model_from_dnm_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
-		model_from_dnm_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm")),
-	};
+	Model models[NUM_MODELS];
+	for (auto& model : models) {
+		model = model_from_dnm_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\aircraft\\ys11.dnm"));
+		model_load_to_gpu(model);
+	}
 	mn_defer({
-		for (int i = 0; i < NUM_MODELS; i++) {
-			model_unload_from_gpu(models[i]);
-			model_free(models[i]);
+		for (auto& model : models) {
+			model_unload_from_gpu(model);
+			model_free(model);
 		}
 	});
 
-	Camera camera {};
+	// field
+	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.fld"));
+	mn_defer(field_free(field));
+	field_load_to_gpu(field);
+	mn_defer(field_unload_from_gpu(field));
+
+	// start infos
+	auto start_infos = start_info_from_stp_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.stp"));
+	mn_defer(mn::destruct(start_infos));
+	mn::buf_insert(start_infos, 0, StartInfo {
+		.name=mn::str_from_c("-NULL-")
+	});
+
+	for (int i = 0; i < NUM_MODELS; i++) {
+		model_set_start(models[i], start_infos[mod(i, start_infos.count)]);
+	}
+
+	Camera camera { .view { .pos = start_infos[1].position } };
 
 	bool wnd_size_changed = true;
 	bool running = true;
@@ -3670,13 +3694,13 @@ int main() {
 	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = _glGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
 	const GLfloat POINT_SIZE_GRANULARITY        = _glGetFloat(GL_POINT_SIZE_GRANULARITY);
 
-	struct {
-		bool enabled = true;
+	// struct {
+	// 	bool enabled = true;
 
-		float check_rate_secs = 1.0f;
-		float last_check_time = 0; // when checked file
-		int64_t last_write_time = 0; // when file was written to (by some other progrem)
-	} dnm_hotreload;
+	// 	float check_rate_secs = 1.0f;
+	// 	float last_check_time = 0; // when checked file
+	// 	int64_t last_write_time = 0; // when file was written to (by some other progrem)
+	// } dnm_hotreload;
 
 	float imgui_angle_max = DEGREES_MAX;
 
@@ -3881,11 +3905,6 @@ int main() {
 	);
 	mn_defer(glDeleteProgram(primitives2d_gpu_program));
 
-	auto field = field_from_fld_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\race_desert.fld"));
-	mn_defer(field_free(field));
-	field_load_to_gpu(field);
-	mn_defer(field_unload_from_gpu(field));
-
 	struct {
 		bool enabled = true;
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
@@ -3999,22 +4018,21 @@ int main() {
 			field = new_field;
 		}
 
-		if (dnm_hotreload.enabled) {
-			dnm_hotreload.last_check_time += delta_time;
-			if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
-				dnm_hotreload.last_check_time = 0;
+		// if (dnm_hotreload.enabled) {
+		// 	dnm_hotreload.last_check_time += delta_time;
+		// 	if (dnm_hotreload.last_check_time >= dnm_hotreload.check_rate_secs) {
+		// 		dnm_hotreload.last_check_time = 0;
 
-				for (int i = 0; i < NUM_MODELS; i++)
-				{
-					const int64_t write_time = mn::file_last_write_time(models[i].file_abs_path);
-					if (write_time > dnm_hotreload.last_write_time) {
-						dnm_hotreload.last_write_time = write_time;
-						models[i].should_load_file = true;
-						mn::log_debug("Model[{}]: file '{}' changed, will reload", i, models[i].file_abs_path);
-					}
-				}
-			}
-		}
+		// 		for (int i = 0; i < NUM_MODELS; i++) {
+		// 			const int64_t write_time = mn::file_last_write_time(models[i].file_abs_path);
+		// 			if (write_time > dnm_hotreload.last_write_time) {
+		// 				dnm_hotreload.last_write_time = write_time;
+		// 				models[i].should_load_file = true;
+		// 				mn::log_debug("Model[{}]: file '{}' changed, will reload", i, models[i].file_abs_path);
+		// 			}
+		// 		}
+		// 	}
+		// }
 
 		for (int i = 0; i < NUM_MODELS; i++) {
 			if (models[i].should_select_file) {
@@ -4033,8 +4051,8 @@ int main() {
 				auto model = model_from_dnm_file(models[i].file_abs_path);
 				model_load_to_gpu(model);
 
-				// so we don't hot reload it again
-				dnm_hotreload.last_write_time = mn::file_last_write_time(models[i].file_abs_path);
+				// // so we don't hot reload it again
+				// dnm_hotreload.last_write_time = mn::file_last_write_time(models[i].file_abs_path);
 
 				model_unload_from_gpu(models[i]);
 				model_free(models[i]);
@@ -4429,12 +4447,12 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			if (ImGui::TreeNode("DNM Hotreload")) {
-				ImGui::Checkbox("Enabled", &dnm_hotreload.enabled);
-				ImGui::InputFloat("Check Rate (secs)", &dnm_hotreload.check_rate_secs, 0.5f, 2.0f);
+			// if (ImGui::TreeNode("DNM Hotreload")) {
+			// 	ImGui::Checkbox("Enabled", &dnm_hotreload.enabled);
+			// 	ImGui::InputFloat("Check Rate (secs)", &dnm_hotreload.check_rate_secs, 0.5f, 2.0f);
 
-				ImGui::TreePop();
-			}
+			// 	ImGui::TreePop();
+			// }
 
 			if (ImGui::TreeNodeEx("Window")) {
 				ImGui::Checkbox("Limit FPS", &should_limit_fps);
@@ -4506,7 +4524,19 @@ int main() {
 					camera.view = {};
 				}
 
-				ImGui::Checkbox("Identity", &camera.view.identity);
+				static size_t start_info_index = 0;
+				if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
+					for (size_t j = 0; j < start_infos.count; j++) {
+						if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
+							start_info_index = j;
+							camera.view.pos = start_infos[j].position;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				ImGui::Checkbox("Identity", &camera.view.identity); // TODO: remove
 
 				ImGui::BeginDisabled(camera.view.identity);
 					ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 5, 50, 1000);
@@ -4632,6 +4662,18 @@ int main() {
 						for (auto& [_, mesh] : model.meshes.values) {
 							mesh.current_state = mesh.initial_state;
 						}
+					}
+
+					static size_t start_info_index = 0;
+					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
+						for (size_t j = 0; j < start_infos.count; j++) {
+							if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
+								start_info_index = j;
+								model_set_start(models[i], start_infos[start_info_index]);
+							}
+						}
+
+						ImGui::EndCombo();
 					}
 
 					ImGui::Checkbox("Rotate Around", &model.enable_rotating_around);
@@ -4966,6 +5008,7 @@ TODO:
 - view normals (geometry shader)
 - strict integers tokenization
 - Mesh contains mn::Buf<Mesh> instead of names
+- dnm hot realod per model
 
 - optimization:
 	- store stack of nodes instead of tree in model
