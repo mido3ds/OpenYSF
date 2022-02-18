@@ -1,4 +1,4 @@
-# JFS
+# OpenYSF
 A [ysflight](https://ysflight.org/) clone, for learning and fun
 
 # Assets
@@ -15,8 +15,8 @@ This game uses assets from original game.
 cmake -S. -Bbuild
 
 # either
-cmake --build build --target jfs -j
-./build/bin/Debug/jfs
+cmake --build build --target open-ysf -j
+./build/bin/Debug/open-ysf
 # or call
 ./run
 ```

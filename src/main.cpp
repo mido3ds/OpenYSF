@@ -1808,7 +1808,7 @@ void destruct(Model& self) {
 	model_free(self);
 }
 
-constexpr auto WND_TITLE        = "JFS";
+constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
 constexpr Uint32 WND_FLAGS      = SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED;
@@ -3536,7 +3536,7 @@ int main() {
 	}
 
 	// setup imgui
-	auto _imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "jfs-imgui.ini");
+	auto _imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "open-ysf-imgui.ini");
 	mn_defer(mn::str_free(_imgui_ini_file_path));
 
 	IMGUI_CHECKVERSION();

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(JFS VERSION 0.1.0 LANGUAGES CXX)
+project(OpenYSF VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
@@ -69,10 +69,10 @@ add_library(_imgui
 target_include_directories(_imgui PUBLIC extern/imgui-1.85)
 target_link_libraries(_imgui PRIVATE SDL2::SDL2)
 
-# jfs
-add_executable(jfs src/main.cpp)
+# open-ysf
+add_executable(open-ysf src/main.cpp)
 
-target_link_libraries(jfs
+target_link_libraries(open-ysf
 	PRIVATE
 		MoustaphaSaad::mn
 		SDL2::SDL2
@@ -83,14 +83,14 @@ target_link_libraries(jfs
 		portable_file_dialogs
 )
 
-set_property(TARGET jfs
+set_property(TARGET open-ysf
 	PROPERTY
 		CXX_STANDARD 20
 		CMAKE_CXX_STANDARD_REQUIRED YES
 		CMAKE_CXX_EXTENSIONS NO
 )
 
-target_compile_definitions(jfs
+target_compile_definitions(open-ysf
 	PUBLIC
 	ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
 )
