@@ -1,4 +1,5 @@
 # OpenYSF
+![screenshot](./screenshot.png)
 A [ysflight](https://ysflight.org/) clone, for learning and fun
 
 # Assets
