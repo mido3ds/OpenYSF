@@ -29,6 +29,11 @@
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/gtc/type_ptr.hpp> // glm::value_ptr
 
+// YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
+constexpr float YS_MAX      = 0xFFFF;
+constexpr float RADIANS_MAX = 6.283185307179586f;
+constexpr float DEGREES_MAX = 360.0f;
+
 #ifdef NDEBUG
 #	define GL_CATCH_ERRS() ((void)0)
 #else
@@ -243,6 +248,17 @@ mn::Str token_str(mn::Str& s, mn::Allocator allocator = mn::allocator_top()) {
 	return mn::str_from_substr(a, s.ptr, allocator);
 }
 
+bool token_bool(mn::Str& s) {
+	const auto x = token_str(s, mn::memory::tmp());
+	if (x == "TRUE") {
+		return true;
+	} else if (x == "FALSE") {
+		return false;
+	}
+	mn::panic("expected either TRUE or FALSE, found='{}'", x);
+	return false;
+}
+
 bool peek(const mn::Str& s, char c) {
 	if (s.count == 0) {
 		return false;
@@ -305,6 +321,30 @@ void skip_after(mn::Str& s, const char* s2_) {
 	}
 	s.ptr += index + s2.count;
 	s.count -= index + s2.count;
+}
+
+float token_distance(mn::Str& s) {
+	const float x = token_float(s);
+
+	if (accept(s, 'm')) {
+		return x;
+	} else if (accept(s, "ft")) {
+		return x / 3.281f;
+	}
+
+	mn::panic("expected either m or ft, found: '{}'", token_str(s, mn::memory::tmp()));
+	return x;
+}
+
+float token_angle(mn::Str& s) {
+	const float x = token_float(s);
+
+	if (accept(s, "deg")) {
+		return x / DEGREES_MAX * RADIANS_MAX;
+	}
+
+	mn::panic("expected either m or ft, found: '{}'", token_str(s, mn::memory::tmp()));
+	return x;
 }
 
 struct Face {
@@ -1159,11 +1199,6 @@ size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
 
 	return all_lines - partial_lines + 1;
 }
-
-// YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
-constexpr float YS_MAX      = 0xFFFF;
-constexpr float RADIANS_MAX = 6.283185307179586f;
-constexpr float DEGREES_MAX = 360.0f;
 
 Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::Str& name, size_t dnm_version = 1) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
@@ -2588,12 +2623,8 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 	// mn::log_debug("field.sky_color={}", field.sky_color);
 
 	if (accept(s, "GNDSPECULAR ")) {
-		if (accept(s, "TRUE\n")) {
-			field.ground_specular = true;
-		} else {
-			field.ground_specular = false;
-			expect(s, "FALSE\n");
-		}
+		field.ground_specular = token_bool(s);
+		expect(s, '\n');
 	}
 
 	field.default_area = AreaKind::NOAREA;
@@ -3257,7 +3288,195 @@ void field_unload_from_gpu(Field& self) {
 	}
 }
 
+constexpr auto STP_EXAMPLE = R"(N RW36_01
+C POSITION 3792m 1m 1325m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.0MACH
+C CTLTHROT 0.0
+
+N RW36_02
+C POSITION 3782m 1m 1305m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.0MACH
+C CTLTHROT 0.0
+
+N RW36_03
+C POSITION 3802m 1m 1305m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.0MACH
+C CTLTHROT 0.0
+
+N RW36_04
+C POSITION 3772m 1m 1285m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.0MACH
+C CTLTHROT 0.0
+
+N RW36_05
+C POSITION 3782m 1m 1215m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.0MACH
+C CTLTHROT 0.0
+
+N RW36_06
+C POSITION 3802m 1m 1205m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.0MACH
+C CTLTHROT 0.0
+
+
+
+
+
+N NORTH10000_01
+C POSITION 0m 10000ft 2000m
+C ATTITUDE 180deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N NORTH10000_02
+C POSITION 200m 10000ft 2025m
+C ATTITUDE 180deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N NORTH10000_03
+C POSITION 400m 10000ft 2050m
+C ATTITUDE 180deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N NORTH10000_04
+C POSITION 600m 10000ft 2075m
+C ATTITUDE 180deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N NORTH10000_05
+C POSITION 800m 10000ft 2100m
+C ATTITUDE 180deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+
+N SOUTH10000_01
+C POSITION 0m 10000ft -2000m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N SOUTH10000_02
+C POSITION 200m 10000ft -2025m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N SOUTH10000_03
+C POSITION 400m 10000ft -2050m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N SOUTH10000_04
+C POSITION 600m 10000ft -2075m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+N SOUTH10000_05
+C POSITION 800m 10000ft -2100m
+C ATTITUDE 0deg 0deg 0deg
+C INITSPED 0.4MACH
+C CTLTHROT 0.8
+C CTLLDGEA FALSE
+
+)";
+
+struct StartInfo {
+	mn::Str name;
+	glm::vec3 position;
+	glm::vec3 attitude;
+	float speed;
+	float throttle;
+	bool landing_gear_is_out = true;
+};
+
+void start_info_free(StartInfo& self) {
+	mn::str_free(self.name);
+}
+
+void destruct(StartInfo& self) {
+	start_info_free(self);
+}
+
+mn::Buf<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
+	auto stp_file_content = mn::file_content_str(stp_file_abs_path, mn::memory::tmp());
+	mn::str_replace(stp_file_content, "\r\n", "\n");
+	auto s = stp_file_content;
+
+	auto start_infos = mn::buf_new<StartInfo>();
+
+	while (s.count > 0) {
+		StartInfo start_info {};
+
+		expect(s, "N ");
+		start_info.name = token_str(s);
+		expect(s, '\n');
+
+		while (accept(s, "C ")) {
+			if (accept(s, "POSITION ")) {
+				start_info.position.x = token_distance(s);
+				expect(s, ' ');
+				start_info.position.y = token_distance(s);
+				expect(s, ' ');
+				start_info.position.z = token_distance(s);
+				expect(s, '\n');
+			} else if (accept(s, "ATTITUDE ")) {
+				start_info.attitude.x = token_angle(s);
+				expect(s, ' ');
+				start_info.attitude.y = token_angle(s);
+				expect(s, ' ');
+				start_info.attitude.z = token_angle(s);
+				expect(s, '\n');
+			} else if (accept(s, "INITSPED ")) {
+				start_info.speed = token_float(s);
+				expect(s, "MACH\n");
+			} else if (accept(s, "CTLTHROT ")) {
+				start_info.throttle = token_float(s);
+				expect(s, '\n');
+				if (start_info.throttle > 1 || start_info.throttle < 0) {
+					mn::panic("throttle={} out of bounds [0,1]", start_info.throttle);
+				}
+			} else if (accept(s, "CTLLDGEA ")) {
+				start_info.landing_gear_is_out = token_bool(s);
+				expect(s, '\n');
+			} else {
+				mn::panic("{}: unrecognized type: {}", get_line_no(stp_file_content, s), token_str(s, mn::memory::tmp()));
+			}
+
+			while (accept(s, '\n')) {}
+		}
+
+		mn::buf_push(start_infos, start_info);
+	}
+
+	return start_infos;
+}
+
 int main() {
+	auto start_infos = start_info_from_stp_file(mn::str_lit("C:\\Users\\User\\dev\\JFS\\build\\Ysflight\\scenery\\small.stp"));
+	mn_defer(mn::destruct(start_infos));
+
+	return 0;
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
@@ -4606,12 +4825,8 @@ int main() {
 					}
 
 					ImGui::BulletText("Meshes: %d", (int)field.meshes.count);
-					// TODO: add meshes imgui here
 					for (auto& mesh : field.meshes) {
-						if (ImGui::TreeNode(mesh.name.ptr)) {
-
-							ImGui::TreePop();
-						}
+						ImGui::Text("%s", mesh.name.ptr);
 					}
 
 					ImGui::TreePop();
@@ -4723,7 +4938,7 @@ TODO:
 		- failed to tesselate
 	- what is DST in heathrow.fld pictures ?
 	- hot reload file?
-	- meshes imgui in field
+	- meshes imgui in field?
 - render water
 - refactor rendering
 	- primitives?
