@@ -4947,12 +4947,14 @@ TODO:
 - what do if REL DEP not in dnm?
 
 - Scenery files
+	- read GOB at end of fld
+	- add dnm GOBs to field
+	- add srf GOBs to field (turn it into dnm?)
 	- small.fld bugs:
 		- biggest pic doesn't render/(tesselat?) correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh sides colors
 	- read PST at end of fld
-	- read GOB at end of fld
 	- aomori.fld:
 		- what is BASEELV?
 		- what is MAGVAR?
