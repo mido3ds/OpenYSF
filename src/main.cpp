@@ -3536,6 +3536,9 @@ int main() {
 	}
 
 	// setup imgui
+	auto _imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "jfs-imgui.ini");
+	mn_defer(mn::str_free(_imgui_ini_file_path));
+
 	IMGUI_CHECKVERSION();
     if (ImGui::CreateContext() == nullptr) {
 		mn::panic("failed to create imgui context");
@@ -3551,10 +3554,8 @@ int main() {
 		mn::panic("failed to init imgui implementation for OpenGL3");
 	}
 	mn_defer(ImGui_ImplOpenGL3_Shutdown());
-	{
-		const auto imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "jfs-imgui.ini");
-		ImGui::GetIO().IniFilename = imgui_ini_file_path.ptr;
-	}
+
+	ImGui::GetIO().IniFilename = _imgui_ini_file_path.ptr;
 
 	const GLuint meshes_gpu_program = gpu_program_new(
 		// vertex shader
