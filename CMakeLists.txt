@@ -70,7 +70,7 @@ target_include_directories(_imgui PUBLIC extern/imgui-1.85)
 target_link_libraries(_imgui PRIVATE SDL2::SDL2)
 
 # open-ysf
-add_executable(open-ysf src/main.cpp)
+add_executable(open-ysf src/main.cpp src/parser.hpp)
 
 target_link_libraries(open-ysf
 	PRIVATE

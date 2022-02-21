@@ -29,6 +29,8 @@
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/gtc/type_ptr.hpp> // glm::value_ptr
 
+#include "parser.hpp"
+
 // YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
 constexpr float YS_MAX      = 0xFFFF;
 constexpr float RADIANS_MAX = 6.283185307179586f;
@@ -3498,6 +3500,7 @@ C CTLLDGEA FALSE
 )";
 
 int main() {
+	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
@@ -4945,7 +4948,10 @@ TODO:
 - what are GE and ZE in hurricane.dnm?
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
-
+- use new parser
+	- dnm
+	- fld
+	- stp
 - Scenery files
 	- read GOB at end of fld
 	- add dnm GOBs to field
@@ -4991,7 +4997,6 @@ TODO:
 	- rotate selected
 	- move internal DNMs to resources dir
 - tracking camera (copy from jet-simulator)
-- struct parser (track line no, file, peek)
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
