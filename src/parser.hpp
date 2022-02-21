@@ -219,17 +219,6 @@ mn::Str parser_token_str(Parser& self, mn::Allocator allocator = mn::allocator_t
 	return mn::str_from_substr(a, mn::begin(self.str)+self.pos, allocator);
 }
 
-bool parser_token_bool(Parser& self) {
-	const auto x = parser_token_str(self, mn::memory::tmp());
-	if (x == "TRUE") {
-		return true;
-	} else if (x == "FALSE") {
-		return false;
-	}
-	_parser_panic(self, mn::str_tmpf("expected either TRUE or FALSE, found='{}'", x));
-	return false;
-}
-
 void test_parser() {
 	Parser parser = parser_from_str(mn::str_lit("hello world \r\n m"), mn::memory::tmp());
 	auto orig = parser;
