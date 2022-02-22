@@ -2,10 +2,6 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
-#include <imgui.h>
-#include <backends/imgui_impl_sdl.h>
-#include <backends/imgui_impl_opengl3.h>
-
 // don't export min/max/near/far definitions with windows.h otherwise other includes might break
 #define NOMINMAX
 #include <portable-file-dialogs.h>
@@ -18,6 +14,7 @@
 #include <mn/Thread.h>
 #include <mn/Path.h>
 
+#include "imgui.hpp"
 #include "opengl.hpp"
 #include "parser.hpp"
 #include "math.hpp"
@@ -1106,43 +1103,6 @@ void camera_update(Camera& self, float delta_time) {
 	// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
 	self.view.right = glm::normalize(glm::cross(self.view.front, self.view.world_up));
 	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
-}
-
-namespace MyImGui {
-	template<typename T>
-	void EnumsCombo(const char* label, T* p_enum, const std::initializer_list<std::pair<T, const char*>>& enums) {
-		int var_i = -1;
-		const char* preview = "- Invalid Value -";
-		for (const auto& [type, type_str] : enums) {
-			var_i++;
-			if (type == *p_enum) {
-				preview = type_str;
-				break;
-			}
-		}
-
-		if (ImGui::BeginCombo(label, preview)) {
-			for (const auto& [type, type_str] : enums) {
-				if (ImGui::Selectable(type_str,  type == *p_enum)) {
-					*p_enum = type;
-				}
-			}
-
-			ImGui::EndCombo();
-		}
-	}
-
-	void SliderAngle(const char* label, float* radians, float angle_max) {
-		float angle = *radians / RADIANS_MAX * angle_max;
-		ImGui::DragFloat(label, &angle, 0.01f * angle_max, -angle_max, angle_max);
-		*radians = angle / angle_max * RADIANS_MAX;
-	}
-
-	void SliderAngle3(const char* label, glm::vec3* radians, float angle_max) {
-		glm::vec3 angle = *radians / RADIANS_MAX * angle_max;
-		ImGui::DragFloat3(label, glm::value_ptr(angle), 0.01f * angle_max, -angle_max, angle_max);
-		*radians = angle / angle_max * RADIANS_MAX;
-	}
 }
 
 GLuint gpu_program_new(const char* vertex_shader_src, const char* fragment_shader_src) {

@@ -75,6 +75,7 @@ add_executable(open-ysf
 	src/parser.hpp
 	src/math.hpp
 	src/opengl.hpp
+	src/imgui.hpp
 )
 
 target_link_libraries(open-ysf
