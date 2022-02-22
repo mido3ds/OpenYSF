@@ -382,24 +382,6 @@ namespace fmt {
 	};
 }
 
-size_t get_line_no(const mn::Str& str1, const mn::Str& str2) {
-	size_t all_lines = 0;
-	for (auto c : str1) {
-		if (c == '\n') {
-			all_lines++;
-		}
-	}
-
-	size_t partial_lines = 0;
-	for (auto c : str2) {
-		if (c == '\n') {
-			partial_lines++;
-		}
-	}
-
-	return all_lines - partial_lines + 1;
-}
-
 // SURF
 struct Mesh {
 	FieldID id;
@@ -574,17 +556,6 @@ namespace fmt {
 // overlapping on all axes means AABBs are intersecting
 bool aabbs_intersect(const AABB& a, const AABB& b) {
 	return glm::all(glm::greaterThanEqual(a.max, b.min)) && glm::all(glm::greaterThanEqual(b.max, a.min));
-}
-
-struct Box {
-	glm::vec3 translation, scale, color;
-};
-
-Box aabb_to_box(const AABB& aabb) {
-	return Box {
-		.translation = aabb.min,
-		.scale = aabb.max - aabb.min,
-	};
 }
 
 void test_aabbs_intersection() {
@@ -3553,6 +3524,7 @@ int main() {
 		}
 
 		// test intersection
+		struct Box { glm::vec3 translation, scale, color; };
 		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
 		for (int i = 0; i < NUM_MODELS-1; i++) {
 			if (models[i].current_state.visible == false) {
@@ -3578,16 +3550,22 @@ int main() {
 				}
 
 				if (models[j].render_aabb) {
-					auto box = aabb_to_box(models[j].current_aabb);
-					box.color = j_color;
-					mn::buf_push(box_instances, box);
+					auto aabb = models[j].current_aabb;
+					mn::buf_push(box_instances, Box {
+						.translation = aabb.min,
+						.scale = aabb.max - aabb.min,
+						.color = j_color,
+					});
 				}
 			}
 
 			if (models[i].render_aabb) {
-				auto box = aabb_to_box(models[i].current_aabb);
-				box.color = i_color;
-				mn::buf_push(box_instances, box);
+				auto aabb = models[i].current_aabb;
+				mn::buf_push(box_instances, Box {
+					.translation = aabb.min,
+					.scale = aabb.max - aabb.min,
+					.color = i_color,
+				});
 			}
 		}
 
