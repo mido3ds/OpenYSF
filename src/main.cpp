@@ -1615,8 +1615,6 @@ constexpr int  GL_CONTEXT_MAJOR = 3;
 constexpr int  GL_CONTEXT_MINOR = 3;
 constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 
-enum PROJECTION_KIND { PROJECTION_KIND_IDENTITY, PROJECTION_KIND_ORTHO, PROJECTION_KIND_PERSPECTIVE };
-
 struct Camera {
 	struct {
 		bool identity           = false;
@@ -1634,25 +1632,12 @@ struct Camera {
 	} view;
 
 	struct {
-		PROJECTION_KIND kind = PROJECTION_KIND_PERSPECTIVE;
-
-		struct {
-			float near   = 0.1f;
-			float far    = 1000.0f;
-			float left   = -1.0f;
-			float right  = +1.0f;
-			float bottom = -1.0f;
-			float top    = +1.0f;
-		} ortho; // orthographic
-
-		struct {
-			float near         = 0.1f;
-			float far          = 100000;
-			float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
-			float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
-			bool custom_aspect = false;
-		} pers; // perspective
-	} proj; // projection
+		float near         = 0.1f;
+		float far          = 100000;
+		float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
+		float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
+		bool custom_aspect = false;
+	} projection;
 };
 
 glm::mat4 camera_get_view_matrix(const Camera& self) {
@@ -1663,28 +1648,12 @@ glm::mat4 camera_get_view_matrix(const Camera& self) {
 }
 
 glm::mat4 camera_get_projection_matrix(const Camera& self) {
-	switch (self.proj.kind) {
-	case PROJECTION_KIND_IDENTITY:
-		return glm::identity<glm::mat4>();
-	case PROJECTION_KIND_ORTHO:
-		return glm::transpose(glm::ortho(
-			self.proj.ortho.left,
-			self.proj.ortho.right,
-			self.proj.ortho.bottom,
-			self.proj.ortho.top,
-			self.proj.ortho.near, self.proj.ortho.far
-		));
-	case PROJECTION_KIND_PERSPECTIVE: {
-		return glm::perspective(
-			self.proj.pers.fovy,
-			self.proj.pers.aspect,
-			self.proj.pers.near,
-			self.proj.pers.far
-		);
-	}
-	default: mn_unreachable();
-	}
-	return {};
+	return glm::perspective(
+		self.projection.fovy,
+		self.projection.aspect,
+		self.projection.near,
+		self.projection.far
+	);
 }
 
 auto clamp(auto x, auto lower_limit, auto upper_limit) {
@@ -3467,8 +3436,8 @@ int main() {
 
 			glViewport(0, 0, w, h);
 
-			if (!camera.proj.pers.custom_aspect) {
-				camera.proj.pers.aspect = (float) w / h;
+			if (!camera.projection.custom_aspect) {
+				camera.projection.aspect = (float) w / h;
 			}
 		}
 
@@ -3940,41 +3909,20 @@ int main() {
 
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
-					camera.proj = {};
+					camera.projection = {};
 					wnd_size_changed = true;
 				}
 
-				MyImGui::EnumsCombo("Type", &camera.proj.kind, {
-					{PROJECTION_KIND_IDENTITY,    "Identity"},
-					{PROJECTION_KIND_ORTHO,       "Ortho"},
-					{PROJECTION_KIND_PERSPECTIVE, "Perpective"},
-				});
+				ImGui::InputFloat("near", &camera.projection.near, 1, 10);
+				ImGui::InputFloat("far", &camera.projection.far, 1, 10);
+				ImGui::DragFloat("fovy (1/zoom)", &camera.projection.fovy, 1, 1, 45);
 
-				switch (camera.proj.kind) {
-				case PROJECTION_KIND_IDENTITY: break;
-				case PROJECTION_KIND_ORTHO:
-					ImGui::InputFloat("near", &camera.proj.ortho.near, 1, 10);
-					ImGui::InputFloat("far", &camera.proj.ortho.far, 1, 10);
-					ImGui::InputFloat("left", &camera.proj.ortho.left, 1, 10);
-					ImGui::InputFloat("right", &camera.proj.ortho.right, 1, 10);
-					ImGui::InputFloat("bottom", &camera.proj.ortho.bottom, 1, 10);
-					ImGui::InputFloat("top", &camera.proj.ortho.top, 1, 10);
-					break;
-				case PROJECTION_KIND_PERSPECTIVE:
-					ImGui::InputFloat("near", &camera.proj.pers.near, 1, 10);
-					ImGui::InputFloat("far", &camera.proj.pers.far, 1, 10);
-					ImGui::DragFloat("fovy (1/zoom)", &camera.proj.pers.fovy, 1, 1, 45);
-
-					if (ImGui::Checkbox("custom aspect", &camera.proj.pers.custom_aspect) && !camera.proj.pers.custom_aspect) {
-						wnd_size_changed = true;
-					}
-					ImGui::BeginDisabled(!camera.proj.pers.custom_aspect);
-						ImGui::InputFloat("aspect", &camera.proj.pers.aspect, 1, 10);
-					ImGui::EndDisabled();
-
-					break;
-				default: mn_unreachable();
+				if (ImGui::Checkbox("custom aspect", &camera.projection.custom_aspect) && !camera.projection.custom_aspect) {
+					wnd_size_changed = true;
 				}
+				ImGui::BeginDisabled(!camera.projection.custom_aspect);
+					ImGui::InputFloat("aspect", &camera.projection.aspect, 1, 10);
+				ImGui::EndDisabled();
 
 				ImGui::TreePop();
 			}
