@@ -15,7 +15,7 @@
 #include <mn/Path.h>
 
 #include "imgui.hpp"
-#include "opengl.hpp"
+#include "gpu.hpp"
 #include "parser.hpp"
 #include "math.hpp"
 
@@ -341,7 +341,7 @@ void mesh_load_to_gpu(Mesh& self) {
 		offset += sizeof(Stride::normal);
 	glBindVertexArray(0);
 
-	myglCheckError();
+	gpu_check_errors();
 }
 
 void mesh_unload_from_gpu(Mesh& self) {
@@ -1105,52 +1105,6 @@ void camera_update(Camera& self, float delta_time) {
 	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
 }
 
-GLuint gpu_program_new(const char* vertex_shader_src, const char* fragment_shader_src) {
-	// vertex shader
-    const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
-    glCompileShader(vertex_shader);
-
-    GLint vertex_shader_success;
-    glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &vertex_shader_success);
-    if (!vertex_shader_success) {
-    	char info_log[512];
-        glGetShaderInfoLog(vertex_shader, 512, NULL, info_log);
-        mn::panic("failed to compile vertex shader, err: {}", info_log);
-    }
-
-    // fragment shader
-    const GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragment_shader, 1, &fragment_shader_src, NULL);
-    glCompileShader(fragment_shader);
-
-	GLint fragment_shader_success;
-    glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &fragment_shader_success);
-    if (!fragment_shader_success) {
-    	char info_log[512];
-        glGetShaderInfoLog(fragment_shader, 512, NULL, info_log);
-        mn::panic("failed to compile fragment shader, err: {}", info_log);
-    }
-
-    // link shaders
-    const GLuint gpu_program = glCreateProgram();
-    glAttachShader(gpu_program, vertex_shader);
-    glAttachShader(gpu_program, fragment_shader);
-    glLinkProgram(gpu_program);
-
-	GLint shader_program_success;
-    glGetProgramiv(gpu_program, GL_LINK_STATUS, &shader_program_success);
-    if (!shader_program_success) {
-    	char info_log[512];
-        glGetProgramInfoLog(gpu_program, 512, NULL, info_log);
-        mn::panic("failed to link vertex and fragment shaders, err: {}", info_log);
-    }
-    glDeleteShader(vertex_shader);
-    glDeleteShader(fragment_shader);
-
-	return gpu_program;
-}
-
 struct Block {
 	enum { RIGHT=0, LEFT } orientation;
 	glm::vec4 faces_color[2];
@@ -1299,7 +1253,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		offset += sizeof(Stride::color);
 	glBindVertexArray(0);
 
-	myglCheckError();
+	gpu_check_errors();
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
@@ -1423,7 +1377,7 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 		);
 	glBindVertexArray(0);
 
-	myglCheckError();
+	gpu_check_errors();
 }
 
 void prmitive2d_unload_from_gpu(Primitive2D& self) {
@@ -2256,7 +2210,7 @@ int main() {
 
 	ImGui::GetIO().IniFilename = _imgui_ini_file_path.ptr;
 
-	const GLuint meshes_gpu_program = gpu_program_new(
+	auto meshes_gpu_program = gpu_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2306,7 +2260,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(glDeleteProgram(meshes_gpu_program));
+	mn_defer(gpu_program_free(meshes_gpu_program));
 
 	// models
 	constexpr int NUM_MODELS = 2;
@@ -2410,8 +2364,8 @@ int main() {
 		GLenum culling_front_face_type = GL_CCW;
 	} rendering {};
 
-	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = myglGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
-	const GLfloat POINT_SIZE_GRANULARITY        = myglGetFloat(GL_POINT_SIZE_GRANULARITY);
+	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = gpu_get_float(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
+	const GLfloat POINT_SIZE_GRANULARITY        = gpu_get_float(GL_POINT_SIZE_GRANULARITY);
 
 	float imgui_angle_max = DEGREES_MAX;
 
@@ -2474,10 +2428,10 @@ int main() {
 			offset += sizeof(Stride::color);
 		glBindVertexArray(0);
 
-		myglCheckError();
+		gpu_check_errors();
 	}
 
-	const GLuint lines_gpu_program = gpu_program_new(
+	auto lines_gpu_program = gpu_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2498,7 +2452,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(glDeleteProgram(lines_gpu_program));
+	mn_defer(gpu_program_free(lines_gpu_program));
 
 	struct {
 		GLuint vao, vbo;
@@ -2564,10 +2518,10 @@ int main() {
 			);
 		glBindVertexArray(0);
 
-		myglCheckError();
+		gpu_check_errors();
 	}
 
-	const GLuint primitives2d_gpu_program = gpu_program_new(
+	auto primitives2d_gpu_program = gpu_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2614,7 +2568,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(glDeleteProgram(primitives2d_gpu_program));
+	mn_defer(gpu_program_free(primitives2d_gpu_program));
 
 	struct {
 		bool enabled = true;
@@ -2828,9 +2782,9 @@ int main() {
 			glDisable(GL_CULL_FACE);
 		}
 
-		glUseProgram(meshes_gpu_program);
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
+		glUseProgram(meshes_gpu_program.handle);
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program.handle, "view"), 1, rendering.transpose_view, glm::value_ptr(camera_get_view_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program.handle, "projection"), 1, rendering.transpose_projection, glm::value_ptr(camera_get_projection_matrix(camera)));
 
 		// render 2d pictures
 		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
@@ -2855,7 +2809,7 @@ int main() {
 				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
 			}
 
-			glUseProgram(primitives2d_gpu_program);
+			glUseProgram(primitives2d_gpu_program.handle);
 			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
 			for (auto& picture : field_to_render->pictures) {
 				if (picture.current_state.visible == false) {
@@ -2870,15 +2824,15 @@ int main() {
 				model_transformation = glm::scale(model_transformation, picture.current_state.scale);
 
 				const auto projection_view_model = projection_view * model_transformation;
-				glUniformMatrix4fv(glGetUniformLocation(primitives2d_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
+				glUniformMatrix4fv(glGetUniformLocation(primitives2d_gpu_program.handle, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
 
 				for (auto& primitive : picture.primitives) {
-					glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color"), 1, glm::value_ptr(primitive.color));
+					glUniform3fv(glGetUniformLocation(primitives2d_gpu_program.handle, "primitive_color"), 1, glm::value_ptr(primitive.color));
 
 					const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
-					glUniform1i(glGetUniformLocation(primitives2d_gpu_program, "gradation_enabled"), (GLint) gradation_enabled);
+					glUniform1i(glGetUniformLocation(primitives2d_gpu_program.handle, "gradation_enabled"), (GLint) gradation_enabled);
 					if (gradation_enabled) {
-						glUniform3fv(glGetUniformLocation(primitives2d_gpu_program, "primitive_color2"), 1, glm::value_ptr(primitive.color2));
+						glUniform3fv(glGetUniformLocation(primitives2d_gpu_program.handle, "primitive_color2"), 1, glm::value_ptr(primitive.color2));
 					}
 
 					glBindVertexArray(primitive.gpu.vao);
@@ -2890,7 +2844,7 @@ int main() {
 
 		// render terrains and meshes in field
 		mn::buf_push(fields_to_render, &field);
-		glUseProgram(meshes_gpu_program);
+		glUseProgram(meshes_gpu_program.handle);
 		while (fields_to_render.count > 0) {
 			Field* field_to_render = mn::buf_top(fields_to_render);
 			mn::buf_pop(fields_to_render);
@@ -2904,7 +2858,7 @@ int main() {
 			}
 
 			// render terrains
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
+			glUniform1i(glGetUniformLocation(meshes_gpu_program.handle, "is_light_source"), (GLint) false);
 			for (auto& terr_mesh : field_to_render->terr_meshes) {
 				if (terr_mesh.current_state.visible == false) {
 					continue;
@@ -2916,20 +2870,20 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 				model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program.handle, "model"), 1, rendering.transpose_model, glm::value_ptr(model_transformation));
 
-				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
+				glUniform1i(glGetUniformLocation(meshes_gpu_program.handle, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
 				if (terr_mesh.gradiant.enabled) {
-					glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_y"), terr_mesh.gradiant.bottom_y);
-					glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_top_y"), terr_mesh.gradiant.top_y);
-					glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_color"), 1, glm::value_ptr(terr_mesh.gradiant.bottom_color));
-					glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_top_color"), 1, glm::value_ptr(terr_mesh.gradiant.top_color));
+					glUniform1f(glGetUniformLocation(meshes_gpu_program.handle, "gradient_bottom_y"), terr_mesh.gradiant.bottom_y);
+					glUniform1f(glGetUniformLocation(meshes_gpu_program.handle, "gradient_top_y"), terr_mesh.gradiant.top_y);
+					glUniform3fv(glGetUniformLocation(meshes_gpu_program.handle, "gradient_bottom_color"), 1, glm::value_ptr(terr_mesh.gradiant.bottom_color));
+					glUniform3fv(glGetUniformLocation(meshes_gpu_program.handle, "gradient_top_color"), 1, glm::value_ptr(terr_mesh.gradiant.top_color));
 				}
 
 				glBindVertexArray(terr_mesh.gpu.vao);
 				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
+			glUniform1i(glGetUniformLocation(meshes_gpu_program.handle, "gradient_enabled"), (GLint) false);
 
 			// meshes
 			for (auto& mesh : field_to_render->meshes) {
@@ -2953,9 +2907,9 @@ int main() {
 				}
 
 				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh.transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program.handle, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh.transformation));
 
-				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
+				glUniform1i(glGetUniformLocation(meshes_gpu_program.handle, "is_light_source"), (GLint) mesh.is_light_source);
 
 				glBindVertexArray(mesh.gpu.vao);
 				glDrawArrays(mesh.is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh.gpu.array_count);
@@ -3082,9 +3036,9 @@ int main() {
 						}
 
 						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
+						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program.handle, "model"), 1, rendering.transpose_model, glm::value_ptr(mesh->transformation));
 
-						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
+						glUniform1i(glGetUniformLocation(meshes_gpu_program.handle, "is_light_source"), (GLint) mesh->is_light_source);
 
 						glBindVertexArray(mesh->gpu.vao);
 						glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
@@ -3110,17 +3064,17 @@ int main() {
 			}
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(axis_rendering.line_width);
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
+			glUniform1i(glGetUniformLocation(meshes_gpu_program.handle, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program.handle, "model"), 1, rendering.transpose_model, glm::value_ptr(transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 		}
 
 		// render boxes
 		if (box_instances.count > 0) {
-			glUseProgram(lines_gpu_program);
+			glUseProgram(lines_gpu_program.handle);
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(box_rendering.line_width);
 			glBindVertexArray(box_rendering.vao);
@@ -3131,9 +3085,9 @@ int main() {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
 				const auto projection_view_model = projection_view * transformation;
-				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
+				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program.handle, "model_view_projection"), 1, rendering.transpose_model, glm::value_ptr(projection_view_model));
 
-				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
+				glUniform3fv(glGetUniformLocation(lines_gpu_program.handle, "color"), 1, glm::value_ptr(box.color));
 
 				glDrawArrays(GL_LINE_LOOP, 0, box_rendering.points_count);
 			}
@@ -3614,7 +3568,7 @@ int main() {
 
 		SDL_GL_SwapWindow(sdl_window);
 
-		myglCheckError();
+		gpu_check_errors();
 	}
 
 	return 0;

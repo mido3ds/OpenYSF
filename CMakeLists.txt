@@ -74,7 +74,7 @@ add_executable(open-ysf
 	src/main.cpp
 	src/parser.hpp
 	src/math.hpp
-	src/opengl.hpp
+	src/gpu.hpp
 	src/imgui.hpp
 )
 
