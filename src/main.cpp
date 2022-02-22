@@ -2379,7 +2379,6 @@ Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, ' ');
 	field.ground_color.b = parser_token_u8(parser) / 255.0f;
 	parser_expect(parser, '\n');
-	// mn::log_debug("field.ground_color={}", field.ground_color);
 
 	parser_expect(parser, "SKY ");
 	field.sky_color.r = parser_token_u8(parser) / 255.0f;
@@ -2388,7 +2387,6 @@ Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, ' ');
 	field.sky_color.b = parser_token_u8(parser) / 255.0f;
 	parser_expect(parser, '\n');
-	// mn::log_debug("field.sky_color={}", field.sky_color);
 
 	if (parser_accept(parser, "GNDSPECULAR ")) {
 		field.ground_specular = _token_bool(parser);
@@ -2408,8 +2406,6 @@ Field _field_from_fld_str(Parser& parser) {
 		} else {
 			parser_panic(parser, "unrecognized area '{}'", default_area_str);
 		}
-		// mn::log_debug("default_area_str={}", default_area_str);
-		// mn::log_debug("field.default_area={}", field.default_area);
 	}
 
 	if (parser_accept(parser, "BASEELV ")) {
@@ -2439,11 +2435,9 @@ Field _field_from_fld_str(Parser& parser) {
 		auto name = parser_token_str(parser);
 		mn::str_trim(name, "\"");
 		parser_expect(parser, ' ');
-		// mn::log_debug("name={}", name);
 
 		const auto total_lines_count = parser_token_u64(parser);
 		parser_expect(parser, '\n');
-		// mn::log_debug("total_lines_count={}", total_lines_count);
 
 		const size_t first_line_no = parser.curr_line+1;
 		if (parser_peek(parser, "FIELD\n")) {
@@ -2479,7 +2473,6 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, ' ');
 			terr_mesh.initial_state.scale.z = parser_token_float(parser); //* 10.0f;
 			parser_expect(parser, '\n');
-			// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
 
 			terr_mesh.current_state = terr_mesh.initial_state;
 
@@ -2505,11 +2498,6 @@ Field _field_from_fld_str(Parser& parser) {
 				terr_mesh.gradiant.bottom_color.b = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, '\n');
 			}
-			// if (terr_mesh.gradiant.enabled) {
-			// 	mn::log_debug("gradiant: bottom_y={}, top_y={}, bottom_color={}, top_color={}", terr_mesh.gradiant.bottom_y, terr_mesh.gradiant.top_y, terr_mesh.gradiant.bottom_color, terr_mesh.gradiant.top_color);
-			// } else {
-			// 	mn::log_debug("gradiant not enabled");
-			// }
 
 			// NOTE: assumed order in file
 			for (auto [side_str, side] : {
@@ -2527,8 +2515,6 @@ Field _field_from_fld_str(Parser& parser) {
 					side->b = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, '\n');
 				}
-
-				// mn::log_debug("{}: {} and color={}", side_str, side->enabled, side->color);
 			}
 
 			// create blocks
@@ -2601,7 +2587,6 @@ Field _field_from_fld_str(Parser& parser) {
 					parser_expect(parser, '\n');
 				}
 			}
-			// mn::log_debug("{}", terr_mesh.nodes_height);
 
 			parser_expect(parser, "END\n");
 
@@ -2639,7 +2624,6 @@ Field _field_from_fld_str(Parser& parser) {
 					parser_skip_after(parser, "ENDO\n");
 					continue;
 				}
-				// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
 
 				if (parser_accept(parser, "DST ")) {
 					// TODO
@@ -2654,7 +2638,6 @@ Field _field_from_fld_str(Parser& parser) {
 				parser_expect(parser, ' ');
 				permitive.color.b = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, '\n');
-				// mn::log_debug("color={}", permitive.color);
 
 				if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
 					parser_expect(parser, "CL2 ");
@@ -2664,7 +2647,6 @@ Field _field_from_fld_str(Parser& parser) {
 					parser_expect(parser, ' ');
 					permitive.color2.b = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, '\n');
-					// mn::log_debug("color2={}", permitive.color2);
 				}
 
 				while (parser_accept(parser, "ENDO\n") == false) {
@@ -2691,10 +2673,8 @@ Field _field_from_fld_str(Parser& parser) {
 					vertex.y = parser_token_float(parser);
 					parser_expect(parser, '\n');
 
-					// mn::log_debug("ver: (x={}, y={})", x, y);
 					mn::buf_push(permitive.vertices, vertex);
 				}
-				// mn::log_debug("vertices={}", permitive.vertices);
 
 				if (permitive.vertices.count == 0) {
 					parser_panic(parser, "{}: no vertices", parser.curr_line+1);
@@ -2711,10 +2691,8 @@ Field _field_from_fld_str(Parser& parser) {
 					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, permitive.vertices.count);
 				}
 
-				// mn::log_debug("{}", permitive);
 				mn::buf_push(picture.primitives, permitive);
 			}
-			// mn::log_debug("{}", picture.primitives);
 
 			mn::buf_push(field.pictures, picture);
 		} else if (parser_peek(parser, "Surf\n")) {
@@ -2745,7 +2723,6 @@ Field _field_from_fld_str(Parser& parser) {
 			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
 			parser_expect(parser, '\n');
-			// mn::log_debug("name={}", name);
 
 			Field* subfield = nullptr;
 			for (auto& sf : field.subfields) {
@@ -2776,14 +2753,12 @@ Field _field_from_fld_str(Parser& parser) {
 
 			parser_expect(parser, "ID ");
 			subfield->id = (FieldID) parser_token_u8(parser);
-			// mn::log_debug("id={}", subfield->id);
 			parser_expect(parser, "\nEND\n");
 		} else if (parser_accept(parser, "TER\n")) {
 			parser_expect(parser, "FIL ");
 			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
 			parser_expect(parser, '\n');
-			// mn::log_debug("name={}", name);
 
 			TerrMesh* terr_mesh = nullptr;
 			for (auto& terr : field.terr_meshes) {
@@ -2815,7 +2790,6 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, "ID ");
 			terr_mesh->id = (FieldID) parser_token_u8(parser);
 			parser_expect(parser, '\n');
-			// mn::log_debug("id={}", terr_mesh->id);
 
 			if (parser_accept(parser, "TAG ")) {
 				terr_mesh->tag = parser_token_str(parser);
@@ -2829,7 +2803,6 @@ Field _field_from_fld_str(Parser& parser) {
 			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
 			parser_expect(parser, '\n');
-			// mn::log_debug("name={}", name);
 
 			Picture2D* picture = nullptr;
 			for (auto& pict : field.pictures) {
@@ -2860,7 +2833,6 @@ Field _field_from_fld_str(Parser& parser) {
 
 			parser_expect(parser, "ID ");
 			picture->id = (FieldID) parser_token_u8(parser);
-			// mn::log_debug("id={}", picture->id);
 			parser_expect(parser, "\nEND\n");
 		} else if (parser_accept(parser, "RGN\n")) {
 			FieldRegion region {};
@@ -2916,7 +2888,6 @@ Field _field_from_fld_str(Parser& parser) {
 
 			parser_expect(parser, "END\n");
 
-			// mn::log_debug("region={}", region);
 			mn::buf_push(field.regions, region);
 		} else if (parser_accept(parser, "PST\n")) {
 			// TODO
@@ -2935,7 +2906,6 @@ Field _field_from_fld_str(Parser& parser) {
 			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
 			parser_expect(parser, '\n');
-			// mn::log_debug("name={}", name);
 
 			Mesh* mesh = nullptr;
 			for (auto& m : field.meshes) {
@@ -2968,7 +2938,6 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, "ID ");
 			mesh->id = (FieldID) parser_token_u8(parser);
 			parser_expect(parser, '\n');
-			// mn::log_debug("id={}", mesh->id);
 
 			parser_expect(parser, "END\n");
 		} else if (parser_accept(parser, '\n')) {
@@ -2977,7 +2946,6 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_panic(parser, "{}: found invalid type = '{}'", parser.curr_line+1, parser_token_str(parser, mn::memory::tmp()));
 		}
 	}
-	// mn::log_debug("done");
 
 	return field;
 }
