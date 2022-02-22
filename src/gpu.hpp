@@ -32,7 +32,7 @@ GLfloat gpu_get_float(GLenum e) {
 	return out;
 }
 
-struct GPU_Program { GLuint handle; };
+using GPU_Program = GLuint;
 
 GPU_Program gpu_program_new(const char* vertex_shader_src, const char* fragment_shader_src) {
 	// vertex shader
@@ -77,12 +77,12 @@ GPU_Program gpu_program_new(const char* vertex_shader_src, const char* fragment_
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
 
-	return GPU_Program { .handle=gpu_program, };
+	return gpu_program;
 }
 
 void gpu_program_free(GPU_Program& self) {
-	glDeleteProgram(self.handle);
-	self.handle = 0;
+	glDeleteProgram(self);
+	self = 0;
 }
 
 void destruct(GPU_Program& self) {
