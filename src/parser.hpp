@@ -222,6 +222,26 @@ bool parser_finished(Parser& self) {
 	return self.pos >= self.str.count;
 }
 
+Parser parser_fork(Parser& self, size_t lines) {
+	auto other = self;
+
+	size_t i = other.pos;
+	size_t lines_in_other = 0;
+	for (;i < other.str.count && lines_in_other < lines; i++) {
+		if (self.str[i] == '\n') {
+			lines_in_other++;
+		}
+	}
+	if (lines_in_other != lines) {
+		parser_panic(self, "failed to fork parser, can't find {} lines in str", lines);
+	}
+
+	other.str.count = other.str.cap = i+1;
+	self.pos = i;
+
+	return other;
+}
+
 void test_parser() {
 	Parser parser = parser_from_str(mn::str_lit("hello world \r\n m"), mn::memory::tmp());
 	auto orig = parser;

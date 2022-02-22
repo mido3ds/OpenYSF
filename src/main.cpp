@@ -1288,28 +1288,29 @@ void test_polygons_to_triangles() {
 	mn::log_debug("test_polygons_to_triangles: all passed");
 }
 
-Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::Str& name, size_t dnm_version = 1) {
+Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version = 1) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
-	if ((accept(s, "SURF\n") || accept(s, "Surf\n")) == false) {
-		mn::panic("'{}':{} failed to find SURF/Surf for start of mesh, '{}'", name, get_line_no(srf_file_content, s), smaller_str(s));
+	if (parser_accept(parser, "SURF\n") == false) {
+		parser_expect(parser, "Surf\n");
 	}
+
 	Mesh mesh { .name=mn::str_clone(name) };
 
 	// V {x} {y} {z}[ R]\n
-	while (accept(s, "V ")) {
+	while (parser_accept(parser, "V ")) {
 		glm::vec3 v {};
 
-		v.x = token_float(s);
-		expect(s, ' ');
-		v.y = -token_float(s);
-		expect(s, ' ');
-		v.z = token_float(s);
-		bool smooth_shading = accept(s, " R");
+		v.x = parser_token_float(parser);
+		parser_expect(parser, ' ');
+		v.y = -parser_token_float(parser);
+		parser_expect(parser, ' ');
+		v.z = parser_token_float(parser);
+		bool smooth_shading = parser_accept(parser, " R");
 
 		// aircraft/cessna172r.dnm has spaces after end if V
-		while (accept(s, " ")) {}
+		while (parser_accept(parser, " ")) {}
 
-		expect(s, '\n');
+		parser_expect(parser, '\n');
 
 		mn::buf_push(mesh.vertices, v);
 		mn::buf_push(mesh.vertices_has_smooth_shading, smooth_shading);
@@ -1320,33 +1321,33 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 
 	// <Face>+
 	auto faces_unshaded_light_source = mn::buf_with_allocator<bool>(mn::memory::tmp());
-	while (accept(s, "F\n")) {
+	while (parser_accept(parser, "F\n")) {
 		Face face {};
 		bool parsed_color = false,
 			parsed_normal = false,
 			parsed_vertices = false,
 			is_light_source = false;
 
-		while (!accept(s, "E\n")) {
-			if (accept(s, "C ")) {
+		while (!parser_accept(parser, "E\n")) {
+			if (parser_accept(parser, "C ")) {
 				if (parsed_color) {
 					mn::panic("'{}': found more than one color", name);
 				}
 				parsed_color = true;
 				face.color.a = 1.0f;
 
-				const uint32_t num = token_u32(s);
+				const auto num = parser_token_u64(parser);
 
-				if (accept(s, ' ')) {
+				if (parser_accept(parser, ' ')) {
 					face.color.r = num / 255.0f;
-					face.color.g = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					face.color.b = token_u8(s) / 255.0f;
+					face.color.g = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					face.color.b = parser_token_u8(parser) / 255.0f;
 
 					// aircraft/cessna172r.dnm allows alpha value in color
 					// otherwise, maybe overwritten in ZA line
-					if (accept(s, ' ')) {
-						face.color.a = token_u8(s) / 255.0f;
+					if (parser_accept(parser, ' ')) {
+						face.color.a = parser_token_u8(parser) / 255.0f;
 					}
 				} else {
 					union {
@@ -1362,37 +1363,37 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 					mn_assert(packed_color.as_struct.padding == 0);
 				}
 
-				expect(s, '\n');
-			} else if (accept(s, "N ")) {
+				parser_expect(parser, '\n');
+			} else if (parser_accept(parser, "N ")) {
 				if (parsed_normal) {
 					mn::panic("'{}': found more than one normal", name);
 				}
 				parsed_normal = true;
 
-				face.center.x = token_float(s);
-				expect(s, ' ');
-				face.center.y = token_float(s);
-				expect(s, ' ');
-				face.center.z = token_float(s);
-				expect(s, ' ');
+				face.center.x = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				face.center.y = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				face.center.z = parser_token_float(parser);
+				parser_expect(parser, ' ');
 
-				face.normal.x = token_float(s);
-				expect(s, ' ');
-				face.normal.y = token_float(s);
-				expect(s, ' ');
-				face.normal.z = token_float(s);
-				expect(s, '\n');
-			} else if (accept(s, 'V')) {
+				face.normal.x = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				face.normal.y = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				face.normal.z = parser_token_float(parser);
+				parser_expect(parser, '\n');
+			} else if (parser_accept(parser, 'V')) {
 				// V {x}...
 				auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
-				while (accept(s, ' ')) {
-					uint32_t id = token_u32(s);
+				while (parser_accept(parser, ' ')) {
+					auto id = parser_token_u64(parser);
 					if (id >= mesh.vertices.count) {
 						mn::panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.count);
 					}
 					mn::buf_push(polygon_vertices_ids, (uint32_t) id);
 				}
-				expect(s, '\n');
+				parser_expect(parser, '\n');
 
 				if (parsed_vertices) {
 					mn::log_error("'{}': found more than one vertices line, ignore others", name);
@@ -1400,7 +1401,7 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 					parsed_vertices = true;
 
 					if (polygon_vertices_ids.count < 3) {
-						mn::log_error("'{}': face has count of ids={}, it should be >= 3, {}", name, polygon_vertices_ids.count, smaller_str(s));
+						mn::log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.count);
 					}
 
 					face.vertices_ids = polygons_to_triangles(mesh.vertices, polygon_vertices_ids, face.center);
@@ -1413,17 +1414,17 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 						for (auto id : face.vertices_ids) {
 							mn::buf_push(new_vertices, mesh.vertices[id]);
 						}
-						mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, get_line_no(srf_file_content, s),
+						mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, parser.curr_line+1,
 							face.vertices_ids.count, orig_vertices, new_vertices);
 					}
 				}
-			} else if (accept(s, "B\n")) {
+			} else if (parser_accept(parser, "B\n")) {
 				if (is_light_source) {
 					mn::log_error("'{}': found more than 1 B for same face", name);
 				}
 				is_light_source = true;
 			} else {
-				mn::panic("'{}': unexpected line, '{}'", name, smaller_str(s));
+				parser_panic(parser, "'{}': unexpected line", name);
 			}
 		}
 
@@ -1444,32 +1445,32 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 	size_t zl_count = 0;
 	size_t zz_count = 0;
 	while (true) {
-		if (accept(s, '\n')) {
+		if (parser_accept(parser, '\n')) {
 			// nothing
-		} else if (accept(s, "GE") || accept(s, "ZE") || accept(s, "GL")) {
-			skip_after(s, '\n');
-		} else if (accept(s, "GF")) { // [GF< {u64}>+\n]+
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
+		} else if (parser_accept(parser, "GE") || parser_accept(parser, "ZE") || parser_accept(parser, "GL")) {
+			parser_skip_after(parser, '\n');
+		} else if (parser_accept(parser, "GF")) { // [GF< {u64}>+\n]+
+			while (parser_accept(parser, ' ')) {
+				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.count) {
 					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
 				}
 				mn::buf_push(mesh.gfs, id);
 			}
-			expect(s, '\n');
-		} else if (accept(s, "ZA")) { // [ZA< {u64} {u8}>+\n]+
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
+			parser_expect(parser, '\n');
+		} else if (parser_accept(parser, "ZA")) { // [ZA< {u64} {u8}>+\n]+
+			while (parser_accept(parser, ' ')) {
+				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.count) {
 					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
 				}
-				expect(s, ' ');
-				mesh.faces[id].color.a = (255 - token_u8(s)) / 255.0f;
+				parser_expect(parser, ' ');
+				mesh.faces[id].color.a = (255 - parser_token_u8(parser)) / 255.0f;
 				// because alpha came as: 0 -> obaque, 255 -> clear
 				// we revert it so it becomes: 1 -> obaque, 0 -> clear
 			}
-			expect(s, '\n');
-		} else if (accept(s, "ZL")) { // [ZL< {u64}>+\n]
+			parser_expect(parser, '\n');
+		} else if (parser_accept(parser, "ZL")) { // [ZL< {u64}>+\n]
 			zl_count++;
 			if (dnm_version == 1) {
 				if (zl_count > 1) {
@@ -1477,28 +1478,28 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 				}
 			}
 
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
+			while (parser_accept(parser, ' ')) {
+				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.count) {
 					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
 				}
 				mn::buf_push(mesh.zls, id);
 			}
-			expect(s, '\n');
-		} else if  (accept(s, "ZZ")) { // [ZZ< {u64}>+\n]
+			parser_expect(parser, '\n');
+		} else if  (parser_accept(parser, "ZZ")) { // [ZZ< {u64}>+\n]
 			zz_count++;
 			if (zz_count > 1) {
 				mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
 			}
 
-			while (accept(s, ' ')) {
-				auto id = token_u64(s);
+			while (parser_accept(parser, ' ')) {
+				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.count) {
 					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
 				}
 				mn::buf_push(mesh.zzs, id);
 			}
-			expect(s, '\n');
+			parser_expect(parser, '\n');
 		} else {
 			break;
 		}
@@ -1516,64 +1517,48 @@ Mesh mesh_from_srf_str(mn::Str& s, const mn::Str& srf_file_content, const mn::St
 }
 
 Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
-	const auto dnm_file_content = mn::file_content_str(dnm_file_abs_path, mn::memory::tmp());
-	auto s = mn::str_clone(dnm_file_content, mn::memory::tmp());
-	mn::str_replace(s, "\r\n", "\n");
+	auto parser = parser_from_file(dnm_file_abs_path, mn::memory::tmp());
 
-	expect(s, "DYNAMODEL\nDNMVER ");
-	const uint8_t dnm_version = token_u8(s);
+	parser_expect(parser, "DYNAMODEL\nDNMVER ");
+	const uint8_t dnm_version = parser_token_u8(parser);
 	if (dnm_version > 2) {
 		mn::panic("unsupported version {}", dnm_version);
 	}
-	expect(s, '\n');
+	parser_expect(parser, '\n');
 
 	auto meshes = mn::map_new<mn::Str, Mesh>();
-	while (accept(s, "PCK ")) {
-		auto name = token_str(s, mn::memory::tmp());
-		expect(s, ' ');
-		const auto pck_expected_linenos = token_u64(s);
-		expect(s, '\n');
+	while (parser_accept(parser, "PCK ")) {
+		auto name = parser_token_str(parser, mn::memory::tmp());
+		parser_expect(parser, ' ');
+		const auto pck_expected_no_lines = parser_token_u64(parser);
+		parser_expect(parser, '\n');
 
-		const auto pck_first_lineno = get_line_no(dnm_file_content, s);
+		const auto pck_first_lineno = parser.curr_line;
 
-		mn::Str s2 = s;
-		for (size_t i = 0, lines = 0; i < s.count; i++) {
-			if (lines == pck_expected_linenos) {
-				s2.count = i;
+		auto subparser = parser_fork(parser, pck_expected_no_lines);
+		const auto mesh = mesh_from_srf_str(subparser, name);
+		while (parser_accept(parser, "\n")) {}
 
-				s.ptr   += s2.count;
-				s.cap   -= s2.count;
-				s.count -= s2.count;
-
-				break;
-			}
-			if (s[i] == '\n') {
-				lines++;
-			}
-		}
-		const auto mesh = mesh_from_srf_str(s2, dnm_file_content, name);
-		while (accept(s, "\n")) {}
-
-		const auto current_lineno = get_line_no(dnm_file_content, s);
+		const auto current_lineno = parser.curr_line;
 		const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
-		if (pck_found_linenos != pck_expected_linenos) {
-			mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_linenos, pck_found_linenos);
+		if (pck_found_linenos != pck_expected_no_lines) {
+			mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
 		}
 
 		mn::map_insert(meshes, name, mesh);
 	}
 
-	while (accept(s, "SRF ")) {
-		auto name = token_str(s);
+	while (parser_accept(parser, "SRF ")) {
+		auto name = parser_token_str(parser);
 		if (!(mn::str_prefix(name, "\"") && mn::str_suffix(name, "\""))) {
 			mn::panic("name must be in \"\" found={}", name);
 		}
 		mn::str_trim(name, "\"");
-		expect(s, '\n');
+		parser_expect(parser, '\n');
 
-		expect(s, "FIL ");
-		auto fil = token_str(s, mn::memory::tmp());
-		expect(s, '\n');
+		parser_expect(parser, "FIL ");
+		auto fil = parser_token_str(parser, mn::memory::tmp());
+		parser_expect(parser, '\n');
 		auto surf = mn::map_lookup(meshes, fil);
 		if (!surf) {
 			mn::panic("'{}': line referenced undeclared surf={}", name, fil);
@@ -1581,109 +1566,109 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		mn::str_free(surf->value.name);
 		surf->value.name = name;
 
-		expect(s, "CLA ");
-		auto animation_type = token_u8(s);
+		parser_expect(parser, "CLA ");
+		auto animation_type = parser_token_u8(parser);
 		surf->value.animation_type = (AnimationClass) animation_type;
-		expect(s, '\n');
+		parser_expect(parser, '\n');
 
-		expect(s, "NST ");
-		auto num_stas = token_u64(s);
+		parser_expect(parser, "NST ");
+		auto num_stas = parser_token_u64(parser);
 		mn::buf_reserve(surf->value.animation_states, num_stas);
-		expect(s, '\n');
+		parser_expect(parser, '\n');
 
 		for (size_t i = 0; i < num_stas; i++) {
-			expect(s, "STA ");
+			parser_expect(parser, "STA ");
 
 			MeshState sta {};
-			sta.translation.x = token_float(s);
-			expect(s, ' ');
-			sta.translation.y = -token_float(s);
-			expect(s, ' ');
-			sta.translation.z = token_float(s);
-			expect(s, ' ');
+			sta.translation.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			sta.translation.y = -parser_token_float(parser);
+			parser_expect(parser, ' ');
+			sta.translation.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
 
 			// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-			sta.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			sta.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			sta.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
+			sta.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			sta.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			sta.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
 
-			uint8_t visible = token_u8(s);
+			uint8_t visible = parser_token_u8(parser);
 			if (visible == 1 || visible == 0) {
 				sta.visible = (visible == 1);
 			} else {
-				mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file_content, s), visible);
+				mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 			}
-			expect(s, '\n');
+			parser_expect(parser, '\n');
 
 			mn::buf_push(surf->value.animation_states, sta);
 		}
 
 		bool read_pos = false, read_cnt = false, read_rel_dep = false, read_nch = false;
 		while (true) {
-			if (accept(s, "POS ")) {
+			if (parser_accept(parser, "POS ")) {
 				read_pos = true;
 
-				surf->value.initial_state.translation.x = token_float(s);
-				expect(s, ' ');
-				surf->value.initial_state.translation.y = -token_float(s);
-				expect(s, ' ');
-				surf->value.initial_state.translation.z = token_float(s);
-				expect(s, ' ');
+				surf->value.initial_state.translation.x = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				surf->value.initial_state.translation.y = -parser_token_float(parser);
+				parser_expect(parser, ' ');
+				surf->value.initial_state.translation.z = parser_token_float(parser);
+				parser_expect(parser, ' ');
 
 				// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-				surf->value.initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-				expect(s, ' ');
-				surf->value.initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-				expect(s, ' ');
-				surf->value.initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
+				surf->value.initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				parser_expect(parser, ' ');
+				surf->value.initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				parser_expect(parser, ' ');
+				surf->value.initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 
 				// aircraft/cessna172r.dnm is the only file with no visibility
-				if (accept(s, ' ')) {
-					uint8_t visible = token_u8(s);
+				if (parser_accept(parser, ' ')) {
+					uint8_t visible = parser_token_u8(parser);
 					if (visible == 1 || visible == 0) {
 						surf->value.initial_state.visible = (visible == 1);
 					} else {
-						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, get_line_no(dnm_file_content, s), visible);
+						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 					}
 				} else {
 					surf->value.initial_state.visible = true;
 				}
 
-				expect(s, '\n');
+				parser_expect(parser, '\n');
 
 				surf->value.current_state = surf->value.initial_state;
-			} else if (accept(s, "CNT ")) {
+			} else if (parser_accept(parser, "CNT ")) {
 				read_cnt = true;
 
-				surf->value.cnt.x = token_float(s);
-				expect(s, ' ');
-				surf->value.cnt.y = -token_float(s);
-				expect(s, ' ');
-				surf->value.cnt.z = token_float(s);
-				expect(s, '\n');
-			} else if (accept(s, "PAX")) {
-				skip_after(s, '\n');
-			} else if (accept(s, "REL DEP\n")) {
+				surf->value.cnt.x = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				surf->value.cnt.y = -parser_token_float(parser);
+				parser_expect(parser, ' ');
+				surf->value.cnt.z = parser_token_float(parser);
+				parser_expect(parser, '\n');
+			} else if (parser_accept(parser, "PAX")) {
+				parser_skip_after(parser, '\n');
+			} else if (parser_accept(parser, "REL DEP\n")) {
 				read_rel_dep = true;
-			} else if (accept(s, "NCH ")) {
+			} else if (parser_accept(parser, "NCH ")) {
 				read_nch = true;
 
-				const auto num_children = token_u64(s);
-				expect(s, '\n');
+				const auto num_children = parser_token_u64(parser);
+				parser_expect(parser, '\n');
 				mn::buf_reserve(surf->value.children, num_children);
 
 				for (size_t i = 0; i < num_children; i++) {
-					expect(s, "CLD ");
-					auto child_name = token_str(s);
+					parser_expect(parser, "CLD ");
+					auto child_name = parser_token_str(parser);
 					if (!(mn::str_prefix(child_name, "\"") && mn::str_suffix(child_name, "\""))) {
 						mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					mn::str_trim(child_name, "\"");
 					mn::buf_push(surf->value.children, child_name);
-					expect(s, '\n');
+					parser_expect(parser, '\n');
 				}
 			} else {
 				break;
@@ -1691,30 +1676,30 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		}
 
 		if (read_pos == false) {
-			mn::panic("'{}':{} failed to find POS", name, get_line_no(dnm_file_content, s));
+			parser_panic(parser, "failed to find POS");
 		}
 		if (read_cnt == false) {
-			mn::panic("'{}':{} failed to find CNT", name, get_line_no(dnm_file_content, s));
+			parser_panic(parser, "failed to find CNT");
 		}
 		if (read_rel_dep == false) {
 			// aircraft/cessna172r.dnm doesn't have REL DEP
-			mn::log_error("'{}':{} failed to find REL DEP", name, get_line_no(dnm_file_content, s));
+			mn::log_error("'{}':{} failed to find REL DEP", name, parser.curr_line+1);
 		}
 		if (read_nch == false) {
-			mn::panic("'{}':{} failed to find NCH", name, get_line_no(dnm_file_content, s));
+			parser_panic(parser, "failed to find NCH");
 		}
 
 		// reinsert with name instead of FIL
 		surf = mn::map_insert(meshes, mn::str_clone(name), surf->value);
 		if (!mn::map_remove(meshes, fil)) {
-			mn::panic("'{}': must be able to remove {} from meshes", name, fil);
+			parser_panic(parser, "must be able to remove {} from meshes", name, fil);
 		}
 
-		expect(s, "END\n");
+		parser_expect(parser, "END\n");
 	}
 	// aircraft/cessna172r.dnm doesn't have final END
-	if (s.count > 0) {
-		expect(s, "END\n");
+	if (parser_finished(parser) == false) {
+		parser_expect(parser, "END\n");
 	}
 
 	// check children exist
@@ -3083,7 +3068,8 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				}
 			}
 
-			auto mesh = mesh_from_srf_str(s2, fld_file_content, name);
+			auto parser = parser_from_str(s2, mn::memory::tmp());
+			auto mesh = mesh_from_srf_str(parser, name);
 			mn::str_free(name);
 
 			mn::buf_push(field.meshes, mesh);
@@ -4953,9 +4939,7 @@ TODO:
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
 - use new parser
-	- dnm
 	- fld
-	- stp
 - Scenery files
 	- read GOB at end of fld
 	- add dnm GOBs to field
