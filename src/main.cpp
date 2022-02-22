@@ -36,20 +36,6 @@ void destruct(Face& self) {
 	face_free(self);
 }
 
-namespace fmt {
-	template<>
-	struct formatter<Face> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const Face &c, FormatContext &ctx) {
-			return format_to(ctx.out(), "Face{{vertices_ids: {}, color: {}, "
-				"center: {}, normal: {}}}", c.vertices_ids, c.color, c.center, c.normal);
-		}
-	};
-}
-
 // CLA: class of animation (aircraft or ground object or player controled ground vehicles)
 // The CLA animation, possibly standing for class,
 // defines what aircraft system an .srf is animated to
@@ -195,19 +181,6 @@ struct MeshState {
 	glm::vec3 rotation; // roll, pitch, yaw
 	bool visible;
 };
-
-namespace fmt {
-	template<>
-	struct formatter<MeshState> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const MeshState &s, FormatContext &ctx) {
-			return format_to(ctx.out(), "MeshState{{pos: {}, rotation: {}, visible: {}}}", s.translation, s.rotation, s.visible);
-		}
-	};
-}
 
 // from YSFLIGHT SCENERY EDITOR 2009
 // ???
@@ -406,23 +379,6 @@ void mesh_unload_from_gpu(Mesh& self) {
 	glBindVertexArray(0);
 	glDeleteVertexArrays(1, &self.gpu.vao);
 	self.gpu = {};
-}
-
-namespace fmt {
-	template<>
-	struct formatter<Mesh> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const Mesh &s, FormatContext &ctx) {
-			return format_to(ctx.out(), "Mesh{{name: {}, animation_type: {}, vertices: {}"
-			", vertices_has_smooth_shading: {}, faces: {}, gfs: {}, zls: {}"
-			", zzs: {}, initial_state:{}, animation_states: {}, cnt: {}, children: {}, is_light_source: {}}}",
-				s.name, s.animation_type, s.vertices, s.vertices_has_smooth_shading,
-				s.faces, s.gfs, s.zls, s.zzs, s.initial_state, s.animation_states, s.cnt, s.children, s.is_light_source);
-		}
-	};
 }
 
 struct StartInfo {
@@ -1273,26 +1229,6 @@ struct Block {
 	glm::vec4 faces_color[2];
 };
 
-namespace fmt {
-	template<>
-	struct formatter<Block> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const Block &v, FormatContext &ctx) {
-			mn::Str orientation {};
-			switch (v.orientation) {
-			case Block::LEFT: orientation = mn::str_lit("LEFT"); break;
-			case Block::RIGHT: orientation = mn::str_lit("RIGHT"); break;
-			default: mn_unreachable();
-			}
-
-			return format_to(ctx.out(), "Block{{orientation: {}, faces_color[0]: {}, faces_color[1]: {}}}", orientation, v.faces_color[0], v.faces_color[1]);
-		}
-	};
-}
-
 struct TerrMesh {
 	mn::Str name, tag;
 	FieldID id;
@@ -1331,24 +1267,6 @@ void terr_mesh_free(TerrMesh& self) {
 
 void destruct(TerrMesh& self) {
 	terr_mesh_free(self);
-}
-
-namespace fmt {
-	template<>
-	struct formatter<TerrMesh> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const TerrMesh &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "TerrMesh{{name: {}, id: {}, scale: {}, translation: {}, rotation: {}, "
-				"gradiant: {{enabled: {}, bottom_y: {}, top_y: {}, bottom_color: {}, top_color: {}}}, nodes_height: {}, blocks: {}, "
-				"sides: [top={}, bot={}, right={}, left={}]}}",
-				v.name, v.id, v.current_state.scale, v.current_state.translation, v.current_state.rotation,
-				v.gradiant.enabled, v.gradiant.bottom_y, v.gradiant.top_y, v.gradiant.bottom_color, v.gradiant.top_color,
-				v.nodes_height, v.blocks, v.top_side_color, v.bottom_side_color, v.right_side_color, v.left_side_color);
-		}
-	};
 }
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
@@ -1498,41 +1416,6 @@ struct Primitive2D {
 		size_t array_count;
 	} gpu;
 };
-
-namespace fmt {
-	template<>
-	struct formatter<Primitive2D::Kind> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const Primitive2D::Kind &v, FormatContext &ctx) {
-			switch (v) {
-			case Primitive2D::Kind::LINES:                 return format_to(ctx.out(), "Primitive2D::Kind::LINES");
-			case Primitive2D::Kind::POLYGON:               return format_to(ctx.out(), "Primitive2D::Kind::POLYGON");
-			case Primitive2D::Kind::LINE_SEGMENTS:         return format_to(ctx.out(), "Primitive2D::Kind::LINE_SEGMENTS");
-			case Primitive2D::Kind::POINTS:                return format_to(ctx.out(), "Primitive2D::Kind::POINTS");
-			case Primitive2D::Kind::QUADRILATERAL:         return format_to(ctx.out(), "Primitive2D::Kind::QUADRILATERAL");
-			case Primitive2D::Kind::QUAD_STRIPS:           return format_to(ctx.out(), "Primitive2D::Kind::QUAD_STRIPS");
-			case Primitive2D::Kind::GRADATION_QUAD_STRIPS: return format_to(ctx.out(), "Primitive2D::Kind::GRADATION_QUAD_STRIPS");
-			case Primitive2D::Kind::TRIANGLES:             return format_to(ctx.out(), "Primitive2D::Kind::TRIANGLES");
-			default: mn_unreachable();
-			}
-			return format_to(ctx.out(), "????????");
-		}
-	};
-
-	template<>
-	struct formatter<Primitive2D> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const Primitive2D &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "Primitive2D{{kind: {}, color: {}, color2: {}, vertices: {}}}", v.kind, v.color, v.color2, v.vertices);
-		}
-	};
-}
 
 void prmitive2d_free(Primitive2D& self) {
 	mn::buf_free(self.vertices);
@@ -1694,19 +1577,6 @@ struct FieldRegion {
 	FieldID id;
 	mn::Str tag;
 };
-
-namespace fmt {
-	template<>
-	struct formatter<FieldRegion> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const FieldRegion &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "FieldRegion{{min: {}, max: {}, transformation: {}, id: {}, tag: {}}}", v.min, v.max, v.transformation, v.id, v.tag);
-		}
-	};
-}
 
 void region_free(FieldRegion& self) {
 	mn::str_free(self.tag);
