@@ -1,7 +1,6 @@
 // without the following define, SDL will come with its main()
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
-#include <glad/glad.h>
 
 #include <imgui.h>
 #include <backends/imgui_impl_sdl.h>
@@ -19,6 +18,7 @@
 #include <mn/Thread.h>
 #include <mn/Path.h>
 
+#include "opengl.hpp"
 #include "parser.hpp"
 #include "math.hpp"
 
@@ -219,33 +219,6 @@ namespace fmt {
 	};
 }
 
-#ifdef NDEBUG
-#	define GL_CATCH_ERRS() ((void)0)
-#else
-void _glCheckError(const char *file, int line) {
-	GLenum err_code;
-	int errors = 0;
-    while ((err_code = glGetError()) != GL_NO_ERROR) {
-        std::string error;
-        switch (err_code) {
-		case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
-		case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
-		case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
-		case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
-		case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
-		case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
-		case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
-        }
-		mn::log_error("GL::{} at {}:{}\n", error, file, line);
-		errors++;
-    }
-	if (errors > 0) {
-		mn::panic("found {} opengl errors");
-	}
-}
-#	define GL_CATCH_ERRS() _glCheckError(__FILE__, __LINE__)
-#endif
-
 // SURF
 struct Mesh {
 	FieldID id;
@@ -371,7 +344,7 @@ void mesh_load_to_gpu(Mesh& self) {
 		offset += sizeof(Stride::normal);
 	glBindVertexArray(0);
 
-	GL_CATCH_ERRS();
+	myglCheckError();
 }
 
 void mesh_unload_from_gpu(Mesh& self) {
@@ -1135,12 +1108,6 @@ void camera_update(Camera& self, float delta_time) {
 	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
 }
 
-GLfloat _glGetFloat(GLenum e) {
-	GLfloat out;
-	glGetFloatv(e, &out);
-	return out;
-}
-
 namespace MyImGui {
 	template<typename T>
 	void EnumsCombo(const char* label, T* p_enum, const std::initializer_list<std::pair<T, const char*>>& enums) {
@@ -1372,7 +1339,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		offset += sizeof(Stride::color);
 	glBindVertexArray(0);
 
-	GL_CATCH_ERRS();
+	myglCheckError();
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
@@ -1496,7 +1463,7 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 		);
 	glBindVertexArray(0);
 
-	GL_CATCH_ERRS();
+	myglCheckError();
 }
 
 void prmitive2d_unload_from_gpu(Primitive2D& self) {
@@ -2483,8 +2450,8 @@ int main() {
 		GLenum culling_front_face_type = GL_CCW;
 	} rendering {};
 
-	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = _glGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
-	const GLfloat POINT_SIZE_GRANULARITY        = _glGetFloat(GL_POINT_SIZE_GRANULARITY);
+	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = myglGetFloat(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
+	const GLfloat POINT_SIZE_GRANULARITY        = myglGetFloat(GL_POINT_SIZE_GRANULARITY);
 
 	float imgui_angle_max = DEGREES_MAX;
 
@@ -2547,7 +2514,7 @@ int main() {
 			offset += sizeof(Stride::color);
 		glBindVertexArray(0);
 
-		GL_CATCH_ERRS();
+		myglCheckError();
 	}
 
 	const GLuint lines_gpu_program = gpu_program_new(
@@ -2637,7 +2604,7 @@ int main() {
 			);
 		glBindVertexArray(0);
 
-		GL_CATCH_ERRS();
+		myglCheckError();
 	}
 
 	const GLuint primitives2d_gpu_program = gpu_program_new(
@@ -3687,7 +3654,7 @@ int main() {
 
 		SDL_GL_SwapWindow(sdl_window);
 
-		GL_CATCH_ERRS();
+		myglCheckError();
 	}
 
 	return 0;
