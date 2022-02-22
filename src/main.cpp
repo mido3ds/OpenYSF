@@ -2204,15 +2204,14 @@ int main() {
 			layout (location = 1) in vec4 attr_color;
 			// layout (location = 2) in vec3 attr_normal;
 
-			// TODO: pass MVP instead of 3 uniforms for perf
-			uniform mat4 projection, view, model;
+			uniform mat4 model_view_projection;
 
 			out float vs_vertex_y;
 			out vec4 vs_color;
 			// out vec3 vs_normal;
 
 			void main() {
-				gl_Position = projection * view * model * vec4(attr_position, 1.0);
+				gl_Position = model_view_projection * vec4(attr_position, 1.0);
 				vs_color = attr_color;
 				// vs_normal = attr_normal;
 				vs_vertex_y = attr_position.y;
@@ -2557,7 +2556,7 @@ int main() {
 		// vertex shader
 		R"GLSL(
 			#version 330 core
-			uniform mat4 view_proj_inv;
+			uniform mat4 proj_view_inv;
 
 			out vec3 vs_near_point;
 			out vec3 vs_far_point;
@@ -2569,7 +2568,7 @@ int main() {
 			);
 
 			vec3 unproject_point(float x, float y, float z) {
-				vec4 unprojectedPoint = view_proj_inv * vec4(x, y, z, 1.0);
+				vec4 unprojectedPoint = proj_view_inv * vec4(x, y, z, 1.0);
 				return unprojectedPoint.xyz / unprojectedPoint.w;
 			}
 
@@ -2825,8 +2824,6 @@ int main() {
 		}
 
 		glUseProgram(meshes_gpu_program);
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, false, glm::value_ptr(camera_matrices.view));
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, false, glm::value_ptr(camera_matrices.projection));
 
 		// render 2d pictures
 		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
@@ -2857,8 +2854,8 @@ int main() {
 				glUseProgram(ground_gpu_program);
 
 				glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(field_to_render->ground_color));
-				auto view_proj_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
-				glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "view_proj_inv"), 1, false, glm::value_ptr(view_proj_inv));
+				auto proj_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
+				glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_view_inv"), 1, false, glm::value_ptr(proj_view_inv));
 
 				glBindVertexArray(dummy_vao);
 				glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -2925,7 +2922,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 				model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, false, glm::value_ptr(model_transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * model_transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
 				if (terr_mesh.gradiant.enabled) {
@@ -2962,7 +2959,7 @@ int main() {
 				}
 
 				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, false, glm::value_ptr(mesh.transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * mesh.transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
 
@@ -3090,7 +3087,7 @@ int main() {
 						}
 
 						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, false, glm::value_ptr(mesh->transformation));
+						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * mesh->transformation));
 
 						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
 
@@ -3116,14 +3113,17 @@ int main() {
 			} else {
 				glEnable(GL_DEPTH_TEST);
 			}
+
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(axis_rendering.line_width);
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model"), 1, false, glm::value_ptr(transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
+
+			glEnable(GL_DEPTH_TEST);
 		}
 
 		// render boxes
@@ -3685,6 +3685,5 @@ TODO:
 - dnm hot realod per model
 
 - optimization:
-	- store stack of nodes instead of tree in model
-	- use different kinds of opengl primitives (i.e. strip/fan)
+	- use smaller kinds of opengl primitives (i.e. strip/fan)
 */
