@@ -1132,16 +1132,6 @@ glm::mat4 camera_get_projection_matrix(const Camera& self) {
 	);
 }
 
-auto clamp(auto x, auto lower_limit, auto upper_limit) {
-	if (x > upper_limit) {
-		return upper_limit;
-	}
-	if (x < lower_limit) {
-		return lower_limit;
-	}
-	return x;
-}
-
 void camera_update(Camera& self, float delta_time) {
 	if (self.view.identity) {
 		return;

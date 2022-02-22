@@ -237,7 +237,8 @@ Parser parser_fork(Parser& self, size_t lines) {
 	}
 
 	other.str.count = other.str.cap = i+1;
-	self.pos = i;
+	self.pos = i;	 
+	self.curr_line += lines;
 
 	return other;
 }

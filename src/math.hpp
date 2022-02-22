@@ -523,3 +523,13 @@ void test_polygons_to_triangles() {
 
 	mn::log_debug("test_polygons_to_triangles: all passed");
 }
+
+auto clamp(auto x, auto lower_limit, auto upper_limit) {
+	if (x > upper_limit) {
+		return upper_limit;
+	}
+	if (x < lower_limit) {
+		return lower_limit;
+	}
+	return x;
+}
