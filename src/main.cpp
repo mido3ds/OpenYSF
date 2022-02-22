@@ -250,7 +250,7 @@ mn::Str token_str(mn::Str& s, mn::Allocator allocator = mn::allocator_top()) {
 	return mn::str_from_substr(a, s.ptr, allocator);
 }
 
-bool token_bool(mn::Str& s) {
+bool _token_bool(mn::Str& s) {
 	const auto x = token_str(s, mn::memory::tmp());
 	if (x == "TRUE") {
 		return true;
@@ -323,30 +323,6 @@ void skip_after(mn::Str& s, const char* s2_) {
 	}
 	s.ptr += index + s2.count;
 	s.count -= index + s2.count;
-}
-
-float token_distance(mn::Str& s) {
-	const float x = token_float(s);
-
-	if (accept(s, 'm')) {
-		return x;
-	} else if (accept(s, "ft")) {
-		return x / 3.281f;
-	}
-
-	mn::panic("expected either m or ft, found: '{}'", token_str(s, mn::memory::tmp()));
-	return x;
-}
-
-float token_angle(mn::Str& s) {
-	const float x = token_float(s);
-
-	if (accept(s, "deg")) {
-		return x / DEGREES_MAX * RADIANS_MAX;
-	}
-
-	mn::panic("expected either m or ft, found: '{}'", token_str(s, mn::memory::tmp()));
-	return x;
 }
 
 struct Face {
@@ -835,52 +811,80 @@ void destruct(StartInfo& self) {
 	start_info_free(self);
 }
 
+float _token_distance(Parser& parser) {
+	const float x = parser_token_float(parser);
+
+	if (parser_accept(parser, 'm')) {
+		return x;
+	} else if (parser_accept(parser, "ft")) {
+		return x / 3.281f;
+	}
+
+	parser_panic(parser, "expected either m or ft");
+	return x;
+}
+
+float _token_angle(Parser& parser) {
+	const float x = parser_token_float(parser);
+	parser_expect(parser, "deg");
+	return x / DEGREES_MAX * RADIANS_MAX;
+}
+
+bool _token_bool(Parser& parser) {
+	const auto x = parser_token_str(parser, mn::memory::tmp());
+	if (x == "TRUE") {
+		return true;
+	} else if (x == "FALSE") {
+		return false;
+	}
+	parser_panic(parser, "expected either TRUE or FALSE, found='{}'", x);
+	return false;
+}
+
 mn::Buf<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
-	auto stp_file_content = mn::file_content_str(stp_file_abs_path, mn::memory::tmp());
-	mn::str_replace(stp_file_content, "\r\n", "\n");
-	auto s = stp_file_content;
+	auto parser = parser_from_file(stp_file_abs_path, mn::memory::tmp());
 
 	auto start_infos = mn::buf_new<StartInfo>();
 
-	while (s.count > 0) {
+	while (parser_finished(parser) == false) {
 		StartInfo start_info {};
 
-		expect(s, "N ");
-		start_info.name = token_str(s);
-		expect(s, '\n');
+		parser_expect(parser, "N ");
+		start_info.name = parser_token_str(parser);
+		parser_expect(parser, '\n');
 
-		while (accept(s, "C ")) {
-			if (accept(s, "POSITION ")) {
-				start_info.position.x = token_distance(s);
-				expect(s, ' ');
-				start_info.position.y = -token_distance(s);
-				expect(s, ' ');
-				start_info.position.z = token_distance(s);
-				expect(s, '\n');
-			} else if (accept(s, "ATTITUDE ")) {
-				start_info.attitude.x = token_angle(s);
-				expect(s, ' ');
-				start_info.attitude.y = token_angle(s);
-				expect(s, ' ');
-				start_info.attitude.z = token_angle(s);
-				expect(s, '\n');
-			} else if (accept(s, "INITSPED ")) {
-				start_info.speed = token_float(s);
-				expect(s, "MACH\n");
-			} else if (accept(s, "CTLTHROT ")) {
-				start_info.throttle = token_float(s);
-				expect(s, '\n');
+		while (parser_accept(parser, "C ")) {
+			if (parser_accept(parser, "POSITION ")) {
+				start_info.position.x = _token_distance(parser);
+				parser_expect(parser, ' ');
+				start_info.position.y = -_token_distance(parser);
+				parser_expect(parser, ' ');
+				start_info.position.z = _token_distance(parser);
+				parser_expect(parser, '\n');
+			} else if (parser_accept(parser, "ATTITUDE ")) {
+				start_info.attitude.x = _token_angle(parser);
+				parser_expect(parser, ' ');
+				start_info.attitude.y = _token_angle(parser);
+				parser_expect(parser, ' ');
+				start_info.attitude.z = _token_angle(parser);
+				parser_expect(parser, '\n');
+			} else if (parser_accept(parser, "INITSPED ")) {
+				start_info.speed = parser_token_float(parser);
+				parser_expect(parser, "MACH\n");
+			} else if (parser_accept(parser, "CTLTHROT ")) {
+				start_info.throttle = parser_token_float(parser);
+				parser_expect(parser, '\n');
 				if (start_info.throttle > 1 || start_info.throttle < 0) {
 					mn::panic("throttle={} out of bounds [0,1]", start_info.throttle);
 				}
-			} else if (accept(s, "CTLLDGEA ")) {
-				start_info.landing_gear_is_out = token_bool(s);
-				expect(s, '\n');
+			} else if (parser_accept(parser, "CTLLDGEA ")) {
+				start_info.landing_gear_is_out = _token_bool(parser);
+				parser_expect(parser, '\n');
 			} else {
-				mn::panic("{}: unrecognized type: {}", get_line_no(stp_file_content, s), token_str(s, mn::memory::tmp()));
+				parser_panic(parser, "unrecognized type");
 			}
 
-			while (accept(s, '\n')) {}
+			while (parser_accept(parser, '\n')) {}
 		}
 
 		mn::buf_push(start_infos, start_info);
@@ -2721,7 +2725,7 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 	// mn::log_debug("field.sky_color={}", field.sky_color);
 
 	if (accept(s, "GNDSPECULAR ")) {
-		field.ground_specular = token_bool(s);
+		field.ground_specular = _token_bool(s);
 		expect(s, '\n');
 	}
 

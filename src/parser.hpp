@@ -7,12 +7,14 @@
 
 struct Parser {
 	mn::Str str;
+	mn::Str file_path;
 	size_t pos; // index in string
 	size_t curr_line; // 0 is first line
 };
 
 void parser_free(Parser& self) {
 	mn::str_free(self.str);
+	mn::str_free(self.file_path);
 }
 
 void destruct(Parser& self) {
@@ -24,6 +26,16 @@ Parser parser_from_str(const mn::Str& str, mn::Allocator allocator = mn::allocat
 	mn::str_replace(str_clone, "\r\n", "\n");
 	return Parser {
 		.str = str_clone,
+		.file_path = mn::str_from_c("%memory%", allocator),
+	};
+}
+
+Parser parser_from_file(const mn::Str& file_path, mn::Allocator allocator = mn::allocator_top()) {
+	auto str = mn::file_content_str(file_path, allocator);
+	mn::str_replace(str, "\r\n", "\n");
+	return Parser {
+		.str = str,
+		.file_path = mn::str_clone(file_path, allocator),
 	};
 }
 
@@ -85,24 +97,22 @@ bool parser_accept(Parser& self, const char* s) {
 	return true;
 }
 
-mn::Str parser_summary(const Parser& self) {
-	auto s = mn::str_clone(self.str, mn::memory::tmp());
-	if (s.count > 90) {
-		mn::str_resize(s, 90);
-		mn::str_push(s, "....");
+template<typename ... Args>
+void parser_panic(const Parser& self, const char* err_msg, const Args& ... args) {
+	auto summary = mn::str_clone(self.str, mn::memory::tmp());
+	if (summary.count > 90) {
+		mn::str_resize(summary, 90);
+		mn::str_push(summary, "....");
 	}
-	mn::str_replace(s, "\n", "\\n");
-	return s;
-}
+	mn::str_replace(summary, "\n", "\\n");
 
-void _parser_panic(const Parser& self, const mn::Str& err_msg) {
-	mn::panic("{}: {}, parser.str='{}', parser.pos={}", self.curr_line+1, err_msg, parser_summary(self), self.pos);
+	mn::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, mn::str_tmpf(err_msg, args...), summary, self.pos);
 }
 
 template<typename T>
 void parser_expect(Parser& self, T s) {
 	if (!parser_accept(self, s)) {
-		mn::panic("failed to find '{}' in '{}'", s, parser_summary(self));
+		parser_panic(self, "failed to find '{}'", s);
 	}
 }
 
@@ -124,7 +134,7 @@ void parser_skip_after(Parser& self, const char* s) {
 	const auto s2 = mn::str_lit(s);
 	const size_t index = mn::str_find(self.str, s2, self.pos);
 	if (index == SIZE_MAX) {
-		_parser_panic(self, mn::str_tmpf("failed to find '{}'", s2));
+		parser_panic(self, "failed to find '{}'", s2);
 	}
 
 	for (size_t i = self.pos; i < index+s2.count; i++) {
@@ -137,15 +147,15 @@ void parser_skip_after(Parser& self, const char* s) {
 
 float parser_token_float(Parser& self) {
 	if (self.pos >= self.str.count) {
-		_parser_panic(self, mn::str_lit("can't find float at end of str"));
+		parser_panic(self, "can't find float at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
-		_parser_panic(self, mn::str_lit("can't find float, string doesn't start with digit or -"));
+		parser_panic(self, "can't find float, string doesn't start with digit or -");
 	}
 
 	char* pos = nullptr;
 	const float d = strtod(mn::begin(self.str)+self.pos, &pos);
 	if (mn::begin(self.str)+self.pos == pos) {
-		_parser_panic(self, mn::str_lit("failed to parse float"));
+		parser_panic(self, "failed to parse float");
 	}
 
 	const size_t float_str_len = pos - (mn::begin(self.str)+self.pos);
@@ -156,15 +166,15 @@ float parser_token_float(Parser& self) {
 
 uint64_t parser_token_u64(Parser& self) {
 	if (self.pos >= self.str.count) {
-		_parser_panic(self, mn::str_lit("can't find u64 at end of str"));
+		parser_panic(self, "can't find u64 at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
-		_parser_panic(self, mn::str_lit("can't find u64, string doesn't start with digit or -"));
+		parser_panic(self, "can't find u64, string doesn't start with digit or -");
 	}
 
 	char* pos = nullptr;
 	const uint64_t d = strtoull(mn::begin(self.str)+self.pos, &pos, 10);
 	if (mn::begin(self.str)+self.pos == pos) {
-		_parser_panic(self, mn::str_lit("failed to parse u64"));
+		parser_panic(self, "failed to parse u64");
 	}
 
 	const size_t int_str_len = pos - (mn::begin(self.str)+self.pos);
@@ -176,22 +186,22 @@ uint64_t parser_token_u64(Parser& self) {
 uint8_t parser_token_u8(Parser& self) {
 	const uint64_t b = parser_token_u64(self);
 	if (b > UINT8_MAX) {
-		_parser_panic(self, mn::str_tmpf("out of range number, {} > {}", b, UINT8_MAX));
+		parser_panic(self, "out of range number, {} > {}", b, UINT8_MAX);
 	}
 	return (uint8_t) b;
 }
 
 int64_t parser_token_i64(Parser& self) {
 	if (self.pos >= self.str.count) {
-		_parser_panic(self, mn::str_lit("can't find i64 at end of str"));
+		parser_panic(self, "can't find i64 at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
-		_parser_panic(self, mn::str_lit("can't find i64, string doesn't start with digit or -"));
+		parser_panic(self, "can't find i64, string doesn't start with digit or -");
 	}
 
 	char* pos = nullptr;
 	const int64_t d = strtoll(mn::begin(self.str)+self.pos, &pos, 10);
 	if (mn::begin(self.str)+self.pos == pos) {
-		_parser_panic(self, mn::str_lit("failed to parse i64"));
+		parser_panic(self, "failed to parse i64");
 	}
 
 	const size_t int_str_len = pos - (mn::begin(self.str)+self.pos);
@@ -208,6 +218,10 @@ mn::Str parser_token_str(Parser& self, mn::Allocator allocator = mn::allocator_t
 	return mn::str_from_substr(a, mn::begin(self.str)+self.pos, allocator);
 }
 
+bool parser_finished(Parser& self) {
+	return self.pos >= self.str.count;
+}
+
 void test_parser() {
 	Parser parser = parser_from_str(mn::str_lit("hello world \r\n m"), mn::memory::tmp());
 	auto orig = parser;
@@ -219,10 +233,12 @@ void test_parser() {
 		parser = orig;
 		mn_assert(parser_accept(parser, "hello"));
 		mn_assert(parser_accept(parser, ' '));
+		mn_assert(parser_finished(parser) == false);
 		mn_assert(parser.curr_line == 0);
 		mn_assert(parser_accept(parser, "world \n"));
 		mn_assert(parser.curr_line == 1);
 		mn_assert(parser_accept(parser, " m"));
+		mn_assert(parser_finished(parser));
 
 		parser = orig;
 		mn_assert(parser_accept(parser, "ello") == false);
@@ -254,7 +270,5 @@ void test_parser() {
 
 /*
 TODO:
-- parser_from_file()?
-	- store file path in parser?
-	- read from disk?
+- read from disk?
 */
