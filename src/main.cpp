@@ -1019,7 +1019,6 @@ constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 
 struct Camera {
 	struct {
-		bool identity           = false;
 		float movement_speed    = 1000.0f;
 		float mouse_sensitivity = 1.4;
 
@@ -1042,27 +1041,11 @@ struct Camera {
 	} projection;
 };
 
-glm::mat4 camera_get_view_matrix(const Camera& self) {
-	if (self.view.identity) {
-		return glm::identity<glm::mat4>();
-	}
-	return glm::lookAt(self.view.pos, self.view.pos + self.view.front, self.view.up);
-}
+struct CameraMatrices {
+	glm::mat4 view, projection, view_inverse, projection_inverse, projection_view;
+};
 
-glm::mat4 camera_get_projection_matrix(const Camera& self) {
-	return glm::perspective(
-		self.projection.fovy,
-		self.projection.aspect,
-		self.projection.near,
-		self.projection.far
-	);
-}
-
-void camera_update(Camera& self, float delta_time) {
-	if (self.view.identity) {
-		return;
-	}
-
+CameraMatrices camera_update(Camera& self, float delta_time) {
 	// move with keyboard
 	const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
 	const float velocity = self.view.movement_speed * delta_time;
@@ -1103,6 +1086,21 @@ void camera_update(Camera& self, float delta_time) {
 	// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
 	self.view.right = glm::normalize(glm::cross(self.view.front, self.view.world_up));
 	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
+
+	const auto view = glm::lookAt(self.view.pos, self.view.pos + self.view.front, self.view.up);
+	const auto projection = glm::perspective(
+		self.projection.fovy,
+		self.projection.aspect,
+		self.projection.near,
+		self.projection.far
+	);
+	return CameraMatrices {
+		.view = view,
+		.projection =   projection,
+		.view_inverse = glm::inverse(view),
+		.projection_inverse = glm::inverse(projection),
+		.projection_view = projection * view,
+	};
 }
 
 struct Block {
@@ -1134,7 +1132,7 @@ struct TerrMesh {
 	struct {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
-		glm::vec3 scale;
+		glm::vec3 scale = {1,1,1};
 		bool visible = true;
 	} current_state, initial_state;
 };
@@ -1283,17 +1281,7 @@ struct Primitive2D {
 
 	struct {
 		GLuint vao, vbo;
-
-		// possible values?
-		// GL_POINTS
-		// GL_LINES
-		// GL_LINE_LOOP
-		// GL_LINE_STRIP
-		// GL_TRIANGLES
-		// GL_TRIANGLE_STRIP
-		// GL_TRIANGLE_FAN
 		GLenum primitive_type;
-
 		size_t array_count;
 	} gpu;
 };
@@ -1399,7 +1387,6 @@ struct Picture2D {
 	struct {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
-		glm::vec3 scale;
 		bool visible = true;
 	} current_state, initial_state;
 };
@@ -1751,7 +1738,6 @@ Field _field_from_fld_str(Parser& parser) {
 		} else if (parser_accept(parser, "Pict2\n")) {
 			Picture2D picture { .name=name };
 
-			picture.initial_state.scale = {1,1,1};
 			picture.current_state = picture.initial_state;
 
 			while (parser_accept(parser, "ENDPICT\n") == false) {
@@ -2566,6 +2552,66 @@ int main() {
 	);
 	mn_defer(gpu_program_free(picture2d_gpu_program));
 
+	// https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
+	auto ground_gpu_program = gpu_program_new(
+		// vertex shader
+		R"GLSL(
+			#version 330 core
+			uniform mat4 view_proj_inv;
+
+			out vec3 vs_near_point;
+			out vec3 vs_far_point;
+
+			// grid position are in clipped space
+			vec2 grid_plane[6] = vec2[] (
+				vec2(1, 1), vec2(-1, -1), vec2(-1, 1),
+				vec2(-1, -1), vec2(1, 1), vec2(1, -1)
+			);
+
+			vec3 unproject_point(float x, float y, float z) {
+				vec4 unprojectedPoint = view_proj_inv * vec4(x, y, z, 1.0);
+				return unprojectedPoint.xyz / unprojectedPoint.w;
+			}
+
+			void main() {
+				vec2 p = grid_plane[gl_VertexID];
+				vs_near_point = unproject_point(p.x, p.y, 0.0); // unprojecting on the near plane
+				vs_far_point  = unproject_point(p.x, p.y, 1.0); // unprojecting on the far plane
+				gl_Position   = vec4(p.x, p.y, 0.0, 1.0); // using directly the clipped coordinates
+			}
+		)GLSL",
+
+		// fragment shader
+		R"GLSL(
+			#version 330 core
+			in vec3 vs_near_point;
+			in vec3 vs_far_point;
+
+			out vec4 out_fragcolor;
+
+			uniform vec3 color;
+
+			void main() {
+				float t = -vs_near_point.y / (vs_far_point.y - vs_near_point.y);
+				if (t <= 0) {
+					discard;
+				} else {
+					out_fragcolor = vec4(color, 1.0);
+				}
+			}
+		)GLSL"
+	);
+	mn_defer(gpu_program_free(ground_gpu_program));
+
+	// opengl can't call shader without VAO even if shader doesn't take input
+	// dummy_vao lets you call shader without input (coords is embedded)
+	GLuint dummy_vao;
+	glGenVertexArrays(1, &dummy_vao);
+	mn_defer({
+		glBindVertexArray(0);
+		glDeleteVertexArrays(1, &dummy_vao);
+	});
+
 	struct {
 		bool enabled = true;
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
@@ -2607,7 +2653,7 @@ int main() {
 		}
 		overlay_text = mn::strf(overlay_text, "fps: {:.2f}\n", 1.0f/delta_time);
 
-		camera_update(camera, delta_time);
+		const auto camera_matrices = camera_update(camera, delta_time);
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -2779,8 +2825,8 @@ int main() {
 		}
 
 		glUseProgram(meshes_gpu_program);
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, false, glm::value_ptr(camera_get_view_matrix(camera)));
-		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, false, glm::value_ptr(camera_get_projection_matrix(camera)));
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "view"), 1, false, glm::value_ptr(camera_matrices.view));
+		glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection"), 1, false, glm::value_ptr(camera_matrices.projection));
 
 		// render 2d pictures
 		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
@@ -2795,6 +2841,7 @@ int main() {
 				continue;
 			}
 
+			// transform
 			field_to_render->transformation = glm::translate(field_to_render->transformation, field_to_render->current_state.translation);
 			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[2], glm::vec3{0, 0, 1});
 			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[1], glm::vec3{1, 0, 0});
@@ -2805,8 +2852,21 @@ int main() {
 				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
 			}
 
+			// render ground
+			if (field_to_render->default_area != AreaKind::NOAREA) {
+				glUseProgram(ground_gpu_program);
+
+				glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(field_to_render->ground_color));
+				auto view_proj_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
+				glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "view_proj_inv"), 1, false, glm::value_ptr(view_proj_inv));
+
+				glBindVertexArray(dummy_vao);
+				glDrawArrays(GL_TRIANGLES, 0, 6);
+				gpu_check_errors();
+			}
+
+			// render picture
 			glUseProgram(picture2d_gpu_program);
-			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
 			for (auto& picture : field_to_render->pictures) {
 				if (picture.current_state.visible == false) {
 					continue;
@@ -2817,9 +2877,8 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
-				model_transformation = glm::scale(model_transformation, picture.current_state.scale);
 
-				const auto projection_view_model = projection_view * model_transformation;
+				const auto projection_view_model = camera_matrices.projection_view * model_transformation;
 				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
 
 				for (auto& primitive : picture.primitives) {
@@ -3074,12 +3133,10 @@ int main() {
 			glLineWidth(box_rendering.line_width);
 			glBindVertexArray(box_rendering.vao);
 
-			const auto projection_view = camera_get_projection_matrix(camera) * camera_get_view_matrix(camera);
-
 			for (const auto& box : box_instances) {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
-				const auto projection_view_model = projection_view * transformation;
+				const auto projection_view_model = camera_matrices.projection_view * transformation;
 				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
 
 				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
@@ -3156,21 +3213,17 @@ int main() {
 					ImGui::EndCombo();
 				}
 
-				ImGui::Checkbox("Identity", &camera.view.identity); // TODO: remove
+				ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 5, 50, 1000);
+				ImGui::DragFloat("mouse_sensitivity", &camera.view.mouse_sensitivity, 1, 0.5, 10);
+				ImGui::SliderAngle("yaw", &camera.view.yaw);
+				ImGui::SliderAngle("pitch", &camera.view.pitch, -89, 89);
 
-				ImGui::BeginDisabled(camera.view.identity);
-					ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 5, 50, 1000);
-					ImGui::DragFloat("mouse_sensitivity", &camera.view.mouse_sensitivity, 1, 0.5, 10);
-					ImGui::SliderAngle("yaw", &camera.view.yaw);
-					ImGui::SliderAngle("pitch", &camera.view.pitch, -89, 89);
-
-					ImGui::DragFloat3("front", glm::value_ptr(camera.view.front), 0.1, -1, 1);
-					ImGui::DragFloat3("pos", glm::value_ptr(camera.view.pos), 1, -100, 100);
-					ImGui::DragFloat3("world_up", glm::value_ptr(camera.view.world_up), 1, -100, 100);
-					ImGui::BeginDisabled();
-						ImGui::DragFloat3("right", glm::value_ptr(camera.view.right), 1, -100, 100);
-						ImGui::DragFloat3("up", glm::value_ptr(camera.view.up), 1, -100, 100);
-					ImGui::EndDisabled();
+				ImGui::DragFloat3("front", glm::value_ptr(camera.view.front), 0.1, -1, 1);
+				ImGui::DragFloat3("pos", glm::value_ptr(camera.view.pos), 1, -100, 100);
+				ImGui::DragFloat3("world_up", glm::value_ptr(camera.view.world_up), 1, -100, 100);
+				ImGui::BeginDisabled();
+					ImGui::DragFloat3("right", glm::value_ptr(camera.view.right), 1, -100, 100);
+					ImGui::DragFloat3("up", glm::value_ptr(camera.view.up), 1, -100, 100);
 				ImGui::EndDisabled();
 
 				ImGui::TreePop();
@@ -3474,7 +3527,6 @@ int main() {
 
 							ImGui::Checkbox("Visible", &picture.current_state.visible);
 
-							ImGui::DragFloat3("Scale", glm::value_ptr(picture.current_state.scale), 0.01f);
 							ImGui::DragFloat3("Translation", glm::value_ptr(picture.current_state.translation));
 							MyImGui::SliderAngle3("Rotation", &picture.current_state.rotation, current_angle_max);
 
@@ -3571,7 +3623,9 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
-- render water
+- separate (updating meshes) from (rendering them)
+- put lines coords in shader
+- put box coords in shader
 - Scenery files
 	- read GOB at end of fld
 	- add dnm GOBs to field
@@ -3604,6 +3658,7 @@ TODO:
 	- use gpu program
 	- set uniforms
 	- primitives?
+- render water texture
 - AABB for each mesh?
 - AABB -> OBB?
 - use coll.dnm files?

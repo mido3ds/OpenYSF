@@ -7,7 +7,7 @@ void gpu_check_errors() {
 		GLenum err_code;
 		int errors = 0;
 		while ((err_code = glGetError()) != GL_NO_ERROR) {
-			std::string error;
+			const char* error = nullptr;
 			switch (err_code) {
 			case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
 			case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
@@ -17,7 +17,7 @@ void gpu_check_errors() {
 			case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
 			case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
 			}
-			mn::log_error("GL::{} at {}:{}\n", error);
+			mn::log_error("GL::{}\n", error);
 			errors++;
 		}
 		if (errors > 0) {
