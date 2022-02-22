@@ -158,173 +158,6 @@ static_assert(mod(-7, +3) == 2);
 static_assert(mod(-7, -3) == 2);
 static_assert(mod(0-1, 5) == 4);
 
-mn::Str smaller_str(const mn::Str& s) {
-	auto s2 = mn::str_clone(s, mn::memory::tmp());
-	if (s2.count > 90) {
-		mn::str_resize(s2, 90);
-		mn::str_push(s2, "....");
-	}
-	mn::str_replace(s2, "\n", "\\n");
-	return s2;
-}
-
-float token_float(mn::Str& s) {
-	if (s.count == 0) {
-		mn::panic("end of str");
-	} else if (!(::isdigit(s[0]) || s[0] == '-')) {
-		mn::panic("doesn't start with digit or -");
-	}
-
-	char* pos;
-	const float d = strtod(s.ptr, &pos);
-	if (s.ptr == pos) {
-		mn::panic("no float found");
-	}
-	const size_t diff = pos - s.ptr;
-	s.ptr = pos;
-	s.count -= diff;
-	return d;
-}
-
-uint64_t token_u64(mn::Str& s) {
-	if (s.count == 0) {
-		mn::panic("end of str");
-	} else if (!::isdigit(s[0])) {
-		mn::panic("doesn't start with digit, {}", smaller_str(s));
-	}
-
-	char* pos;
-	const uint64_t d = strtoull(s.ptr, &pos, 10);
-	if (s.ptr == pos) {
-		mn::panic("no uint64_t found");
-	}
-	const uint64_t diff = pos - s.ptr;
-	s.ptr = pos;
-	s.count -= diff;
-	return d;
-}
-
-uint32_t token_u32(mn::Str& s) {
-	const uint64_t u = token_u64(s);
-	if (u > UINT32_MAX) {
-		mn::panic("number is not u32");
-	}
-	return (uint32_t) u;
-}
-
-int32_t token_i32(mn::Str& s) {
-	if (s.count == 0) {
-		mn::panic("end of str");
-	} else if (!(::isdigit(s[0]) || s[0] == '-')) {
-		mn::panic("doesn't start with digit, {}", smaller_str(s));
-	}
-
-	char* pos;
-	const long d = strtol(s.ptr, &pos, 10);
-	if (s.ptr == pos) {
-		mn::panic("no long found");
-	}
-	if (d < INT32_MIN || d > INT32_MAX) {
-		mn::panic("number is not i32");
-	}
-	const int32_t diff = pos - s.ptr;
-	s.ptr = pos;
-	s.count -= diff;
-	return d;
-}
-
-uint8_t token_u8(mn::Str& s) {
-	const uint64_t b = token_u64(s);
-	if (b > UINT8_MAX) {
-		mn::panic("number is not a byte");
-	}
-	return (uint8_t) b;
-}
-
-mn::Str token_str(mn::Str& s, mn::Allocator allocator = mn::allocator_top()) {
-	const char* a = s.ptr;
-	while (s.count > 0 && s[0] != ' ' && s[0] != '\n') {
-		s.ptr++;
-		s.count--;
-	}
-	return mn::str_from_substr(a, s.ptr, allocator);
-}
-
-bool _token_bool(mn::Str& s) {
-	const auto x = token_str(s, mn::memory::tmp());
-	if (x == "TRUE") {
-		return true;
-	} else if (x == "FALSE") {
-		return false;
-	}
-	mn::panic("expected either TRUE or FALSE, found='{}'", x);
-	return false;
-}
-
-bool peek(const mn::Str& s, char c) {
-	if (s.count == 0) {
-		return false;
-	}
-	return *s.ptr == c;
-}
-
-bool peek(const mn::Str& s1, const char* s2) {
-	const size_t len = ::strlen(s2);
-	if (len > s1.count) {
-		return false;
-	}
-	return ::memcmp(s1.ptr, s2, len) == 0;
-}
-
-bool accept(mn::Str& s1, const char* s2) {
-	const size_t len = ::strlen(s2);
-	if (len > s1.count) {
-		return false;
-	}
-	if (::memcmp(s1.ptr, s2, len) == 0) {
-		s1.ptr += len;
-		s1.count -= len;
-		return true;
-	}
-	return false;
-}
-
-bool accept(mn::Str& s, char c) {
-	if (s.count > 0 && s[0] == c) {
-		s.ptr++;
-		s.count--;
-		return true;
-	}
-
-	return false;
-}
-
-template<typename T>
-void expect(mn::Str& s1, T s2) {
-	if (!accept(s1, s2)) {
-		mn::panic("failed to find '{}' in '{}'", s2, smaller_str(s1));
-	}
-}
-
-void skip_after(mn::Str& s, char c) {
-	const size_t index = mn::str_find(s, c, 0);
-	if (index == SIZE_MAX) {
-		mn::panic("failed to find '{}' in '{}'", c, smaller_str(s));
-	}
-	s.ptr += index + 1;
-	s.count -= index + 1;
-}
-
-void skip_after(mn::Str& s, const char* s2_) {
-	const auto s2 = mn::str_lit(s2_);
-	const size_t index = mn::str_find(s, s2, 0);
-	if (index == SIZE_MAX) {
-		mn::panic("failed to find '{}' in '{}'", s2, smaller_str(s));
-	}
-	s.ptr += index + s2.count;
-	s.count -= index + s2.count;
-}
-
 struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
@@ -2669,55 +2502,55 @@ void destruct(Field& self) {
 	field_free(self);
 }
 
-Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
-	expect(s, "FIELD\n");
+Field _field_from_fld_str(Parser& parser) {
+	parser_expect(parser, "FIELD\n");
 
 	Field field {};
 
 	while (true) {
-		if (accept(s, "FLDVERSION ")) {
+		if (parser_accept(parser, "FLDVERSION ")) {
 			// TODO
-			mn::log_warning("{}: found FLDVERSION, doesn't support it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, '\n');
-		} else if (accept(s, "FLDNAME ")) {
-			mn::log_warning("{}: found FLDNAME, doesn't support it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, '\n');
-		} else if (accept(s, "TEXMAN")) {
+			mn::log_warning("{}: found FLDVERSION, doesn't support it, skip for now", parser.curr_line+1);
+			parser_skip_after(parser, '\n');
+		} else if (parser_accept(parser, "FLDNAME ")) {
+			mn::log_warning("{}: found FLDNAME, doesn't support it, skip for now", parser.curr_line+1);
+			parser_skip_after(parser, '\n');
+		} else if (parser_accept(parser, "TEXMAN")) {
 			// TODO
-			mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, "TEXMAN ENDTEXTURE\n");
+			mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", parser.curr_line+1);
+			parser_skip_after(parser, "TEXMAN ENDTEXTURE\n");
 		} else {
 			break;
 		}
 	}
 
-	expect(s, "GND ");
-	field.ground_color.r = token_u8(s) / 255.0f;
-	expect(s, ' ');
-	field.ground_color.g = token_u8(s) / 255.0f;
-	expect(s, ' ');
-	field.ground_color.b = token_u8(s) / 255.0f;
-	expect(s, '\n');
+	parser_expect(parser, "GND ");
+	field.ground_color.r = parser_token_u8(parser) / 255.0f;
+	parser_expect(parser, ' ');
+	field.ground_color.g = parser_token_u8(parser) / 255.0f;
+	parser_expect(parser, ' ');
+	field.ground_color.b = parser_token_u8(parser) / 255.0f;
+	parser_expect(parser, '\n');
 	// mn::log_debug("field.ground_color={}", field.ground_color);
 
-	expect(s, "SKY ");
-	field.sky_color.r = token_u8(s) / 255.0f;
-	expect(s, ' ');
-	field.sky_color.g = token_u8(s) / 255.0f;
-	expect(s, ' ');
-	field.sky_color.b = token_u8(s) / 255.0f;
-	expect(s, '\n');
+	parser_expect(parser, "SKY ");
+	field.sky_color.r = parser_token_u8(parser) / 255.0f;
+	parser_expect(parser, ' ');
+	field.sky_color.g = parser_token_u8(parser) / 255.0f;
+	parser_expect(parser, ' ');
+	field.sky_color.b = parser_token_u8(parser) / 255.0f;
+	parser_expect(parser, '\n');
 	// mn::log_debug("field.sky_color={}", field.sky_color);
 
-	if (accept(s, "GNDSPECULAR ")) {
-		field.ground_specular = _token_bool(s);
-		expect(s, '\n');
+	if (parser_accept(parser, "GNDSPECULAR ")) {
+		field.ground_specular = _token_bool(parser);
+		parser_expect(parser, '\n');
 	}
 
 	field.default_area = AreaKind::NOAREA;
-	if (accept(s, "DEFAREA ")) {
-		const auto default_area_str = token_str(s, mn::memory::tmp());
-		expect(s, '\n');
+	if (parser_accept(parser, "DEFAREA ")) {
+		const auto default_area_str = parser_token_str(parser, mn::memory::tmp());
+		parser_expect(parser, '\n');
 		if (default_area_str == "NOAREA") {
 			field.default_area = AreaKind::NOAREA;
 		} else if (default_area_str == "LAND") {
@@ -2725,119 +2558,104 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 		} else if (default_area_str == "WATER") {
 			field.default_area = AreaKind::WATER;
 		} else {
-			mn::panic("{}: unrecognized area '{}'", get_line_no(fld_file_content, s), default_area_str);
+			parser_panic(parser, "unrecognized area '{}'", default_area_str);
 		}
 		// mn::log_debug("default_area_str={}", default_area_str);
 		// mn::log_debug("field.default_area={}", field.default_area);
 	}
 
-	if (accept(s, "BASEELV ")) {
+	if (parser_accept(parser, "BASEELV ")) {
 		// TODO
-		mn::log_warning("{}: found BASEELV, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-		skip_after(s, '\n');
+		mn::log_warning("{}: found BASEELV, doesn't understand it, skip for now", parser.curr_line+1);
+		parser_skip_after(parser, '\n');
 	}
 
-	if (accept(s, "MAGVAR ")) {
+	if (parser_accept(parser, "MAGVAR ")) {
 		// TODO
-		mn::log_warning("{}: found MAGVAR, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-		skip_after(s, '\n');
+		mn::log_warning("{}: found MAGVAR, doesn't understand it, skip for now", parser.curr_line+1);
+		parser_skip_after(parser, '\n');
 	}
 
-	if (accept(s, "CANRESUME TRUE\n") || accept(s, "CANRESUME FALSE\n")) {
+	if (parser_accept(parser, "CANRESUME TRUE\n") || parser_accept(parser, "CANRESUME FALSE\n")) {
 		// TODO
-		mn::log_warning("{}: found CANRESUME, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+		mn::log_warning("{}: found CANRESUME, doesn't understand it, skip for now", parser.curr_line+1);
 	}
 
-	while (accept(s, "AIRROUTE\n")) {
+	while (parser_accept(parser, "AIRROUTE\n")) {
 		// TODO
-		mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-		skip_after(s, "ENDAIRROUTE\n");
+		mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", parser.curr_line+1);
+		parser_skip_after(parser, "ENDAIRROUTE\n");
 	}
 
-	while (accept(s, "PCK ")) {
-		auto name = token_str(s);
+	while (parser_accept(parser, "PCK ")) {
+		auto name = parser_token_str(parser);
 		mn::str_trim(name, "\"");
-		expect(s, ' ');
+		parser_expect(parser, ' ');
 		// mn::log_debug("name={}", name);
 
-		const auto total_lines_count = token_u32(s);
-		expect(s, '\n');
+		const auto total_lines_count = parser_token_u64(parser);
+		parser_expect(parser, '\n');
 		// mn::log_debug("total_lines_count={}", total_lines_count);
 
-		const size_t first_line_no = get_line_no(fld_file_content, s);
-		if (peek(s, "FIELD\n")) {
-			mn::Str s2 = s;
-			for (size_t i = 0, lines = 0; i < s.count; i++) {
-				if (lines == total_lines_count) {
-					s2.count = i;
-
-					s.ptr   += s2.count;
-					s.cap   -= s2.count;
-					s.count -= s2.count;
-
-					break;
-				}
-				if (s[i] == '\n') {
-					lines++;
-				}
-			}
-
-			auto subfield = _field_from_fld_str(s2, fld_file_content);
+		const size_t first_line_no = parser.curr_line+1;
+		if (parser_peek(parser, "FIELD\n")) {
+			auto subparser = parser_fork(parser, total_lines_count);
+			auto subfield = _field_from_fld_str(subparser);
 			subfield.name = name;
 
 			mn::buf_push(field.subfields, subfield);
-		} else if (accept(s, "TerrMesh\n")) {
+		} else if (parser_accept(parser, "TerrMesh\n")) {
 			TerrMesh terr_mesh { .name=name };
 
-			if (accept(s, "SPEC TRUE\n") || accept(s, "SPEC FALSE\n")) {
+			if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 				// TODO
-				mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+				mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
-			if (accept(s, "TEX MAIN")) {
+			if (parser_accept(parser, "TEX MAIN")) {
 				// TODO
-				mn::log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-				skip_after(s, "\n");
+				mn::log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", parser.curr_line+1);
+				parser_skip_after(parser, "\n");
 			}
 
-			expect(s, "NBL ");
-			const auto num_blocks_x = token_u32(s);
-			expect(s, ' ');
-			const auto num_blocks_z = token_u32(s);
-			expect(s, '\n');
+			parser_expect(parser, "NBL ");
+			const auto num_blocks_x = parser_token_u64(parser);
+			parser_expect(parser, ' ');
+			const auto num_blocks_z = parser_token_u64(parser);
+			parser_expect(parser, '\n');
 
-			expect(s, "TMS ");
+			parser_expect(parser, "TMS ");
 			// TODO: multiply by 10?
 			terr_mesh.initial_state.scale = {1, 1, 1};
-			terr_mesh.initial_state.scale.x = token_float(s); //* 10.0f;
-			expect(s, ' ');
-			terr_mesh.initial_state.scale.z = token_float(s); //* 10.0f;
-			expect(s, '\n');
+			terr_mesh.initial_state.scale.x = parser_token_float(parser); //* 10.0f;
+			parser_expect(parser, ' ');
+			terr_mesh.initial_state.scale.z = parser_token_float(parser); //* 10.0f;
+			parser_expect(parser, '\n');
 			// mn::log_debug("terr_mesh.scale.x={}, terr_mesh.scale.y={}", terr_mesh.scale.x, terr_mesh.scale.y);
 
 			terr_mesh.current_state = terr_mesh.initial_state;
 
-			if (accept(s, "CBE ")) {
+			if (parser_accept(parser, "CBE ")) {
 				terr_mesh.gradiant.enabled = true;
 
-				terr_mesh.gradiant.top_y = token_float(s);
-				expect(s, ' ');
-				terr_mesh.gradiant.bottom_y = -token_float(s);
-				expect(s, ' ');
+				terr_mesh.gradiant.top_y = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				terr_mesh.gradiant.bottom_y = -parser_token_float(parser);
+				parser_expect(parser, ' ');
 
-				terr_mesh.gradiant.top_color.r = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				terr_mesh.gradiant.top_color.g = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				terr_mesh.gradiant.top_color.b = token_u8(s) / 255.0f;
-				expect(s, ' ');
+				terr_mesh.gradiant.top_color.r = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				terr_mesh.gradiant.top_color.g = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				terr_mesh.gradiant.top_color.b = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
 
-				terr_mesh.gradiant.bottom_color.r = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				terr_mesh.gradiant.bottom_color.g = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				terr_mesh.gradiant.bottom_color.b = token_u8(s) / 255.0f;
-				expect(s, '\n');
+				terr_mesh.gradiant.bottom_color.r = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				terr_mesh.gradiant.bottom_color.g = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				terr_mesh.gradiant.bottom_color.b = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, '\n');
 			}
 			// if (terr_mesh.gradiant.enabled) {
 			// 	mn::log_debug("gradiant: bottom_y={}, top_y={}, bottom_color={}, top_color={}", terr_mesh.gradiant.bottom_y, terr_mesh.gradiant.top_y, terr_mesh.gradiant.bottom_color, terr_mesh.gradiant.top_color);
@@ -2852,14 +2670,14 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				std::pair{"TOP ", &terr_mesh.top_side_color},
 				std::pair{"LEF ", &terr_mesh.left_side_color},
 			}) {
-				if (accept(s, side_str)) {
+				if (parser_accept(parser, side_str)) {
 					side->a = 1;
-					side->r = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					side->g = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					side->b = token_u8(s) / 255.0f;
-					expect(s, '\n');
+					side->r = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					side->g = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					side->b = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, '\n');
 				}
 
 				// mn::log_debug("{}: {} and color={}", side_str, side->enabled, side->color);
@@ -2880,77 +2698,77 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			// parse blocks and nodes
 			for (size_t z = 0; z < terr_mesh.nodes_height.count; z++) {
 				for (size_t x = 0; x < terr_mesh.nodes_height[z].count; x++) {
-					expect(s, "BLO ");
-					terr_mesh.nodes_height[z][x] = token_float(s);
+					parser_expect(parser, "BLO ");
+					terr_mesh.nodes_height[z][x] = parser_token_float(parser);
 
 					// don't read rest of block if node is on edge/wedge
 					if (z == terr_mesh.nodes_height.count-1 || x == terr_mesh.nodes_height[z].count-1) {
-						skip_after(s, '\n');
+						parser_skip_after(parser, '\n');
 						continue;
 					}
 
 					// from here the node has a block
-					if (accept(s, '\n')) {
+					if (parser_accept(parser, '\n')) {
 						continue;
-					} else if (accept(s, " R ")) {
+					} else if (parser_accept(parser, " R ")) {
 						terr_mesh.blocks[z][x].orientation = Block::RIGHT;
-					} else if (accept(s, " L ")) {
+					} else if (parser_accept(parser, " L ")) {
 						terr_mesh.blocks[z][x].orientation = Block::LEFT;
 					} else {
-						mn::panic("{}: expected either a new line or L or R, found='{}'", get_line_no(fld_file_content, s), smaller_str(s));
+						parser_panic(parser, "expected either a new line or L or R");
 					}
 
 					// face 0
-					if (accept(s, "OFF ") || accept(s, "0 ")) {
+					if (parser_accept(parser, "OFF ") || parser_accept(parser, "0 ")) {
 						terr_mesh.blocks[z][x].faces_color[0].a = 0;
-					} else if (accept(s, "ON ") || accept(s, "1 ")) {
+					} else if (parser_accept(parser, "ON ") || parser_accept(parser, "1 ")) {
 						terr_mesh.blocks[z][x].faces_color[0].a = 1;
 					} else {
-						skip_after(s, ' ');
+						parser_skip_after(parser, ' ');
 						terr_mesh.blocks[z][x].faces_color[0].a = 1;
 					}
 
-					terr_mesh.blocks[z][x].faces_color[0].r = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					terr_mesh.blocks[z][x].faces_color[0].g = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					terr_mesh.blocks[z][x].faces_color[0].b = token_u8(s) / 255.0f;
-					expect(s, ' ');
+					terr_mesh.blocks[z][x].faces_color[0].r = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					terr_mesh.blocks[z][x].faces_color[0].g = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					terr_mesh.blocks[z][x].faces_color[0].b = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
 
 					// face 1
-					if (accept(s, "OFF ") || accept(s, "0 ")) {
+					if (parser_accept(parser, "OFF ") || parser_accept(parser, "0 ")) {
 						terr_mesh.blocks[z][x].faces_color[1].a = 0;
-					} else if (accept(s, "ON ") || accept(s, "1 ")) {
+					} else if (parser_accept(parser, "ON ") || parser_accept(parser, "1 ")) {
 						terr_mesh.blocks[z][x].faces_color[1].a = 1;
 					} else {
-						skip_after(s, ' ');
+						parser_skip_after(parser, ' ');
 						terr_mesh.blocks[z][x].faces_color[1].a = 1;
 					}
 
-					terr_mesh.blocks[z][x].faces_color[1].r = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					terr_mesh.blocks[z][x].faces_color[1].g = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					terr_mesh.blocks[z][x].faces_color[1].b = token_u8(s) / 255.0f;
-					expect(s, '\n');
+					terr_mesh.blocks[z][x].faces_color[1].r = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					terr_mesh.blocks[z][x].faces_color[1].g = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					terr_mesh.blocks[z][x].faces_color[1].b = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, '\n');
 				}
 			}
 			// mn::log_debug("{}", terr_mesh.nodes_height);
 
-			expect(s, "END\n");
+			parser_expect(parser, "END\n");
 
 			mn::buf_push(field.terr_meshes, terr_mesh);
-		} else if (accept(s, "Pict2\n")) {
+		} else if (parser_accept(parser, "Pict2\n")) {
 			Picture2D picture { .name=name };
 
 			picture.initial_state.scale = {1,1,1};
 			picture.current_state = picture.initial_state;
 
-			while (accept(s, "ENDPICT\n") == false) {
+			while (parser_accept(parser, "ENDPICT\n") == false) {
 				Primitive2D permitive {};
 
-				auto kind_str = token_str(s, mn::memory::tmp());
-				expect(s, '\n');
+				auto kind_str = parser_token_str(parser, mn::memory::tmp());
+				parser_expect(parser, '\n');
 
 				if (kind_str == "LSQ") {
 					permitive.kind = Primitive2D::Kind::LINES;
@@ -2969,61 +2787,61 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				} else if (kind_str == "TRI") {
 					permitive.kind = Primitive2D::Kind::TRIANGLES;
 				} else {
-					mn::log_warning("{}: invalid pict2 kind={}, skip for now", get_line_no(fld_file_content, s), kind_str);
-					skip_after(s, "ENDO\n");
+					mn::log_warning("{}: invalid pict2 kind={}, skip for now", parser.curr_line+1, kind_str);
+					parser_skip_after(parser, "ENDO\n");
 					continue;
 				}
 				// mn::log_debug("kind_str='{}', kind={}", kind_str, permitive.kind);
 
-				if (accept(s, "DST ")) {
+				if (parser_accept(parser, "DST ")) {
 					// TODO
-					mn::log_warning("{}: found DST, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-					skip_after(s, '\n');
+					mn::log_warning("{}: found DST, doesn't understand it, skip for now", parser.curr_line+1);
+					parser_skip_after(parser, '\n');
 				}
 
-				expect(s, "COL ");
-				permitive.color.r = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				permitive.color.g = token_u8(s) / 255.0f;
-				expect(s, ' ');
-				permitive.color.b = token_u8(s) / 255.0f;
-				expect(s, '\n');
+				parser_expect(parser, "COL ");
+				permitive.color.r = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				permitive.color.g = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				permitive.color.b = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, '\n');
 				// mn::log_debug("color={}", permitive.color);
 
 				if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
-					expect(s, "CL2 ");
-					permitive.color2.r = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					permitive.color2.g = token_u8(s) / 255.0f;
-					expect(s, ' ');
-					permitive.color2.b = token_u8(s) / 255.0f;
-					expect(s, '\n');
+					parser_expect(parser, "CL2 ");
+					permitive.color2.r = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					permitive.color2.g = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, ' ');
+					permitive.color2.b = parser_token_u8(parser) / 255.0f;
+					parser_expect(parser, '\n');
 					// mn::log_debug("color2={}", permitive.color2);
 				}
 
-				while (accept(s, "ENDO\n") == false) {
-					if (accept(s, "SPEC TRUE\n") || accept(s, "SPEC FALSE\n")) {
+				while (parser_accept(parser, "ENDO\n") == false) {
+					if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 						// TODO
-						mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+						mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 						continue;
 					}
 
-					if (accept(s, "TXL")) {
+					if (parser_accept(parser, "TXL")) {
 						// TODO
-						mn::log_warning("{}: found TXL, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-						skip_after(s, '\n');
-						while (accept(s, "TXC")) {
-							skip_after(s, '\n');
+						mn::log_warning("{}: found TXL, doesn't understand it, skip for now", parser.curr_line+1);
+						parser_skip_after(parser, '\n');
+						while (parser_accept(parser, "TXC")) {
+							parser_skip_after(parser, '\n');
 						}
 						continue;
 					}
 
 					glm::vec2 vertex {};
-					expect(s, "VER ");
-					vertex.x = token_float(s);
-					expect(s, ' ');
-					vertex.y = token_float(s);
-					expect(s, '\n');
+					parser_expect(parser, "VER ");
+					vertex.x = parser_token_float(parser);
+					parser_expect(parser, ' ');
+					vertex.y = parser_token_float(parser);
+					parser_expect(parser, '\n');
 
 					// mn::log_debug("ver: (x={}, y={})", x, y);
 					mn::buf_push(permitive.vertices, vertex);
@@ -3031,18 +2849,18 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				// mn::log_debug("vertices={}", permitive.vertices);
 
 				if (permitive.vertices.count == 0) {
-					mn::panic("{}: no vertices", get_line_no(fld_file_content, s));
+					parser_panic(parser, "{}: no vertices", parser.curr_line+1);
 				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
-					mn::panic("{}: kind is triangle but num of vertices ({}) isn't divisible by 3", get_line_no(fld_file_content, s), permitive.vertices.count);
+					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, permitive.vertices.count);
 				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
-					mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", get_line_no(fld_file_content, s), permitive.vertices.count);
+					mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.count);
 					mn::buf_pop(permitive.vertices);
 				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
-					mn::panic("{}: kind is line but has one point", get_line_no(fld_file_content, s));
+					parser_panic(parser, "{}: kind is line but has one point", parser.curr_line+1);
 				} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
-					mn::panic("{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", get_line_no(fld_file_content, s), permitive.vertices.count);
+					parser_panic(parser, "{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", parser.curr_line+1, permitive.vertices.count);
 				} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
-					mn::panic("{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", get_line_no(fld_file_content, s), permitive.vertices.count);
+					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, permitive.vertices.count);
 				}
 
 				// mn::log_debug("{}", permitive);
@@ -3051,50 +2869,34 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			// mn::log_debug("{}", picture.primitives);
 
 			mn::buf_push(field.pictures, picture);
-		} else if (peek(s, "Surf\n")) {
-			mn::Str s2 = s;
-			for (size_t i = 0, lines = 0; i < s.count; i++) {
-				if (lines == total_lines_count) {
-					s2.count = i;
-
-					s.ptr   += s2.count;
-					s.cap   -= s2.count;
-					s.count -= s2.count;
-
-					break;
-				}
-				if (s[i] == '\n') {
-					lines++;
-				}
-			}
-
-			auto parser = parser_from_str(s2, mn::memory::tmp());
-			auto mesh = mesh_from_srf_str(parser, name);
+		} else if (parser_peek(parser, "Surf\n")) {
+			auto subparser = parser_fork(parser, total_lines_count);
+			auto mesh = mesh_from_srf_str(subparser, name);
 			mn::str_free(name);
 
 			mn::buf_push(field.meshes, mesh);
 		} else {
-			mn::panic("{}: invalid type '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
+			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, mn::memory::tmp()));
 		}
 
-		const size_t last_line_no = get_line_no(fld_file_content, s);
+		const size_t last_line_no = parser.curr_line+1;
 		const size_t curr_lines_count = last_line_no - first_line_no;
 		if (curr_lines_count != total_lines_count) {
 			mn::log_error("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
 		}
 
-		expect(s, "\n\n");
+		parser_expect(parser, "\n\n");
 
 		// aomori.fld contains more than 2 empty lines
-		while (accept(s, '\n')) {}
+		while (parser_accept(parser, '\n')) {}
 	}
 
-	while (s.count > 0) {
-		if (accept(s, "FLD\n")) {
-			expect(s, "FIL ");
-			auto name = token_str(s, mn::memory::tmp());
+	while (parser_finished(parser) == false) {
+		if (parser_accept(parser, "FLD\n")) {
+			parser_expect(parser, "FIL ");
+			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
-			expect(s, '\n');
+			parser_expect(parser, '\n');
 			// mn::log_debug("name={}", name);
 
 			Field* subfield = nullptr;
@@ -3105,34 +2907,34 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				}
 			}
 			if (subfield == nullptr) {
-				mn::panic("{}: didn't find FLD with name='{}'", get_line_no(fld_file_content, s), name);
+				parser_panic(parser, "{}: didn't find FLD with name='{}'", parser.curr_line+1, name);
 			}
 
-			expect(s, "POS ");
-			subfield->initial_state.translation.x = token_float(s);
-			expect(s, ' ');
-			subfield->initial_state.translation.y = token_float(s);
-			expect(s, ' ');
-			subfield->initial_state.translation.z = token_float(s);
-			expect(s, ' ');
+			parser_expect(parser, "POS ");
+			subfield->initial_state.translation.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			subfield->initial_state.translation.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			subfield->initial_state.translation.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
 
-			subfield->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			subfield->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			subfield->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, '\n');
+			subfield->initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			subfield->initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			subfield->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
 			subfield->current_state = subfield->initial_state;
 
-			expect(s, "ID ");
-			subfield->id = (FieldID) token_u8(s);
+			parser_expect(parser, "ID ");
+			subfield->id = (FieldID) parser_token_u8(parser);
 			// mn::log_debug("id={}", subfield->id);
-			expect(s, "\nEND\n");
-		} else if (accept(s, "TER\n")) {
-			expect(s, "FIL ");
-			auto name = token_str(s, mn::memory::tmp());
+			parser_expect(parser, "\nEND\n");
+		} else if (parser_accept(parser, "TER\n")) {
+			parser_expect(parser, "FIL ");
+			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
-			expect(s, '\n');
+			parser_expect(parser, '\n');
 			// mn::log_debug("name={}", name);
 
 			TerrMesh* terr_mesh = nullptr;
@@ -3143,42 +2945,42 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				}
 			}
 			if (terr_mesh == nullptr) {
-				mn::panic("{}: didn't find TER with name='{}'", get_line_no(fld_file_content, s), name);
+				parser_panic(parser, "{}: didn't find TER with name='{}'", parser.curr_line+1, name);
 			}
 
-			expect(s, "POS ");
-			terr_mesh->initial_state.translation.x = token_float(s);
-			expect(s, ' ');
-			terr_mesh->initial_state.translation.y = token_float(s);
-			expect(s, ' ');
-			terr_mesh->initial_state.translation.z = token_float(s);
-			expect(s, ' ');
+			parser_expect(parser, "POS ");
+			terr_mesh->initial_state.translation.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			terr_mesh->initial_state.translation.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			terr_mesh->initial_state.translation.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
 
-			terr_mesh->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			terr_mesh->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			terr_mesh->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, '\n');
+			terr_mesh->initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			terr_mesh->initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			terr_mesh->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
 			terr_mesh->current_state = terr_mesh->initial_state;
 
-			expect(s, "ID ");
-			terr_mesh->id = (FieldID) token_u8(s);
-			expect(s, '\n');
+			parser_expect(parser, "ID ");
+			terr_mesh->id = (FieldID) parser_token_u8(parser);
+			parser_expect(parser, '\n');
 			// mn::log_debug("id={}", terr_mesh->id);
 
-			if (accept(s, "TAG ")) {
-				terr_mesh->tag = token_str(s);
+			if (parser_accept(parser, "TAG ")) {
+				terr_mesh->tag = parser_token_str(parser);
 				mn::str_trim(terr_mesh->tag, "\"");
-				expect(s, '\n');
+				parser_expect(parser, '\n');
 			}
 
-			expect(s, "END\n");
-		} else if (accept(s, "PC2\n") || accept(s, "PLT\n")) {
-			expect(s, "FIL ");
-			auto name = token_str(s, mn::memory::tmp());
+			parser_expect(parser, "END\n");
+		} else if (parser_accept(parser, "PC2\n") || parser_accept(parser, "PLT\n")) {
+			parser_expect(parser, "FIL ");
+			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
-			expect(s, '\n');
+			parser_expect(parser, '\n');
 			// mn::log_debug("name={}", name);
 
 			Picture2D* picture = nullptr;
@@ -3189,64 +2991,64 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				}
 			}
 			if (picture == nullptr) {
-				mn::panic("{}: didn't find TER with name='{}'", get_line_no(fld_file_content, s), name);
+				parser_panic(parser, "{}: didn't find TER with name='{}'", parser.curr_line+1, name);
 			}
 
-			expect(s, "POS ");
-			picture->initial_state.translation.x = token_float(s);
-			expect(s, ' ');
-			picture->initial_state.translation.y = token_float(s);
-			expect(s, ' ');
-			picture->initial_state.translation.z = token_float(s);
-			expect(s, ' ');
+			parser_expect(parser, "POS ");
+			picture->initial_state.translation.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			picture->initial_state.translation.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			picture->initial_state.translation.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
 
-			picture->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			picture->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			picture->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, '\n');
+			picture->initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			picture->initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			picture->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
 			picture->current_state = picture->initial_state;
 
-			expect(s, "ID ");
-			picture->id = (FieldID) token_u8(s);
+			parser_expect(parser, "ID ");
+			picture->id = (FieldID) parser_token_u8(parser);
 			// mn::log_debug("id={}", picture->id);
-			expect(s, "\nEND\n");
-		} else if (accept(s, "RGN\n")) {
+			parser_expect(parser, "\nEND\n");
+		} else if (parser_accept(parser, "RGN\n")) {
 			FieldRegion region {};
 
-			expect(s, "ARE ");
-			while (accept(s, ' ')) {}
-			region.min.x = token_float(s);
-			while (accept(s, ' ')) {}
-			region.min.y = token_float(s);
-			while (accept(s, ' ')) {}
-			region.max.x = token_float(s);
-			while (accept(s, ' ')) {}
-			region.max.y = token_float(s);
-			expect(s, '\n');
+			parser_expect(parser, "ARE ");
+			while (parser_accept(parser, ' ')) {}
+			region.min.x = parser_token_float(parser);
+			while (parser_accept(parser, ' ')) {}
+			region.min.y = parser_token_float(parser);
+			while (parser_accept(parser, ' ')) {}
+			region.max.x = parser_token_float(parser);
+			while (parser_accept(parser, ' ')) {}
+			region.max.y = parser_token_float(parser);
+			parser_expect(parser, '\n');
 
-			if (accept(s, "SUB DEADLOCKFREEAP\n")) {
+			if (parser_accept(parser, "SUB DEADLOCKFREEAP\n")) {
 				// TODO
-				mn::log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
+				mn::log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
-			expect(s, "POS ");
+			parser_expect(parser, "POS ");
 			glm::vec3 translation {};
-			translation.x = token_float(s);
-			expect(s, ' ');
-			translation.y = token_float(s);
-			expect(s, ' ');
-			translation.z = token_float(s);
-			expect(s, ' ');
+			translation.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			translation.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			translation.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
 
 			glm::vec3 rotation {};
-			rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, '\n');
+			rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
 
 			region.transformation = glm::identity<glm::mat4>();
 			region.transformation = glm::translate(region.transformation, translation);
@@ -3254,37 +3056,37 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 			region.transformation = glm::rotate(region.transformation, rotation[1], glm::vec3{1, 0, 0});
 			region.transformation = glm::rotate(region.transformation, rotation[0], glm::vec3{0, 1, 0});
 
-			expect(s, "ID ");
-			region.id = (FieldID) token_u8(s);
-			expect(s, '\n');
+			parser_expect(parser, "ID ");
+			region.id = (FieldID) parser_token_u8(parser);
+			parser_expect(parser, '\n');
 
-			if (accept(s, "TAG ")) {
-				region.tag = token_str(s);
+			if (parser_accept(parser, "TAG ")) {
+				region.tag = parser_token_str(parser);
 				mn::str_trim(region.tag, "\"");
-				expect(s, '\n');
+				parser_expect(parser, '\n');
 			}
 
-			expect(s, "END\n");
+			parser_expect(parser, "END\n");
 
 			// mn::log_debug("region={}", region);
 			mn::buf_push(field.regions, region);
-		} else if (accept(s, "PST\n")) {
+		} else if (parser_accept(parser, "PST\n")) {
 			// TODO
-			mn::log_warning("{}: found PST, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, "END\n");
-		} else if (accept(s, "GOB\n")) {
+			mn::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
+			parser_skip_after(parser, "END\n");
+		} else if (parser_accept(parser, "GOB\n")) {
 			// TODO
-			mn::log_warning("{}: found GOB, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, "END\n");
-		} else if (accept(s, "AOB\n")) {
+			mn::log_warning("{}: found GOB, doesn't understand it, skip for now", parser.curr_line+1);
+			parser_skip_after(parser, "END\n");
+		} else if (parser_accept(parser, "AOB\n")) {
 			// TODO
-			mn::log_warning("{}: found AOB, doesn't understand it, skip for now", get_line_no(fld_file_content, s));
-			skip_after(s, "END\n");
-		} else if (accept(s, "SRF\n")) {
-			expect(s, "FIL ");
-			auto name = token_str(s, mn::memory::tmp());
+			mn::log_warning("{}: found AOB, doesn't understand it, skip for now", parser.curr_line+1);
+			parser_skip_after(parser, "END\n");
+		} else if (parser_accept(parser, "SRF\n")) {
+			parser_expect(parser, "FIL ");
+			auto name = parser_token_str(parser, mn::memory::tmp());
 			mn::str_trim(name, "\"");
-			expect(s, '\n');
+			parser_expect(parser, '\n');
 			// mn::log_debug("name={}", name);
 
 			Mesh* mesh = nullptr;
@@ -3295,36 +3097,36 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 				}
 			}
 			if (mesh == nullptr) {
-				mn::panic("{}: didn't find TER with name='{}'", get_line_no(fld_file_content, s), name);
+				parser_panic(parser, "{}: didn't find TER with name='{}'", parser.curr_line+1, name);
 			}
 
-			expect(s, "POS ");
-			mesh->initial_state.translation.x = token_float(s);
-			expect(s, ' ');
-			mesh->initial_state.translation.y = token_float(s);
-			expect(s, ' ');
-			mesh->initial_state.translation.z = token_float(s);
-			expect(s, ' ');
+			parser_expect(parser, "POS ");
+			mesh->initial_state.translation.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			mesh->initial_state.translation.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			mesh->initial_state.translation.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
 
-			mesh->initial_state.rotation.x = -token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			mesh->initial_state.rotation.y = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, ' ');
-			mesh->initial_state.rotation.z = token_float(s) / YS_MAX * RADIANS_MAX;
-			expect(s, '\n');
+			mesh->initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			mesh->initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			mesh->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
 			mesh->initial_state.visible = true;
 			mesh->current_state = mesh->initial_state;
 
-			expect(s, "ID ");
-			mesh->id = (FieldID) token_u8(s);
-			expect(s, '\n');
+			parser_expect(parser, "ID ");
+			mesh->id = (FieldID) parser_token_u8(parser);
+			parser_expect(parser, '\n');
 			// mn::log_debug("id={}", mesh->id);
 
-			expect(s, "END\n");
-		} else if (accept(s, '\n')) {
+			parser_expect(parser, "END\n");
+		} else if (parser_accept(parser, '\n')) {
 			// aomori.fld adds extra spaces
 		} else {
-			mn::panic("{}: found invalid type = '{}'", get_line_no(fld_file_content, s), token_str(s, mn::memory::tmp()));
+			parser_panic(parser, "{}: found invalid type = '{}'", parser.curr_line+1, parser_token_str(parser, mn::memory::tmp()));
 		}
 	}
 	// mn::log_debug("done");
@@ -3333,11 +3135,9 @@ Field _field_from_fld_str(mn::Str& s, const mn::Str& fld_file_content) {
 }
 
 Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
-	mn::Str fld_file_content = mn::file_content_str(fld_file_abs_path, mn::memory::tmp());
-	mn::str_replace(fld_file_content, "\r\n", "\n");
-	auto s = fld_file_content;
+	auto parser = parser_from_file(fld_file_abs_path, mn::memory::tmp());
 
-	auto field = _field_from_fld_str(s, fld_file_content);
+	auto field = _field_from_fld_str(parser);
 	field.file_abs_path = mn::str_clone(fld_file_abs_path);
 	if (field.name.count == 0) {
 		field.name = mn::file_name(fld_file_abs_path);
@@ -4938,8 +4738,7 @@ TODO:
 - what are GE and ZE in hurricane.dnm?
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
-- use new parser
-	- fld
+
 - Scenery files
 	- read GOB at end of fld
 	- add dnm GOBs to field
