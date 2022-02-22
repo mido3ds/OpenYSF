@@ -173,42 +173,31 @@ uint64_t parser_token_u64(Parser& self) {
 	return d;
 }
 
-uint32_t parser_token_u32(Parser& self) {
-	const uint64_t u = parser_token_u64(self);
-	if (u > UINT32_MAX) {
-		_parser_panic(self, mn::str_tmpf("out of range number, {} > {}", u, UINT32_MAX));
-	}
-	return (uint32_t) u;
-}
-
-int32_t parser_token_i32(Parser& self) {
-	if (self.pos >= self.str.count) {
-		_parser_panic(self, mn::str_lit("can't find i32 at end of str"));
-	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
-		_parser_panic(self, mn::str_lit("can't find i32, string doesn't start with digit or -"));
-	}
-
-	char* pos = nullptr;
-	const uint64_t d = strtoull(mn::begin(self.str)+self.pos, &pos, 10);
-	if (mn::begin(self.str)+self.pos == pos) {
-		_parser_panic(self, mn::str_lit("failed to parse i32"));
-	}
-	if (d < INT32_MIN || d > INT32_MAX) {
-		_parser_panic(self, mn::str_tmpf("out of range number, must be {} < {} < {}", INT32_MIN, d, INT32_MAX));
-	}
-
-	const size_t int_str_len = pos - (mn::begin(self.str)+self.pos);
-	self.pos += int_str_len;
-
-	return d;
-}
-
 uint8_t parser_token_u8(Parser& self) {
 	const uint64_t b = parser_token_u64(self);
 	if (b > UINT8_MAX) {
 		_parser_panic(self, mn::str_tmpf("out of range number, {} > {}", b, UINT8_MAX));
 	}
 	return (uint8_t) b;
+}
+
+int64_t parser_token_i64(Parser& self) {
+	if (self.pos >= self.str.count) {
+		_parser_panic(self, mn::str_lit("can't find i64 at end of str"));
+	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
+		_parser_panic(self, mn::str_lit("can't find i64, string doesn't start with digit or -"));
+	}
+
+	char* pos = nullptr;
+	const int64_t d = strtoll(mn::begin(self.str)+self.pos, &pos, 10);
+	if (mn::begin(self.str)+self.pos == pos) {
+		_parser_panic(self, mn::str_lit("failed to parse i64"));
+	}
+
+	const size_t int_str_len = pos - (mn::begin(self.str)+self.pos);
+	self.pos += int_str_len;
+
+	return d;
 }
 
 mn::Str parser_token_str(Parser& self, mn::Allocator allocator = mn::allocator_top()) {
@@ -250,7 +239,7 @@ void test_parser() {
 	}
 
 	parser = parser_from_str(mn::str_lit("5\n-1.4\nhello 1%"), mn::memory::tmp());
-	mn_assert(parser_token_u32(parser) == 5);
+	mn_assert(parser_token_u64(parser) == 5);
 	parser_expect(parser, '\n');
 	mn_assert(parser_token_float(parser) == -1.4f);
 	parser_expect(parser, '\n');
