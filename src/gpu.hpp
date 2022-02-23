@@ -17,11 +17,11 @@ void gpu_check_errors() {
 			case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
 			case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
 			}
-			mn::log_error("GL::{}\n", error);
+			mn::log_error("GL::{}", error);
 			errors++;
 		}
 		if (errors > 0) {
-			mn::panic("found {} opengl errors");
+			mn::panic("found {} opengl error(s)", errors);
 		}
 	#endif
 }
