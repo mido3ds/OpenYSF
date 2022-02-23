@@ -2505,23 +2505,12 @@ int main() {
 			layout (location = 0) in vec2 attr_position;
 
 			uniform mat4 model_view_projection;
-			uniform bool gradation_enabled;
 
-			out float vs_color_index;
+			out float vs_vertex_id;
 
 			void main() {
 				gl_Position = model_view_projection * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
-
-				if (gradation_enabled) {
-					switch (gl_VertexID % 6) {
-					case 0: vs_color_index = 0; break;
-					case 1: vs_color_index = 1; break;
-					case 2: vs_color_index = 1; break;
-					case 3: vs_color_index = 0; break;
-					case 4: vs_color_index = 0; break;
-					case 5: vs_color_index = 1; break;
-					}
-				}
+				vs_vertex_id = gl_VertexID;
 			}
 		)GLSL",
 
@@ -2529,19 +2518,24 @@ int main() {
 		R"GLSL(
 			#version 330 core
 
-			in float vs_color_index;
+			in float vs_vertex_id;
 
-			uniform vec3 primitive_color, primitive_color2;
+			uniform vec3 primitive_color[2];
 			uniform bool gradation_enabled;
 
 			out vec4 out_fragcolor;
 
+			int color_indices[6] = int[] (
+				0, 1, 1,
+				0, 0, 1
+			);
+
 			void main() {
+				int color_index = 0;
 				if (gradation_enabled) {
-					out_fragcolor = vec4(mix(primitive_color, primitive_color2, vs_color_index), 1.0);
-				} else {
-					out_fragcolor = vec4(primitive_color, 1.0);
+					color_index = color_indices[int(vs_vertex_id) % 6];
 				}
+				out_fragcolor = vec4(primitive_color[color_index], 1.0);
 			}
 		)GLSL"
 	);
@@ -2892,12 +2886,12 @@ int main() {
 				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
 
 				for (auto& primitive : picture.primitives) {
-					glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color"), 1, glm::value_ptr(primitive.color));
+					glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color[0]"), 1, glm::value_ptr(primitive.color));
 
 					const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
 					glUniform1i(glGetUniformLocation(picture2d_gpu_program, "gradation_enabled"), (GLint) gradation_enabled);
 					if (gradation_enabled) {
-						glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color2"), 1, glm::value_ptr(primitive.color2));
+						glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color[1]"), 1, glm::value_ptr(primitive.color2));
 					}
 
 					glBindVertexArray(primitive.gpu.vao);
