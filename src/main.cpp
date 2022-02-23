@@ -2850,17 +2850,14 @@ int main() {
 			}
 
 			// render ground
-			if (field_to_render->default_area != AreaKind::NOAREA) {
-				glUseProgram(ground_gpu_program);
+			glUseProgram(ground_gpu_program);
 
-				glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(field_to_render->ground_color));
-				auto proj_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
-				glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_view_inv"), 1, false, glm::value_ptr(proj_view_inv));
+			glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(field_to_render->ground_color));
+			auto proj_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
+			glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_view_inv"), 1, false, glm::value_ptr(proj_view_inv));
 
-				glBindVertexArray(dummy_vao);
-				glDrawArrays(GL_TRIANGLES, 0, 6);
-				gpu_check_errors();
-			}
+			glBindVertexArray(dummy_vao);
+			glDrawArrays(GL_TRIANGLES, 0, 6);
 
 			// render picture
 			glUseProgram(picture2d_gpu_program);
@@ -3658,7 +3655,8 @@ TODO:
 	- use gpu program
 	- set uniforms
 	- primitives?
-- render water texture
+- render water/land texture
+- fog
 - AABB for each mesh?
 - AABB -> OBB?
 - use coll.dnm files?
