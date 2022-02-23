@@ -27,6 +27,16 @@ CPMAddPackage(
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
+	NAME             SDL_image
+	GIT_REPOSITORY   git@github.com:libsdl-org/SDL_image.git
+	GIT_TAG          fc370dc71d7726023c063618c7b04c1ed30637e2
+	GIT_SHALLOW      TRUE
+	OPTIONS
+		"SUPPORT_PNG ON"
+		"SUPPORT_JPG OFF"
+		"SUPPORT_WEBP OFF"
+)
+CPMAddPackage(
 	NAME             glm
 	GIT_REPOSITORY   git@github.com:g-truc/glm.git
 	GIT_TAG          0.9.9.8
@@ -82,6 +92,7 @@ target_link_libraries(open-ysf
 	PRIVATE
 		MoustaphaSaad::mn
 		SDL2::SDL2
+		SDL2::image
 		OpenGL::GL
 		glm
 		_glad

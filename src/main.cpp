@@ -1,6 +1,7 @@
 // without the following define, SDL will come with its main()
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#include <SDL_image.h>
 
 // don't export min/max/near/far definitions with windows.h otherwise other includes might break
 #define NOMINMAX
@@ -1042,7 +1043,7 @@ struct Camera {
 };
 
 struct CameraMatrices {
-	glm::mat4 view, projection, view_inverse, projection_inverse, projection_view;
+	glm::mat4 view, projection, view_inverse, projection_inverse, view_projection;
 };
 
 CameraMatrices camera_update(Camera& self, float delta_time) {
@@ -1099,7 +1100,7 @@ CameraMatrices camera_update(Camera& self, float delta_time) {
 		.projection =   projection,
 		.view_inverse = glm::inverse(view),
 		.projection_inverse = glm::inverse(projection),
-		.projection_view = projection * view,
+		.view_projection = projection * view,
 	};
 }
 
@@ -2338,11 +2339,6 @@ int main() {
 		GLenum regular_primitives_type = GL_TRIANGLES;
 		GLenum light_primitives_type   = GL_TRIANGLES;
 		GLenum polygon_mode            = GL_FILL;
-
-		// NOTE: some meshes are open from outside and culling would break them (hide sides as in ground/vasi.dnm)
-		bool culling_enabled = false;
-		GLenum culling_face_type = GL_BACK;
-		GLenum culling_front_face_type = GL_CCW;
 	} rendering {};
 
 	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = gpu_get_float(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
@@ -2556,27 +2552,28 @@ int main() {
 		// vertex shader
 		R"GLSL(
 			#version 330 core
-			uniform mat4 proj_view_inv;
+			uniform mat4 proj_inv_view_inv;
 
 			out vec3 vs_near_point;
 			out vec3 vs_far_point;
 
 			// grid position are in clipped space
 			vec2 grid_plane[6] = vec2[] (
-				vec2(1, 1), vec2(-1, -1), vec2(-1, 1),
-				vec2(-1, -1), vec2(1, 1), vec2(1, -1)
+				vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
+				vec2(-1, -1), vec2(1, -1), vec2(1, 1)
 			);
 
 			vec3 unproject_point(float x, float y, float z) {
-				vec4 unprojectedPoint = proj_view_inv * vec4(x, y, z, 1.0);
+				vec4 unprojectedPoint = proj_inv_view_inv * vec4(x, y, z, 1.0);
 				return unprojectedPoint.xyz / unprojectedPoint.w;
 			}
 
 			void main() {
-				vec2 p = grid_plane[gl_VertexID];
+				vec2 p        = grid_plane[gl_VertexID];
+
 				vs_near_point = unproject_point(p.x, p.y, 0.0); // unprojecting on the near plane
 				vs_far_point  = unproject_point(p.x, p.y, 1.0); // unprojecting on the far plane
-				gl_Position   = vec4(p.x, p.y, 0.0, 1.0); // using directly the clipped coordinates
+				gl_Position   = vec4(p.x, p.y, 0.0, 1.0);       // using directly the clipped coordinates
 			}
 		)GLSL",
 
@@ -2589,13 +2586,18 @@ int main() {
 			out vec4 out_fragcolor;
 
 			uniform vec3 color;
+			uniform sampler2D groundtile;
+			uniform mat4 projection;
 
 			void main() {
 				float t = -vs_near_point.y / (vs_far_point.y - vs_near_point.y);
 				if (t <= 0) {
 					discard;
 				} else {
-					out_fragcolor = vec4(color, 1.0);
+					vec3 frag_pos_3d = vs_near_point + t * (vs_far_point - vs_near_point);
+					vec4 clip_space_pos = projection * vec4(frag_pos_3d, 1.0);
+
+					out_fragcolor = vec4(texture(groundtile, clip_space_pos.xz / 600).x * color, 1.0);
 				}
 			}
 		)GLSL"
@@ -2603,13 +2605,33 @@ int main() {
 	mn_defer(gpu_program_free(ground_gpu_program));
 
 	// opengl can't call shader without VAO even if shader doesn't take input
-	// dummy_vao lets you call shader without input (coords is embedded)
+	// dummy_vao lets you call shader without input (useful when coords is embedded in shader)
 	GLuint dummy_vao;
 	glGenVertexArrays(1, &dummy_vao);
 	mn_defer({
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &dummy_vao);
 	});
+
+	// groundtile
+	SDL_Surface* groundtile = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
+	if (groundtile == nullptr || groundtile->pixels == nullptr) {
+		mn::panic("failed to load groundtile.png");
+	}
+	mn_defer(SDL_FreeSurface(groundtile));
+
+	GLuint groundtile_texture;
+	glGenTextures(1, &groundtile_texture);
+	mn_defer({
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glDeleteTextures(1, &groundtile_texture);
+	});
+	glBindTexture(GL_TEXTURE_2D, groundtile_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, groundtile->w, groundtile->h, 0, GL_RED, GL_UNSIGNED_BYTE, groundtile->pixels);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 	struct {
 		bool enabled = true;
@@ -2620,7 +2642,7 @@ int main() {
 
 		bool afterburner_reheat_enabled = false;
 		float afterburner_throttle_threshold = 0.80f;
-	} animation_config;
+	} animation_config {};
 
 	while (running) {
 		mn::memory::tmp()->clear_all();
@@ -2815,14 +2837,6 @@ int main() {
 		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
-		if (rendering.culling_enabled) {
-			glCullFace(rendering.culling_face_type);
-			glFrontFace(rendering.culling_front_face_type);
-			glEnable(GL_CULL_FACE);
-		} else {
-			glDisable(GL_CULL_FACE);
-		}
-
 		glUseProgram(meshes_gpu_program);
 
 		// render 2d pictures
@@ -2853,9 +2867,11 @@ int main() {
 			glUseProgram(ground_gpu_program);
 
 			glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(field_to_render->ground_color));
-			auto proj_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
-			glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_view_inv"), 1, false, glm::value_ptr(proj_view_inv));
+			auto proj_inv_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
+			glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_inv_view_inv"), 1, false, glm::value_ptr(proj_inv_view_inv));
+			glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "projection"), 1, false, glm::value_ptr(camera_matrices.projection));
 
+			glBindTexture(GL_TEXTURE_2D, groundtile_texture);
 			glBindVertexArray(dummy_vao);
 			glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -2872,7 +2888,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
 
-				const auto projection_view_model = camera_matrices.projection_view * model_transformation;
+				const auto projection_view_model = camera_matrices.view_projection * model_transformation;
 				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
 
 				for (auto& primitive : picture.primitives) {
@@ -2919,7 +2935,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 				model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * model_transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * model_transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
 				if (terr_mesh.gradiant.enabled) {
@@ -2956,7 +2972,7 @@ int main() {
 				}
 
 				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * mesh.transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh.transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
 
@@ -3084,7 +3100,7 @@ int main() {
 						}
 
 						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * mesh->transformation));
+						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh->transformation));
 
 						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
 
@@ -3116,7 +3132,7 @@ int main() {
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.projection_view * transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 
@@ -3133,7 +3149,7 @@ int main() {
 			for (const auto& box : box_instances) {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
-				const auto projection_view_model = camera_matrices.projection_view * transformation;
+				const auto projection_view_model = camera_matrices.view_projection * transformation;
 				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
 
 				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
@@ -3263,19 +3279,6 @@ int main() {
 				ImGui::EndDisabled();
 
 				ImGui::DragFloat("Point Size", &rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
-
-				ImGui::Checkbox("Culling", &rendering.culling_enabled);
-				ImGui::BeginDisabled(!rendering.culling_enabled);
-					MyImGui::EnumsCombo("Face To Cull", &rendering.culling_face_type, {
-						{GL_FRONT,          "GL_FRONT"},
-						{GL_BACK,           "GL_BACK"},
-						{GL_FRONT_AND_BACK, "GL_FRONT_AND_BACK"},
-					});
-					MyImGui::EnumsCombo("Front Face Orientation", &rendering.culling_front_face_type, {
-						{GL_CCW, "GL_CCW"},
-						{GL_CW,  "GL_CW"},
-					});
-				ImGui::EndDisabled();
 
 				ImGui::TreePop();
 			}
@@ -3655,7 +3658,8 @@ TODO:
 	- use gpu program
 	- set uniforms
 	- primitives?
-- render water/land texture
+- render land texture
+- render terrain texture
 - fog
 - AABB for each mesh?
 - AABB -> OBB?
