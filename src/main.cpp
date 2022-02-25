@@ -1018,90 +1018,74 @@ constexpr int  GL_CONTEXT_MAJOR = 3;
 constexpr int  GL_CONTEXT_MINOR = 3;
 constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 
+struct PerspectiveProjection {
+	float near         = 0.1f;
+	float far          = 100000;
+	float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
+	float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
+	bool custom_aspect = false;
+};
+
 struct Camera {
-	struct {
-		float movement_speed    = 1000.0f;
-		float mouse_sensitivity = 1.4;
+	float movement_speed    = 1000.0f;
+	float mouse_sensitivity = 1.4;
 
-		glm::vec3 pos      = glm::vec3{0.0f, 0.0f, 3.0f};
-		glm::vec3 front    = glm::vec3{0.0f, 0.0f, -1.0f};
-		glm::vec3 world_up = glm::vec3{0.0f, -1.0f, 0.0f};
-		glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
-		glm::vec3 up       = world_up;
+	glm::vec3 position = glm::vec3{0.0f, 0.0f, 3.0f};
+	glm::vec3 front    = glm::vec3{0.0f, 0.0f, -1.0f};
+	glm::vec3 world_up = glm::vec3{0.0f, -1.0f, 0.0f};
+	glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
+	glm::vec3 up       = world_up;
 
-		float yaw   = -90.0f / DEGREES_MAX * RADIANS_MAX;
-		float pitch = 0.0f / DEGREES_MAX * RADIANS_MAX;
-	} view;
+	float yaw   = -90.0f / DEGREES_MAX * RADIANS_MAX;
+	float pitch = 0.0f / DEGREES_MAX * RADIANS_MAX;
 
-	struct {
-		float near         = 0.1f;
-		float far          = 100000;
-		float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
-		float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
-		bool custom_aspect = false;
-	} projection;
+	glm::ivec2 last_mouse_pos;
 };
 
-struct CameraMatrices {
-	glm::mat4 view, projection, view_inverse, projection_inverse, view_projection;
-};
-
-CameraMatrices camera_update(Camera& self, float delta_time) {
+void camera_update(Camera& self, float delta_time) {
 	// move with keyboard
 	const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
-	const float velocity = self.view.movement_speed * delta_time;
+	const float velocity = self.movement_speed * delta_time;
 	if (key_pressed[SDL_SCANCODE_W]) {
-		self.view.pos += self.view.front * velocity;
+		self.position += self.front * velocity;
 	}
 	if (key_pressed[SDL_SCANCODE_S]) {
-		self.view.pos -= self.view.front * velocity;
+		self.position -= self.front * velocity;
 	}
 	if (key_pressed[SDL_SCANCODE_D]) {
-		self.view.pos += self.view.right * velocity;
+		self.position += self.right * velocity;
 	}
 	if (key_pressed[SDL_SCANCODE_A]) {
-		self.view.pos -= self.view.right * velocity;
+		self.position -= self.right * velocity;
 	}
 
 	// move with mouse
-	static glm::ivec2 mouse_before {};
 	glm::ivec2 mouse_now;
 	const auto buttons = SDL_GetMouseState(&mouse_now.x, &mouse_now.y);
 	if ((buttons & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
-		self.view.yaw   += (mouse_now.x - mouse_before.x) * self.view.mouse_sensitivity / 1000;
-		self.view.pitch -= (mouse_now.y - mouse_before.y) * self.view.mouse_sensitivity / 1000;
+		self.yaw   += (mouse_now.x - self.last_mouse_pos.x) * self.mouse_sensitivity / 1000;
+		self.pitch -= (mouse_now.y - self.last_mouse_pos.y) * self.mouse_sensitivity / 1000;
 
 		// make sure that when pitch is out of bounds, screen doesn't get flipped
 		constexpr float CAMERA_PITCH_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
-		self.view.pitch = clamp(self.view.pitch, -CAMERA_PITCH_MAX, CAMERA_PITCH_MAX);
+		self.pitch = clamp(self.pitch, -CAMERA_PITCH_MAX, CAMERA_PITCH_MAX);
 	}
-	mouse_before = mouse_now;
+	self.last_mouse_pos = mouse_now;
 
 	// update front, right and up Vectors using the updated Euler angles
-	self.view.front = glm::normalize(glm::vec3 {
-		glm::cos(self.view.yaw) * glm::cos(self.view.pitch),
-		glm::sin(self.view.pitch),
-		glm::sin(self.view.yaw) * glm::cos(self.view.pitch),
+	self.front = glm::normalize(glm::vec3 {
+		glm::cos(self.yaw) * glm::cos(self.pitch),
+		glm::sin(self.pitch),
+		glm::sin(self.yaw) * glm::cos(self.pitch),
 	});
 
 	// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
-	self.view.right = glm::normalize(glm::cross(self.view.front, self.view.world_up));
-	self.view.up    = glm::normalize(glm::cross(self.view.right, self.view.front));
+	self.right = glm::normalize(glm::cross(self.front, self.world_up));
+	self.up    = glm::normalize(glm::cross(self.right, self.front));
+}
 
-	const auto view = glm::lookAt(self.view.pos, self.view.pos + self.view.front, self.view.up);
-	const auto projection = glm::perspective(
-		self.projection.fovy,
-		self.projection.aspect,
-		self.projection.near,
-		self.projection.far
-	);
-	return CameraMatrices {
-		.view = view,
-		.projection =   projection,
-		.view_inverse = glm::inverse(view),
-		.projection_inverse = glm::inverse(projection),
-		.view_projection = projection * view,
-	};
+glm::mat4 camera_calc_view(const Camera& self) {
+	return glm::lookAt(self.position, self.position + self.front, self.up);
 }
 
 struct Block {
@@ -2297,7 +2281,8 @@ int main() {
 		model_set_start(models[i], start_infos[mod(i, start_infos.count)]);
 	}
 
-	Camera camera { .view { .pos = start_infos[1].position } };
+	Camera camera { .position = start_infos[1].position };
+	PerspectiveProjection perspective_projection {};
 
 	bool wnd_size_changed = true;
 	bool running = true;
@@ -2691,7 +2676,21 @@ int main() {
 		}
 		overlay_text = mn::strf(overlay_text, "fps: {:.2f}\n", 1.0f/delta_time);
 
-		const auto camera_matrices = camera_update(camera, delta_time);
+		camera_update(camera, delta_time);
+
+		// view+projec matrices
+		const auto view_mat = camera_calc_view(camera);
+		const auto projection_mat = glm::perspective(
+			perspective_projection.fovy,
+			perspective_projection.aspect,
+			perspective_projection.near,
+			perspective_projection.far
+		);
+
+		const auto view_inverse_mat = glm::inverse(view_mat);
+		const auto projection_inverse_mat = glm::inverse(projection_mat);
+		const auto projection_view_mat = projection_mat * view_mat;
+		const auto proj_inv_view_inv_mat = view_inverse_mat * projection_inverse_mat;
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -2733,8 +2732,8 @@ int main() {
 
 			glViewport(0, 0, w, h);
 
-			if (!camera.projection.custom_aspect) {
-				camera.projection.aspect = (float) w / h;
+			if (!perspective_projection.custom_aspect) {
+				perspective_projection.aspect = (float) w / h;
 			}
 		}
 
@@ -2893,9 +2892,8 @@ int main() {
 		// render last ground
 		glDisable(GL_DEPTH_TEST);
 		glUseProgram(ground_gpu_program);
-		auto proj_inv_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
-		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_inv_view_inv"), 1, false, glm::value_ptr(proj_inv_view_inv));
-		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "projection"), 1, false, glm::value_ptr(camera_matrices.projection));
+		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_inv_view_inv"), 1, false, glm::value_ptr(proj_inv_view_inv_mat));
+		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "projection"), 1, false, glm::value_ptr(projection_mat));
 
 		glBindTexture(GL_TEXTURE_2D, groundtile_texture);
 		glBindVertexArray(dummy_vao);
@@ -2915,9 +2913,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
-
-				const auto projection_view_model = camera_matrices.view_projection * model_transformation;
-				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_model));
+				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * model_transformation));
 
 				for (auto& primitive : picture.primitives) {
 					glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color[0]"), 1, glm::value_ptr(primitive.color));
@@ -2953,7 +2949,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * model_transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * model_transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
 				if (terr_mesh.gradiant.enabled) {
@@ -2981,7 +2977,7 @@ int main() {
 				}
 
 				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh.transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * mesh.transformation));
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
 
 				glBindVertexArray(mesh.gpu.vao);
@@ -3108,7 +3104,7 @@ int main() {
 						}
 
 						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh->transformation));
+						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * mesh->transformation));
 
 						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
 
@@ -3140,7 +3136,7 @@ int main() {
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 
@@ -3157,7 +3153,7 @@ int main() {
 			for (const auto& box : box_instances) {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
-				const auto projection_view_model = camera_matrices.view_projection * transformation;
+				const auto projection_view_model = projection_view_mat * transformation;
 				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_model));
 
 				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
@@ -3199,27 +3195,27 @@ int main() {
 
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
-					camera.projection = {};
+					perspective_projection = {};
 					wnd_size_changed = true;
 				}
 
-				ImGui::InputFloat("near", &camera.projection.near, 1, 10);
-				ImGui::InputFloat("far", &camera.projection.far, 1, 10);
-				ImGui::DragFloat("fovy (1/zoom)", &camera.projection.fovy, 1, 1, 45);
+				ImGui::InputFloat("near", &perspective_projection.near, 1, 10);
+				ImGui::InputFloat("far", &perspective_projection.far, 1, 10);
+				ImGui::DragFloat("fovy (1/zoom)", &perspective_projection.fovy, 1, 1, 45);
 
-				if (ImGui::Checkbox("custom aspect", &camera.projection.custom_aspect) && !camera.projection.custom_aspect) {
+				if (ImGui::Checkbox("custom aspect", &perspective_projection.custom_aspect) && !perspective_projection.custom_aspect) {
 					wnd_size_changed = true;
 				}
-				ImGui::BeginDisabled(!camera.projection.custom_aspect);
-					ImGui::InputFloat("aspect", &camera.projection.aspect, 1, 10);
+				ImGui::BeginDisabled(!perspective_projection.custom_aspect);
+					ImGui::InputFloat("aspect", &perspective_projection.aspect, 1, 10);
 				ImGui::EndDisabled();
 
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("View")) {
+			if (ImGui::TreeNode("Camera")) {
 				if (ImGui::Button("Reset")) {
-					camera.view = {};
+					camera = {};
 				}
 
 				static size_t start_info_index = 0;
@@ -3227,24 +3223,24 @@ int main() {
 					for (size_t j = 0; j < start_infos.count; j++) {
 						if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
 							start_info_index = j;
-							camera.view.pos = start_infos[j].position;
+							camera.position = start_infos[j].position;
 						}
 					}
 
 					ImGui::EndCombo();
 				}
 
-				ImGui::DragFloat("movement_speed", &camera.view.movement_speed, 5, 50, 1000);
-				ImGui::DragFloat("mouse_sensitivity", &camera.view.mouse_sensitivity, 1, 0.5, 10);
-				ImGui::SliderAngle("yaw", &camera.view.yaw);
-				ImGui::SliderAngle("pitch", &camera.view.pitch, -89, 89);
+				ImGui::DragFloat("movement_speed", &camera.movement_speed, 5, 50, 1000);
+				ImGui::DragFloat("mouse_sensitivity", &camera.mouse_sensitivity, 1, 0.5, 10);
+				ImGui::SliderAngle("yaw", &camera.yaw);
+				ImGui::SliderAngle("pitch", &camera.pitch, -89, 89);
 
-				ImGui::DragFloat3("front", glm::value_ptr(camera.view.front), 0.1, -1, 1);
-				ImGui::DragFloat3("pos", glm::value_ptr(camera.view.pos), 1, -100, 100);
-				ImGui::DragFloat3("world_up", glm::value_ptr(camera.view.world_up), 1, -100, 100);
+				ImGui::DragFloat3("front", glm::value_ptr(camera.front), 0.1, -1, 1);
+				ImGui::DragFloat3("pos", glm::value_ptr(camera.position), 1, -100, 100);
+				ImGui::DragFloat3("world_up", glm::value_ptr(camera.world_up), 1, -100, 100);
 				ImGui::BeginDisabled();
-					ImGui::DragFloat3("right", glm::value_ptr(camera.view.right), 1, -100, 100);
-					ImGui::DragFloat3("up", glm::value_ptr(camera.view.up), 1, -100, 100);
+					ImGui::DragFloat3("right", glm::value_ptr(camera.right), 1, -100, 100);
+					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
 				ImGui::EndDisabled();
 
 				ImGui::TreePop();
