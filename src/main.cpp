@@ -2528,7 +2528,7 @@ int main() {
 
 			void main() {
 				gl_Position = projection_view_model * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
-				vs_vertex_id = gl_VertexID;
+				vs_vertex_id = gl_VertexID % 6;
 			}
 		)GLSL",
 
@@ -2540,6 +2540,7 @@ int main() {
 
 			uniform vec3 primitive_color[2];
 			uniform bool gradation_enabled;
+			uniform sampler2D groundtile;
 
 			out vec4 out_fragcolor;
 
@@ -2548,12 +2549,16 @@ int main() {
 				0, 0, 1
 			);
 
+			vec2 tex_coords[3] = vec2[] (
+				vec2(0, 0), vec2(1, 0), vec2(1, 1)
+			);
+
 			void main() {
 				int color_index = 0;
 				if (gradation_enabled) {
-					color_index = color_indices[int(vs_vertex_id) % 6];
+					color_index = color_indices[int(vs_vertex_id)];
 				}
-				out_fragcolor = vec4(primitive_color[color_index], 1.0);
+				out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).x * vec4(primitive_color[color_index], 1.0);
 			}
 		)GLSL"
 	);
@@ -3661,7 +3666,7 @@ TODO:
 	- use gpu program
 	- set uniforms
 	- primitives?
-- render land texture
+- fix render land texture (now it's half-assed)
 - render terrain texture
 - fog
 - AABB for each mesh?
