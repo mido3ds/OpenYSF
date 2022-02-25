@@ -2218,14 +2218,14 @@ int main() {
 			layout (location = 1) in vec4 attr_color;
 			// layout (location = 2) in vec3 attr_normal;
 
-			uniform mat4 model_view_projection;
+			uniform mat4 projection_view_model;
 
 			out float vs_vertex_y;
 			out vec4 vs_color;
 			// out vec3 vs_normal;
 
 			void main() {
-				gl_Position = model_view_projection * vec4(attr_position, 1.0);
+				gl_Position = projection_view_model * vec4(attr_position, 1.0);
 				vs_color = attr_color;
 				// vs_normal = attr_normal;
 				vs_vertex_y = attr_position.y;
@@ -2426,9 +2426,9 @@ int main() {
 		R"GLSL(
 			#version 330 core
 			layout (location = 0) in vec3 attr_position;
-			uniform mat4 model_view_projection;
+			uniform mat4 projection_view_model;
 			void main() {
-				gl_Position = model_view_projection * vec4(attr_position, 1.0);
+				gl_Position = projection_view_model * vec4(attr_position, 1.0);
 			}
 		)GLSL",
 
@@ -2517,12 +2517,12 @@ int main() {
 			#version 330 core
 			layout (location = 0) in vec2 attr_position;
 
-			uniform mat4 model_view_projection;
+			uniform mat4 projection_view_model;
 
 			out float vs_vertex_id;
 
 			void main() {
-				gl_Position = model_view_projection * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
+				gl_Position = projection_view_model * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
 				vs_vertex_id = gl_VertexID;
 			}
 		)GLSL",
@@ -2907,7 +2907,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
 
 				const auto projection_view_model = camera_matrices.view_projection * model_transformation;
-				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
+				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_model));
 
 				for (auto& primitive : picture.primitives) {
 					glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color[0]"), 1, glm::value_ptr(primitive.color));
@@ -2944,7 +2944,7 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 				model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * model_transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * model_transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
 				if (terr_mesh.gradiant.enabled) {
@@ -2972,7 +2972,7 @@ int main() {
 				}
 
 				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh.transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh.transformation));
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
 
 				glBindVertexArray(mesh.gpu.vao);
@@ -3099,7 +3099,7 @@ int main() {
 						}
 
 						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh->transformation));
+						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh->transformation));
 
 						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
 
@@ -3131,7 +3131,7 @@ int main() {
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * transformation));
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * transformation));
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 
@@ -3149,7 +3149,7 @@ int main() {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
 				const auto projection_view_model = camera_matrices.view_projection * transformation;
-				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(projection_view_model));
+				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_model));
 
 				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
 
