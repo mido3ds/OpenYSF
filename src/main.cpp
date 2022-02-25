@@ -1027,6 +1027,14 @@ struct PerspectiveProjection {
 };
 
 struct Camera {
+	enum class Kind {
+		TRACKING, FLY,
+	} kind = Kind::TRACKING;
+
+	Model* model;
+	float distance_from_model = 50;
+	glm::vec3 target_up;
+
 	float movement_speed    = 1000.0f;
 	float mouse_sensitivity = 1.4;
 
@@ -1036,56 +1044,97 @@ struct Camera {
 	glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
 	glm::vec3 up       = world_up;
 
-	float yaw   = -90.0f / DEGREES_MAX * RADIANS_MAX;
+	float yaw   = 15.0f / DEGREES_MAX * RADIANS_MAX;
 	float pitch = 0.0f / DEGREES_MAX * RADIANS_MAX;
 
 	glm::ivec2 last_mouse_pos;
 };
 
 void camera_update(Camera& self, float delta_time) {
-	// move with keyboard
-	const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
-	const float velocity = self.movement_speed * delta_time;
-	if (key_pressed[SDL_SCANCODE_W]) {
-		self.position += self.front * velocity;
-	}
-	if (key_pressed[SDL_SCANCODE_S]) {
-		self.position -= self.front * velocity;
-	}
-	if (key_pressed[SDL_SCANCODE_D]) {
-		self.position += self.right * velocity;
-	}
-	if (key_pressed[SDL_SCANCODE_A]) {
-		self.position -= self.right * velocity;
-	}
+	if (self.kind == Camera::Kind::FLY) {
+		// move with keyboard
+		const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
+		const float velocity = self.movement_speed * delta_time;
+		if (key_pressed[SDL_SCANCODE_W]) {
+			self.position += self.front * velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_S]) {
+			self.position -= self.front * velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_D]) {
+			self.position += self.right * velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_A]) {
+			self.position -= self.right * velocity;
+		}
 
-	// move with mouse
-	glm::ivec2 mouse_now;
-	const auto buttons = SDL_GetMouseState(&mouse_now.x, &mouse_now.y);
-	if ((buttons & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
-		self.yaw   += (mouse_now.x - self.last_mouse_pos.x) * self.mouse_sensitivity / 1000;
-		self.pitch -= (mouse_now.y - self.last_mouse_pos.y) * self.mouse_sensitivity / 1000;
+		// move with mouse
+		glm::ivec2 mouse_now;
+		const auto buttons = SDL_GetMouseState(&mouse_now.x, &mouse_now.y);
+		if ((buttons & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
+			self.yaw   += (mouse_now.x - self.last_mouse_pos.x) * self.mouse_sensitivity / 1000;
+			self.pitch -= (mouse_now.y - self.last_mouse_pos.y) * self.mouse_sensitivity / 1000;
 
-		// make sure that when pitch is out of bounds, screen doesn't get flipped
-		constexpr float CAMERA_PITCH_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
-		self.pitch = clamp(self.pitch, -CAMERA_PITCH_MAX, CAMERA_PITCH_MAX);
+			// make sure that when pitch is out of bounds, screen doesn't get flipped
+			constexpr float CAMERA_PITCH_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
+			self.pitch = clamp(self.pitch, -CAMERA_PITCH_MAX, CAMERA_PITCH_MAX);
+		}
+		self.last_mouse_pos = mouse_now;
+
+		// update front, right and up Vectors using the updated Euler angles
+		self.front = glm::normalize(glm::vec3 {
+			glm::cos(self.yaw) * glm::cos(self.pitch),
+			glm::sin(self.pitch),
+			glm::sin(self.yaw) * glm::cos(self.pitch),
+		});
+
+		// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
+		self.right = glm::normalize(glm::cross(self.front, self.world_up));
+		self.up    = glm::normalize(glm::cross(self.right, self.front));
+	} else if (self.kind == Camera::Kind::TRACKING) {
+		const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
+		const float velocity = 0.40f * delta_time;
+		if (key_pressed[SDL_SCANCODE_U]) {
+			self.yaw += velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_M]) {
+			self.yaw -= velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_K]) {
+			self.pitch += velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_H]) {
+			self.pitch -= velocity;
+		}
+
+		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
+		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
+
+		auto model_transformation = glm::identity<glm::mat4>();
+		model_transformation = glm::translate(model_transformation, self.model->current_state.translation);
+		model_transformation = glm::rotate(model_transformation, self.model->current_state.rotation[2], glm::vec3{0, 0, 1});
+		model_transformation = glm::rotate(model_transformation, self.model->current_state.rotation[1], glm::vec3{1, 0, 0});
+		model_transformation = glm::rotate(model_transformation, self.model->current_state.rotation[0], glm::vec3{0, 1, 0});
+
+		self.target_up = glm::normalize(model_transformation * glm::vec4{0, -1, 0, 0});
+
+		self.position = model_transformation
+			* glm::rotate(self.pitch, glm::vec3{0, -1, 0})
+			* glm::rotate(self.yaw, glm::vec3{-1, 0, 0})
+			* glm::vec4{0, 0, -self.distance_from_model, 1};
+	} else {
+		mn_unreachable();
 	}
-	self.last_mouse_pos = mouse_now;
-
-	// update front, right and up Vectors using the updated Euler angles
-	self.front = glm::normalize(glm::vec3 {
-		glm::cos(self.yaw) * glm::cos(self.pitch),
-		glm::sin(self.pitch),
-		glm::sin(self.yaw) * glm::cos(self.pitch),
-	});
-
-	// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
-	self.right = glm::normalize(glm::cross(self.front, self.world_up));
-	self.up    = glm::normalize(glm::cross(self.right, self.front));
 }
 
 glm::mat4 camera_calc_view(const Camera& self) {
-	return glm::lookAt(self.position, self.position + self.front, self.up);
+	if (self.kind == Camera::Kind::FLY) {
+		return glm::lookAt(self.position, self.position + self.front, self.up);
+	} else if (self.kind == Camera::Kind::TRACKING) {
+		return glm::lookAt(self.position, self.model->current_state.translation, self.target_up);
+	} else {
+		mn_unreachable();
+	}
 }
 
 struct Block {
@@ -2281,7 +2330,10 @@ int main() {
 		model_set_start(models[i], start_infos[mod(i, start_infos.count)]);
 	}
 
-	Camera camera { .position = start_infos[1].position };
+	Camera camera {
+		.model = &models[0],
+		.position = start_infos[1].position
+	};
 	PerspectiveProjection perspective_projection {};
 
 	bool wnd_size_changed = true;
@@ -3215,33 +3267,60 @@ int main() {
 
 			if (ImGui::TreeNode("Camera")) {
 				if (ImGui::Button("Reset")) {
-					camera = {};
+					camera = { .model=camera.model };
 				}
 
-				static size_t start_info_index = 0;
-				if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
-					for (size_t j = 0; j < start_infos.count; j++) {
-						if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
-							start_info_index = j;
-							camera.position = start_infos[j].position;
+				MyImGui::EnumsCombo("Type", &camera.kind, {
+					{Camera::Kind::TRACKING, "TRACKING"},
+					{Camera::Kind::FLY, "FLY"},
+				});
+
+				if (camera.kind == Camera::Kind::FLY) {
+					static size_t start_info_index = 0;
+					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
+						for (size_t j = 0; j < start_infos.count; j++) {
+							if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
+								start_info_index = j;
+								camera.position = start_infos[j].position;
+							}
 						}
+
+						ImGui::EndCombo();
 					}
 
-					ImGui::EndCombo();
+					ImGui::DragFloat("movement_speed", &camera.movement_speed, 5, 50, 1000);
+					ImGui::DragFloat("mouse_sensitivity", &camera.mouse_sensitivity, 1, 0.5, 10);
+					ImGui::DragFloat3("world_up", glm::value_ptr(camera.world_up), 1, -100, 100);
+					ImGui::DragFloat3("front", glm::value_ptr(camera.front), 0.1, -1, 1);
+					ImGui::DragFloat3("right", glm::value_ptr(camera.right), 1, -100, 100);
+					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
+				} else if (camera.kind == Camera::Kind::TRACKING) {
+					int tracked_model_index = 0;
+					for (int i = 0; i < NUM_MODELS; i++) {
+						if (camera.model == &models[i]) {
+							tracked_model_index = i;
+							break;
+						}
+					}
+					if (ImGui::BeginCombo("Tracked Model", mn::str_tmpf("Model[{}]", tracked_model_index).ptr)) {
+						for (size_t j = 0; j < NUM_MODELS; j++) {
+							if (ImGui::Selectable(mn::str_tmpf("Model[{}]", j).ptr, j == tracked_model_index)) {
+								camera.model = &models[j];
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+
+					ImGui::DragFloat("distance", &camera.distance_from_model, 1, 0);
+				} else {
+					mn_unreachable();
 				}
 
-				ImGui::DragFloat("movement_speed", &camera.movement_speed, 5, 50, 1000);
-				ImGui::DragFloat("mouse_sensitivity", &camera.mouse_sensitivity, 1, 0.5, 10);
 				ImGui::SliderAngle("yaw", &camera.yaw);
 				ImGui::SliderAngle("pitch", &camera.pitch, -89, 89);
 
-				ImGui::DragFloat3("front", glm::value_ptr(camera.front), 0.1, -1, 1);
-				ImGui::DragFloat3("pos", glm::value_ptr(camera.position), 1, -100, 100);
-				ImGui::DragFloat3("world_up", glm::value_ptr(camera.world_up), 1, -100, 100);
-				ImGui::BeginDisabled();
-					ImGui::DragFloat3("right", glm::value_ptr(camera.right), 1, -100, 100);
-					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
-				ImGui::EndDisabled();
+				ImGui::DragFloat3("position", glm::value_ptr(camera.position), 1, -100, 100);
 
 				ImGui::TreePop();
 			}
@@ -3626,6 +3705,7 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
+- move aircraft
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
 - put lines coords in shader
@@ -3683,7 +3763,6 @@ TODO:
 	- show axis angels
 	- rotate selected
 	- move internal DNMs to resources dir
-- tracking camera (copy from jet-simulator)
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
