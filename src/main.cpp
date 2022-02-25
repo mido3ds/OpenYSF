@@ -1113,6 +1113,9 @@ struct TerrMesh {
 	mn::Str name, tag;
 	FieldID id;
 
+	// x,z
+	glm::vec2 scale = {1,1};
+
 	// [z][x] where (z=0,x=0) is bot-left most
 	mn::Buf<mn::Buf<float>> nodes_height;
 	mn::Buf<mn::Buf<Block>> blocks;
@@ -1133,7 +1136,6 @@ struct TerrMesh {
 	struct {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
-		glm::vec3 scale = {1,1,1};
 		bool visible = true;
 	} current_state, initial_state;
 };
@@ -1219,6 +1221,11 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		}
 	}
 	self.gpu.array_count = buffer.count;
+
+	for (auto& stride : buffer) {
+		stride.vertex.x *= self.scale.x;
+		stride.vertex.z *= self.scale.y;
+	}
 
 	// load buffer to gpu
 	glGenVertexArrays(1, &self.gpu.vao);
@@ -1612,11 +1619,9 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, '\n');
 
 			parser_expect(parser, "TMS ");
-			// TODO: multiply by 10?
-			terr_mesh.initial_state.scale = {1, 1, 1};
-			terr_mesh.initial_state.scale.x = parser_token_float(parser); //* 10.0f;
+			terr_mesh.scale.x = parser_token_float(parser);
 			parser_expect(parser, ' ');
-			terr_mesh.initial_state.scale.z = parser_token_float(parser); //* 10.0f;
+			terr_mesh.scale.y = parser_token_float(parser);
 			parser_expect(parser, '\n');
 
 			terr_mesh.current_state = terr_mesh.initial_state;
@@ -2943,7 +2948,6 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-				model_transformation = glm::scale(model_transformation, terr_mesh.current_state.scale);
 				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(camera_matrices.view_projection * model_transformation));
 
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
@@ -3498,7 +3502,6 @@ int main() {
 
 							ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
 
-							ImGui::DragFloat3("Scale", glm::value_ptr(terr_mesh.current_state.scale), 0.2f);
 							ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
 							MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, current_angle_max);
 
