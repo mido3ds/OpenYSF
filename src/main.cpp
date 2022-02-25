@@ -2136,6 +2136,19 @@ void field_unload_from_gpu(Field& self) {
 	}
 }
 
+mn::Buf<Field*> field_list_recursively(Field& self, mn::Allocator allocator = mn::allocator_top()) {
+	auto buf = mn::buf_with_allocator<Field*>(allocator);
+	mn::buf_push(buf, &self);
+
+	for (size_t i = 0; i < buf.count; i++) {
+		for (auto& f : buf[i]->subfields) {
+			mn::buf_push(buf, &f);
+		}
+	}
+
+	return buf;
+}
+
 int main() {
 	test_parser();
 	test_aabbs_intersection();
@@ -2831,52 +2844,63 @@ int main() {
 		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
-		glUseProgram(meshes_gpu_program);
+		const auto all_fields = field_list_recursively(field, mn::memory::tmp());
 
-		// render 2d pictures
-		auto fields_to_render = mn::buf_with_allocator<Field*>(mn::memory::tmp());
+		// transform fields
 		field.transformation = glm::identity<glm::mat4>();
-		mn::buf_push(fields_to_render, &field);
-		glDisable(GL_DEPTH_TEST);
-		while (fields_to_render.count > 0) {
-			Field* field_to_render = mn::buf_top(fields_to_render);
-			mn::buf_pop(fields_to_render);
-
-			if (field_to_render->current_state.visible == false) {
+		for (Field* fld : all_fields) {
+			if (fld->current_state.visible == false) {
 				continue;
 			}
 
-			// transform
-			field_to_render->transformation = glm::translate(field_to_render->transformation, field_to_render->current_state.translation);
-			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[2], glm::vec3{0, 0, 1});
-			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[1], glm::vec3{1, 0, 0});
-			field_to_render->transformation = glm::rotate(field_to_render->transformation, field_to_render->current_state.rotation[0], glm::vec3{0, 1, 0});
+			fld->transformation = glm::translate(fld->transformation, fld->current_state.translation);
+			fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[2], glm::vec3{0, 0, 1});
+			fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[1], glm::vec3{1, 0, 0});
+			fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[0], glm::vec3{0, 1, 0});
 
-			for (int i = (int)field_to_render->subfields.count-1; i >= 0; i--) {
-				field_to_render->subfields[i].transformation = field_to_render->transformation;
-				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
+			for (auto& subfield : fld->subfields) {
+				subfield.transformation = fld->transformation;
 			}
 
-			// render ground
-			glUseProgram(ground_gpu_program);
+			for (auto& mesh : fld->meshes) {
+				if (mesh.render_cnt_axis) {
+					mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
+				}
 
-			glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(field_to_render->ground_color));
-			auto proj_inv_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
-			glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_inv_view_inv"), 1, false, glm::value_ptr(proj_inv_view_inv));
-			glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "projection"), 1, false, glm::value_ptr(camera_matrices.projection));
+				// apply mesh transformation
+				mesh.transformation = fld->transformation;
+				mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
+				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
+				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
+				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 
-			glBindTexture(GL_TEXTURE_2D, groundtile_texture);
-			glBindVertexArray(dummy_vao);
-			glDrawArrays(GL_TRIANGLES, 0, 6);
+				if (mesh.render_pos_axis) {
+					mn::buf_push(axis_instances, mesh.transformation);
+				}
+			}
+		}
 
-			// render picture
-			glUseProgram(picture2d_gpu_program);
-			for (auto& picture : field_to_render->pictures) {
+		// render last ground
+		glDisable(GL_DEPTH_TEST);
+		glUseProgram(ground_gpu_program);
+		auto proj_inv_view_inv = camera_matrices.view_inverse * camera_matrices.projection_inverse;
+		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_inv_view_inv"), 1, false, glm::value_ptr(proj_inv_view_inv));
+		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "projection"), 1, false, glm::value_ptr(camera_matrices.projection));
+
+		glBindTexture(GL_TEXTURE_2D, groundtile_texture);
+		glBindVertexArray(dummy_vao);
+		glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(all_fields[all_fields.count-1]->ground_color));
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		// render fields pictures
+		glUseProgram(picture2d_gpu_program);
+		for (const Field* fld : all_fields) {
+			for (auto& picture : fld->pictures) {
 				if (picture.current_state.visible == false) {
 					continue;
 				}
 
-				auto model_transformation = field_to_render->transformation;
+				auto model_transformation = fld->transformation;
 				model_transformation = glm::translate(model_transformation, picture.current_state.translation);
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
@@ -2901,29 +2925,20 @@ int main() {
 		}
 		glEnable(GL_DEPTH_TEST);
 
-		// render terrains and meshes in field
-		mn::buf_push(fields_to_render, &field);
+		// render fields terrains
 		glUseProgram(meshes_gpu_program);
-		while (fields_to_render.count > 0) {
-			Field* field_to_render = mn::buf_top(fields_to_render);
-			mn::buf_pop(fields_to_render);
-
-			if (field_to_render->current_state.visible == false) {
+		glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
+		for (const Field* fld : all_fields) {
+			if (fld->current_state.visible == false) {
 				continue;
 			}
 
-			for (int i = (int)field_to_render->subfields.count-1; i >= 0; i--) {
-				mn::buf_push(fields_to_render, &field_to_render->subfields[i]);
-			}
-
-			// render terrains
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
-			for (auto& terr_mesh : field_to_render->terr_meshes) {
+			for (const auto& terr_mesh : fld->terr_meshes) {
 				if (terr_mesh.current_state.visible == false) {
 					continue;
 				}
 
-				auto model_transformation = field_to_render->transformation;
+				auto model_transformation = fld->transformation;
 				model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
@@ -2942,32 +2957,22 @@ int main() {
 				glBindVertexArray(terr_mesh.gpu.vao);
 				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
+		}
+		glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
 
-			// meshes
-			for (auto& mesh : field_to_render->meshes) {
+		// render fields meshes
+		for (const Field* fld : all_fields) {
+			if (fld->current_state.visible == false) {
+				continue;
+			}
+
+			for (const auto& mesh : fld->meshes) {
 				if (mesh.current_state.visible == false) {
 					continue;
 				}
 
-				if (mesh.render_cnt_axis) {
-					mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
-				}
-
-				// apply mesh transformation
-				mesh.transformation = field_to_render->transformation;
-				mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-
-				if (mesh.render_pos_axis) {
-					mn::buf_push(axis_instances, mesh.transformation);
-				}
-
 				// upload transofmation model
 				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "model_view_projection"), 1, false, glm::value_ptr(camera_matrices.view_projection * mesh.transformation));
-
 				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
 
 				glBindVertexArray(mesh.gpu.vao);
@@ -3617,6 +3622,7 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
+- which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
 - put lines coords in shader
 - put box coords in shader
