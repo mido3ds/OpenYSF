@@ -2544,12 +2544,12 @@ int main() {
 
 			out vec4 out_fragcolor;
 
-			int color_indices[6] = int[] (
+			const int color_indices[6] = int[] (
 				0, 1, 1,
 				0, 0, 1
 			);
 
-			vec2 tex_coords[3] = vec2[] (
+			const vec2 tex_coords[3] = vec2[] (
 				vec2(0, 0), vec2(1, 0), vec2(1, 1)
 			);
 
@@ -2575,7 +2575,7 @@ int main() {
 			out vec3 vs_far_point;
 
 			// grid position are in clipped space
-			vec2 grid_plane[6] = vec2[] (
+			const vec2 grid_plane[6] = vec2[] (
 				vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
 				vec2(-1, -1), vec2(1, -1), vec2(1, 1)
 			);
