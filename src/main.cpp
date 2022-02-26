@@ -486,6 +486,8 @@ struct Model {
 		float speed;
 	} current_state;
 
+	glm::vec3 up, front;
+
 	struct {
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 		float throttle = 0;
@@ -3055,6 +3057,11 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3{0, 1, 0});
 
+				model.up = -model_transformation[1];
+				model.front = model_transformation[2];
+
+				model.current_state.translation += model.current_state.speed * model.front;
+
 				// transform AABB (estimate new AABB after rotation)
 				{
 					// translate AABB
@@ -3404,6 +3411,7 @@ int main() {
 					ImGui::Checkbox("visible", &model.current_state.visible);
 					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
 					MyImGui::SliderAngle3("rotation", &model.current_state.rotation, current_angle_max);
+					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05, 0, 5);
 
 					ImGui::Checkbox("Render AABB", &model.render_aabb);
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.current_aabb.min));
@@ -3689,7 +3697,7 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
-- move aircraft
+- move aircraft with arrows
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
 - put lines coords in shader
