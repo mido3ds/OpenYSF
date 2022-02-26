@@ -456,7 +456,6 @@ struct Model {
 	mn::Str file_abs_path;
 	bool should_select_file;
 	bool should_load_file;
-	bool enable_rotating_around;
 
 	mn::Map<mn::Str, Mesh> meshes;
 	mn::Buf<size_t> root_meshes_indices;
@@ -1048,6 +1047,8 @@ struct Camera {
 	float pitch = 0.0f / DEGREES_MAX * RADIANS_MAX;
 
 	glm::ivec2 last_mouse_pos;
+
+	bool enable_rotating_around;
 };
 
 void camera_update(Camera& self, float delta_time) {
@@ -1105,6 +1106,10 @@ void camera_update(Camera& self, float delta_time) {
 		}
 		if (key_pressed[SDL_SCANCODE_H]) {
 			self.pitch -= velocity;
+		}
+
+		if (self.enable_rotating_around) {
+			self.pitch += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
 		}
 
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3043,11 +3048,6 @@ int main() {
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
 
 			if (model.current_state.visible) {
-				if (model.enable_rotating_around) {
-					model.current_state.rotation.x += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
-					model.current_state.rotation.y = -21.0f / DEGREES_MAX * RADIANS_MAX;
-				}
-
 				if (animation_config.afterburner_reheat_enabled && animation_config.throttle < animation_config.afterburner_throttle_threshold) {
 					animation_config.throttle = animation_config.afterburner_throttle_threshold;
 				}
@@ -3313,6 +3313,8 @@ int main() {
 					}
 
 					ImGui::DragFloat("distance", &camera.distance_from_model, 1, 0);
+
+					ImGui::Checkbox("Rotate Around", &camera.enable_rotating_around);
 				} else {
 					mn_unreachable();
 				}
@@ -3427,8 +3429,6 @@ int main() {
 
 						ImGui::EndCombo();
 					}
-
-					ImGui::Checkbox("Rotate Around", &model.enable_rotating_around);
 
 					ImGui::Checkbox("visible", &model.current_state.visible);
 					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
