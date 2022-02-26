@@ -16,19 +16,19 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(CPM)
 CPMAddPackage(
 	NAME             mn
-	GIT_REPOSITORY   git@github.com:MoustaphaSaad/mn.git
+	GIT_REPOSITORY   https://github.com/MoustaphaSaad/mn.git
 	GIT_TAG          v4.3.0
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
 	NAME             SDL2
-	GIT_REPOSITORY   git@github.com:libsdl-org/SDL.git
+	GIT_REPOSITORY   https://github.com/libsdl-org/SDL.git
 	GIT_TAG          release-2.0.16
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
 	NAME             SDL_image
-	GIT_REPOSITORY   git@github.com:libsdl-org/SDL_image.git
+	GIT_REPOSITORY   https://github.com/libsdl-org/SDL_image.git
 	GIT_TAG          fc370dc71d7726023c063618c7b04c1ed30637e2
 	GIT_SHALLOW      TRUE
 	OPTIONS
@@ -38,13 +38,13 @@ CPMAddPackage(
 )
 CPMAddPackage(
 	NAME             glm
-	GIT_REPOSITORY   git@github.com:g-truc/glm.git
+	GIT_REPOSITORY   https://github.com/g-truc/glm.git
 	GIT_TAG          0.9.9.8
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
 	NAME             portable-file-dialogs
-	GIT_REPOSITORY   git@github.com:samhocevar/portable-file-dialogs.git
+	GIT_REPOSITORY   https://github.com/samhocevar/portable-file-dialogs.git
 	GIT_TAG          0.1.0
 	GIT_SHALLOW      TRUE
 )
