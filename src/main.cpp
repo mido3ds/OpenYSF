@@ -20,6 +20,21 @@
 #include "parser.hpp"
 #include "math.hpp"
 
+constexpr auto WND_TITLE        = "OpenYSF";
+constexpr int  WND_INIT_WIDTH   = 1028;
+constexpr int  WND_INIT_HEIGHT  = 680;
+constexpr Uint32 WND_FLAGS      = SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED;
+constexpr float IMGUI_WNDS_BG_ALPHA = 0.8f;
+constexpr glm::vec3 CORNFLOWER_BLU_COLOR {0.392f, 0.584f, 0.929f};
+
+constexpr auto GL_CONTEXT_PROFILE = SDL_GL_CONTEXT_PROFILE_CORE;
+constexpr int  GL_CONTEXT_MAJOR = 3;
+constexpr int  GL_CONTEXT_MINOR = 3;
+constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
+
+constexpr float PROPOLLER_MAX_ANGLE_SPEED = 5.0f / DEGREES_MAX * RADIANS_MAX;
+constexpr float AFTERBURNER_THROTTLE_THRESHOLD = 0.80f;
+
 struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
@@ -469,9 +484,13 @@ struct Model {
 		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
 		float speed;
-		float throttle;
-		bool landing_gear_is_out = true;
 	} current_state;
+
+	struct {
+		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
+		float throttle = 0;
+		bool afterburner_reheat_enabled = false;
+	} control;
 };
 
 void model_load_to_gpu(Model& self) {
@@ -489,8 +508,8 @@ void model_unload_from_gpu(Model& self) {
 void model_set_start(Model& self, StartInfo& start_info) {
 	self.current_state.translation = start_info.position;
 	self.current_state.rotation = start_info.attitude;
-	self.current_state.landing_gear_is_out = start_info.landing_gear_is_out;
-	self.current_state.throttle = start_info.throttle;
+	self.control.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
+	self.control.throttle = start_info.throttle;
 	self.current_state.speed = start_info.speed;
 }
 
@@ -1004,18 +1023,6 @@ void model_free(Model& self) {
 void destruct(Model& self) {
 	model_free(self);
 }
-
-constexpr auto WND_TITLE        = "OpenYSF";
-constexpr int  WND_INIT_WIDTH   = 1028;
-constexpr int  WND_INIT_HEIGHT  = 680;
-constexpr Uint32 WND_FLAGS      = SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED;
-constexpr float IMGUI_WNDS_BG_ALPHA = 0.8f;
-constexpr glm::vec3 CORNFLOWER_BLU_COLOR {0.392f, 0.584f, 0.929f};
-
-constexpr auto GL_CONTEXT_PROFILE = SDL_GL_CONTEXT_PROFILE_CORE;
-constexpr int  GL_CONTEXT_MAJOR = 3;
-constexpr int  GL_CONTEXT_MINOR = 3;
-constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 
 struct PerspectiveProjection {
 	float near         = 0.1f;
@@ -2692,17 +2699,6 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-	struct {
-		bool enabled = true;
-		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
-
-		float throttle = 0;
-		float propoller_max_angle_speed = 5.0f / DEGREES_MAX * RADIANS_MAX;
-
-		bool afterburner_reheat_enabled = false;
-		float afterburner_throttle_threshold = 0.80f;
-	} animation_config {};
-
 	while (running) {
 		mn::memory::tmp()->clear_all();
 
@@ -3048,8 +3044,8 @@ int main() {
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
 
 			if (model.current_state.visible) {
-				if (animation_config.afterburner_reheat_enabled && animation_config.throttle < animation_config.afterburner_throttle_threshold) {
-					animation_config.throttle = animation_config.afterburner_throttle_threshold;
+				if (model.control.afterburner_reheat_enabled && model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+					model.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 				}
 
 				// apply model transformation
@@ -3103,26 +3099,24 @@ int main() {
 					mn_assert(mesh);
 					mn::buf_pop(meshes_stack);
 
-					if (animation_config.enabled) {
-						if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-							mesh->current_state.rotation.x += animation_config.throttle * animation_config.propoller_max_angle_speed;
-						}
-
-						if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.count > 1) {
-							// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
-							const MeshState& state_up   = mesh->animation_states[0];
-							const MeshState& state_down = mesh->animation_states[1];
-							const auto& alpha = animation_config.landing_gear_alpha;
-
-							mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
-							mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
-
-							float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
-							mesh->current_state.visible = visibilty > 0.05;;
-						}
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
 					}
 
-					const bool enable_high_throttle = almost_equal(animation_config.throttle, 1.0f);
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.count > 1) {
+						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
+						const MeshState& state_up   = mesh->animation_states[0];
+						const MeshState& state_down = mesh->animation_states[1];
+						const auto& alpha = model.control.landing_gear_alpha;
+
+						mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
+						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
+
+						float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
+						mesh->current_state.visible = visibilty > 0.05;;
+					}
+
+					const bool enable_high_throttle = almost_equal(model.control.throttle, 1.0f);
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
 						continue;
 					}
@@ -3131,11 +3125,11 @@ int main() {
 					}
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-						if (animation_config.afterburner_reheat_enabled == false) {
+						if (model.control.afterburner_reheat_enabled == false) {
 							continue;
 						}
 
-						if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
+						if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 							continue;
 						}
 					}
@@ -3379,29 +3373,6 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Animation")) {
-				ImGui::Checkbox("Enabled", &animation_config.enabled);
-				if (ImGui::Button("Reset")) {
-					animation_config = {};
-				}
-
-				ImGui::BeginDisabled(animation_config.enabled == false);
-					ImGui::DragFloat("Landing Gear", &animation_config.landing_gear_alpha, 0.01, 0, 1);
-					if (ImGui::SliderFloat("Throttle", &animation_config.throttle, 0.0f, 1.0f)) {
-						if (animation_config.throttle < animation_config.afterburner_throttle_threshold) {
-							animation_config.afterburner_reheat_enabled = false;
-						}
-					}
-					MyImGui::SliderAngle("Propoller Max Speed", &animation_config.propoller_max_angle_speed, current_angle_max);
-
-					ImGui::NewLine();
-					ImGui::Text("Afterburner Reheat");
-					ImGui::Checkbox("Enable", &animation_config.afterburner_reheat_enabled);
-					ImGui::SliderFloat("Threshold", &animation_config.afterburner_throttle_threshold, 0.0f, 1.0f);
-				ImGui::EndDisabled();
-				ImGui::TreePop();
-			}
-
 			for (int i = 0; i < NUM_MODELS; i++) {
 				Model& model = models[i];
 				if (ImGui::TreeNode(mn::str_tmpf("Model {}", i).ptr)) {
@@ -3438,6 +3409,23 @@ int main() {
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.current_aabb.min));
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.current_aabb.max));
 
+					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
+						if (ImGui::Button("Reset")) {
+							model.control = {};
+						}
+
+						ImGui::DragFloat("Landing Gear", &model.control.landing_gear_alpha, 0.01, 0, 1);
+						if (ImGui::SliderFloat("Throttle", &model.control.throttle, 0.0f, 1.0f)) {
+							if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+								model.control.afterburner_reheat_enabled = false;
+							}
+						}
+
+						ImGui::Checkbox("Afterburner Reheat", &model.control.afterburner_reheat_enabled);
+
+						ImGui::TreePop();
+					}
+
 					size_t light_sources_count = 0;
 					for (const auto& [_, mesh] : model.meshes.values) {
 						if (mesh.is_light_source) {
@@ -3449,16 +3437,14 @@ int main() {
 						model.root_meshes_indices.count, light_sources_count).ptr);
 
 					std::function<void(Mesh&)> render_mesh_ui;
-					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max, animation_config](Mesh& mesh) {
+					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max](Mesh& mesh) {
 						if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
 							if (ImGui::Button("Reset")) {
 								mesh.current_state = mesh.initial_state;
 							}
 
 							ImGui::Checkbox("light source", &mesh.is_light_source);
-							ImGui::BeginDisabled(animation_config.enabled);
-								ImGui::Checkbox("visible", &mesh.current_state.visible);
-							ImGui::EndDisabled();
+							ImGui::Checkbox("visible", &mesh.current_state.visible);
 
 							ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
 							ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
@@ -3467,10 +3453,8 @@ int main() {
 								ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
 							ImGui::EndDisabled();
 
-							ImGui::BeginDisabled(animation_config.enabled);
-								ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
-								MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, current_angle_max);
-							ImGui::EndDisabled();
+							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
+							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, current_angle_max);
 
 							ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
 
@@ -3749,7 +3733,6 @@ TODO:
 - AABB -> OBB?
 - use coll.dnm files?
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
-- move from animation_config to Model
 - animate landing gear transition in real time (no alpha)
 - axis
 	- better shader
