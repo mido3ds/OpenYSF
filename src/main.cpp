@@ -3665,7 +3665,7 @@ int main() {
 			};
 			const ImVec2 window_pos_pivot { 1.0f, 0.0f };
 			ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-			ImGui::SetNextWindowSize(ImVec2 {220, 0}, ImGuiCond_Always);
+			ImGui::SetNextWindowSize(ImVec2 {300, 0}, ImGuiCond_Always);
 			ImGui::SetNextWindowBgAlpha(0.35f);
 		}
 		if (ImGui::Begin("Overlay Info", nullptr, ImGuiWindowFlags_NoDecoration
