@@ -9,8 +9,6 @@
 #include <glm/ext/matrix_clip_space.hpp> // glm::perspective
 #include <glm/gtc/type_ptr.hpp> // glm::value_ptr
 
-#include <glm/gtx/transform.hpp> // glm::rotate
-
 // YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
 constexpr float YS_MAX      = 0xFFFF;
 constexpr float RADIANS_MAX = 6.283185307179586f;

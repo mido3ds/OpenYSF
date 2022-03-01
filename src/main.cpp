@@ -1132,10 +1132,9 @@ void camera_update(Camera& self, float delta_time) {
 
 		self.target_up = glm::normalize(model_transformation * glm::vec4{0, -1, 0, 0});
 
-		self.position = model_transformation
-			* glm::rotate(self.pitch, glm::vec3{0, -1, 0})
-			* glm::rotate(self.yaw, glm::vec3{-1, 0, 0})
-			* glm::vec4{0, 0, -self.distance_from_model, 1};
+		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
+		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
+		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
 	} else {
 		mn_unreachable();
 	}
