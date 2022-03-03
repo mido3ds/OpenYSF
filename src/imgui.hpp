@@ -36,9 +36,12 @@ namespace MyImGui {
 		*radians = angle / angle_max * RADIANS_MAX;
 	}
 
-	void SliderAngle3(const char* label, glm::vec3* radians, float angle_max) {
+	bool SliderAngle3(const char* label, glm::vec3* radians, float angle_max) {
 		glm::vec3 angle = *radians / RADIANS_MAX * angle_max;
-		ImGui::DragFloat3(label, glm::value_ptr(angle), 0.01f * angle_max, -angle_max, angle_max);
-		*radians = angle / angle_max * RADIANS_MAX;
+		const bool changed = ImGui::DragFloat3(label, glm::value_ptr(angle), 0.01f * angle_max, -angle_max, angle_max);
+		if (changed) {
+			*radians = angle / angle_max * RADIANS_MAX;
+		}
+		return changed;
 	}
 }

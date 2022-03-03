@@ -486,7 +486,7 @@ struct Model {
 		float speed;
 	} current_state;
 
-	glm::vec3 up, front;
+	glm::vec3 up {0, -1, 0}, front {0, 0, 1};
 
 	struct {
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
@@ -513,6 +513,20 @@ void model_set_start(Model& self, StartInfo& start_info) {
 	self.control.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.control.throttle = start_info.throttle;
 	self.current_state.speed = start_info.speed;
+}
+
+glm::mat4 model_calc_trans(const Model& self) {
+	const auto right = glm::cross(self.up, self.front);
+	const auto& up = self.up;
+	const auto& front = self.front;
+	const auto& pos = self.current_state.translation;
+
+	return glm::mat4(
+		-right.x, -right.y, -right.z, 0.0f,
+		-up.x,    -up.y,    -up.z,    0.0f,
+		+front.x, +front.y, +front.z, 0.0f,
+		pos.x,     pos.y,    pos.z,   1.0f
+	);
 }
 
 Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version = 1) {
@@ -1041,7 +1055,6 @@ struct Camera {
 
 	Model* model;
 	float distance_from_model = 50;
-	glm::vec3 target_up;
 
 	float movement_speed    = 1000.0f;
 	float mouse_sensitivity = 1.4;
@@ -1124,13 +1137,7 @@ void camera_update(Camera& self, float delta_time) {
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
 		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
 
-		auto model_transformation = glm::identity<glm::mat4>();
-		model_transformation = glm::translate(model_transformation, self.model->current_state.translation);
-		model_transformation = glm::rotate(model_transformation, self.model->current_state.rotation[2], glm::vec3{0, 0, 1});
-		model_transformation = glm::rotate(model_transformation, self.model->current_state.rotation[1], glm::vec3{1, 0, 0});
-		model_transformation = glm::rotate(model_transformation, self.model->current_state.rotation[0], glm::vec3{0, 1, 0});
-
-		self.target_up = glm::normalize(model_transformation * glm::vec4{0, -1, 0, 0});
+		auto model_transformation = model_calc_trans(*self.model);
 
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
@@ -1144,7 +1151,7 @@ glm::mat4 camera_calc_view(const Camera& self) {
 	if (self.kind == Camera::Kind::FLY) {
 		return glm::lookAt(self.position, self.position + self.front, self.up);
 	} else if (self.kind == Camera::Kind::TRACKING) {
-		return glm::lookAt(self.position, self.model->current_state.translation, self.target_up);
+		return glm::lookAt(self.position, self.model->current_state.translation, self.model->up);
 	} else {
 		mn_unreachable();
 	}
@@ -3050,15 +3057,7 @@ int main() {
 				}
 
 				// apply model transformation
-				auto model_transformation = glm::identity<glm::mat4>();
-				model_transformation = glm::translate(model_transformation, model.current_state.translation);
-				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[2], glm::vec3{0, 0, 1});
-				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[1], glm::vec3{1, 0, 0});
-				model_transformation = glm::rotate(model_transformation, model.current_state.rotation[0], glm::vec3{0, 1, 0});
-
-				model.up = -model_transformation[1];
-				model.front = model_transformation[2];
-
+				const auto model_transformation = model_calc_trans(model);
 				model.current_state.translation += model.current_state.speed * model.front;
 
 				// transform AABB (estimate new AABB after rotation)
@@ -3409,7 +3408,24 @@ int main() {
 
 					ImGui::Checkbox("visible", &model.current_state.visible);
 					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
-					MyImGui::SliderAngle3("rotation", &model.current_state.rotation, current_angle_max);
+
+					auto now_rotation = model.current_state.rotation;
+					if (MyImGui::SliderAngle3("rotation", &now_rotation, current_angle_max)) {
+						const auto delta_rotation = now_rotation - model.current_state.rotation;
+
+						auto right = glm::cross(model.up, model.front);
+
+						const glm::mat3 yaw = glm::rotate(delta_rotation.x, model.up);
+						right = yaw * right;
+						const glm::mat3 pitch = glm::rotate(delta_rotation.y, right);
+						model.front = pitch * yaw * model.front;
+						const glm::mat3 roll = glm::rotate(delta_rotation.z, model.front);
+						right = roll * right;
+						model.up = glm::cross(model.front, right);
+
+						model.current_state.rotation = now_rotation;
+					}
+
 					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05, 0, 5);
 
 					ImGui::Checkbox("Render AABB", &model.render_aabb);
