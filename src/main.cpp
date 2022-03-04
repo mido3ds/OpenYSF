@@ -2773,6 +2773,7 @@ int main() {
 		const auto proj_inv_view_inv_mat = view_inverse_mat * projection_inverse_mat;
 
 		SDL_Event event;
+		bool pressed_tab = false;
 		while (SDL_PollEvent(&event)) {
 			ImGui_ImplSDL2_ProcessEvent(&event);
 
@@ -2780,6 +2781,9 @@ int main() {
 				switch (event.key.keysym.sym) {
 				case SDLK_ESCAPE:
 					running = false;
+					break;
+				case SDLK_TAB:
+					pressed_tab = true;
 					break;
 				case 'f':
 					fullscreen = !fullscreen;
@@ -3071,10 +3075,6 @@ int main() {
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
 
 			if (model.current_state.visible) {
-				if (model.control.afterburner_reheat_enabled && model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-					model.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
-				}
-
 				// apply model transformation
 				const auto model_transformation = model_calc_trans(model);
 
@@ -3101,8 +3101,11 @@ int main() {
 				}
 				model_rotate(model, delta_rotation);
 
-				if (key_pressed[SDL_SCANCODE_TAB]) {
+				if (pressed_tab) {
 					model.control.afterburner_reheat_enabled = ! model.control.afterburner_reheat_enabled;
+				}
+				if (model.control.afterburner_reheat_enabled && model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+					model.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 				}
 
 				if (key_pressed[SDL_SCANCODE_Q]) {
@@ -3761,10 +3764,8 @@ bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
-- TAB desn't work (can't detect TAB)
 
 TODO:
-- name up in model to down
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
 - put lines coords in shader
