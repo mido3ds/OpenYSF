@@ -35,6 +35,9 @@ constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 constexpr float PROPOLLER_MAX_ANGLE_SPEED = 5.0f / DEGREES_MAX * RADIANS_MAX;
 constexpr float AFTERBURNER_THROTTLE_THRESHOLD = 0.80f;
 
+constexpr float MIN_SPEED = 0.0f;
+constexpr float MAX_SPEED = 50.0f;
+
 struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
@@ -3077,20 +3080,42 @@ int main() {
 				constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
 				if (key_pressed[SDL_SCANCODE_DOWN]) {
 					delta_rotation.y -= ROTATE_SPEED * delta_time;
-				} else if (key_pressed[SDL_SCANCODE_UP]) {
+				}
+				if (key_pressed[SDL_SCANCODE_UP]) {
 					delta_rotation.y += ROTATE_SPEED * delta_time;
-				} else if (key_pressed[SDL_SCANCODE_LEFT]) {
+				}
+				if (key_pressed[SDL_SCANCODE_LEFT]) {
 					delta_rotation.x -= ROTATE_SPEED * delta_time;
-				} else if (key_pressed[SDL_SCANCODE_RIGHT]) {
+				}
+				if (key_pressed[SDL_SCANCODE_RIGHT]) {
 					delta_rotation.x += ROTATE_SPEED * delta_time;
-				} else if (key_pressed[SDL_SCANCODE_C]) {
+				}
+				if (key_pressed[SDL_SCANCODE_C]) {
 					delta_rotation.z -= ROTATE_SPEED * delta_time;
-				} else if (key_pressed[SDL_SCANCODE_Z]) {
+				}
+				if (key_pressed[SDL_SCANCODE_Z]) {
 					delta_rotation.z += ROTATE_SPEED * delta_time;
 				}
 				model_rotate(model, delta_rotation);
 
-				model.current_state.translation += model.current_state.speed * model.current_state.front;
+				if (key_pressed[SDL_SCANCODE_TAB]) {
+					model.control.afterburner_reheat_enabled = ! model.control.afterburner_reheat_enabled;
+				}
+
+				if (key_pressed[SDL_SCANCODE_Q]) {
+					model.control.throttle += 0.1f * delta_time;
+				}
+				if (key_pressed[SDL_SCANCODE_A]) {
+					model.control.throttle -= 0.1f * delta_time;
+				}
+
+				model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
+				model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
+				if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+					model.control.afterburner_reheat_enabled = false;
+				}
+
+				model.current_state.translation += ((float)delta_time * model.current_state.speed) * model.current_state.front;
 
 				// transform AABB (estimate new AABB after rotation)
 				{
@@ -3446,7 +3471,7 @@ int main() {
 						model_rotate(model, now_rotation - model.current_state.rotation);
 					}
 
-					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05, 0, 5);
+					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
 
 					ImGui::Checkbox("Render AABB", &model.render_aabb);
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.current_aabb.min));
@@ -3458,11 +3483,7 @@ int main() {
 						}
 
 						ImGui::DragFloat("Landing Gear", &model.control.landing_gear_alpha, 0.01, 0, 1);
-						if (ImGui::SliderFloat("Throttle", &model.control.throttle, 0.0f, 1.0f)) {
-							if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-								model.control.afterburner_reheat_enabled = false;
-							}
-						}
+						ImGui::SliderFloat("Throttle", &model.control.throttle, 0.0f, 1.0f);
 
 						ImGui::Checkbox("Afterburner Reheat", &model.control.afterburner_reheat_enabled);
 
@@ -3730,9 +3751,10 @@ bugs:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
+- TAB desn't work (can't detect TAB)
+- camera pos always gets changed after some time
 
 TODO:
-- control speed with Q-A-Tab
 - name up in model to down
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
