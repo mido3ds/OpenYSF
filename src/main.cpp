@@ -528,6 +528,9 @@ void model_rotate(Model& self, glm::vec3 delta_rotation) {
 	right = roll * right;
 	self.current_state.up = glm::cross(self.current_state.front, right);
 
+	self.current_state.front = glm::normalize(self.current_state.front);
+	self.current_state.up = glm::normalize(self.current_state.up);
+
 	self.current_state.rotation += delta_rotation;
 }
 
@@ -2631,7 +2634,7 @@ int main() {
 				if (gradation_enabled) {
 					color_index = color_indices[int(vs_vertex_id)];
 				}
-				out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).x * vec4(primitive_color[color_index], 1.0);
+				out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).r * vec4(primitive_color[color_index], 1.0);
 			}
 		)GLSL"
 	);
@@ -3471,6 +3474,13 @@ int main() {
 						model_rotate(model, now_rotation - model.current_state.rotation);
 					}
 
+					ImGui::BeginDisabled();
+					auto x = glm::cross(model.current_state.up, model.current_state.front);
+					ImGui::DragFloat3("right", glm::value_ptr(x));
+					ImGui::DragFloat3("up", glm::value_ptr(model.current_state.up));
+					ImGui::DragFloat3("front", glm::value_ptr(model.current_state.front));
+					ImGui::EndDisabled();
+
 					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
 
 					ImGui::Checkbox("Render AABB", &model.render_aabb);
@@ -3752,7 +3762,6 @@ bugs:
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
 - TAB desn't work (can't detect TAB)
-- camera pos always gets changed after some time
 
 TODO:
 - name up in model to down
