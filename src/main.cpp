@@ -484,9 +484,8 @@ struct Model {
 		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
 		float speed;
+		glm::vec3 up {0, -1, 0}, front {0, 0, 1};
 	} current_state;
-
-	glm::vec3 up {0, -1, 0}, front {0, 0, 1};
 
 	struct {
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
@@ -515,10 +514,24 @@ void model_set_start(Model& self, StartInfo& start_info) {
 	self.current_state.speed = start_info.speed;
 }
 
+void model_rotate(Model& self, glm::vec3 delta_rotation) {
+	auto right = glm::cross(self.current_state.up, self.current_state.front);
+
+	const glm::mat3 yaw = glm::rotate(delta_rotation.z, self.current_state.up);
+	right = yaw * right;
+	const glm::mat3 pitch = glm::rotate(delta_rotation.y, right);
+	self.current_state.front = pitch * yaw * self.current_state.front;
+	const glm::mat3 roll = glm::rotate(delta_rotation.x, self.current_state.front);
+	right = roll * right;
+	self.current_state.up = glm::cross(self.current_state.front, right);
+
+	self.current_state.rotation += delta_rotation;
+}
+
 glm::mat4 model_calc_trans(const Model& self) {
-	const auto right = glm::cross(self.up, self.front);
-	const auto& up = self.up;
-	const auto& front = self.front;
+	const auto right = glm::cross(self.current_state.up, self.current_state.front);
+	const auto& up = self.current_state.up;
+	const auto& front = self.current_state.front;
 	const auto& pos = self.current_state.translation;
 
 	return glm::mat4(
@@ -1151,7 +1164,7 @@ glm::mat4 camera_calc_view(const Camera& self) {
 	if (self.kind == Camera::Kind::FLY) {
 		return glm::lookAt(self.position, self.position + self.front, self.up);
 	} else if (self.kind == Camera::Kind::TRACKING) {
-		return glm::lookAt(self.position, self.model->current_state.translation, self.model->up);
+		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.up);
 	} else {
 		mn_unreachable();
 	}
@@ -3058,7 +3071,26 @@ int main() {
 
 				// apply model transformation
 				const auto model_transformation = model_calc_trans(model);
-				model.current_state.translation += model.current_state.speed * model.front;
+
+				glm::vec3 delta_rotation {};
+				const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
+				constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
+				if (key_pressed[SDL_SCANCODE_DOWN]) {
+					delta_rotation.y -= ROTATE_SPEED * delta_time;
+				} else if (key_pressed[SDL_SCANCODE_UP]) {
+					delta_rotation.y += ROTATE_SPEED * delta_time;
+				} else if (key_pressed[SDL_SCANCODE_LEFT]) {
+					delta_rotation.x -= ROTATE_SPEED * delta_time;
+				} else if (key_pressed[SDL_SCANCODE_RIGHT]) {
+					delta_rotation.x += ROTATE_SPEED * delta_time;
+				} else if (key_pressed[SDL_SCANCODE_C]) {
+					delta_rotation.z -= ROTATE_SPEED * delta_time;
+				} else if (key_pressed[SDL_SCANCODE_Z]) {
+					delta_rotation.z += ROTATE_SPEED * delta_time;
+				}
+				model_rotate(model, delta_rotation);
+
+				model.current_state.translation += model.current_state.speed * model.current_state.front;
 
 				// transform AABB (estimate new AABB after rotation)
 				{
@@ -3411,19 +3443,7 @@ int main() {
 
 					auto now_rotation = model.current_state.rotation;
 					if (MyImGui::SliderAngle3("rotation", &now_rotation, current_angle_max)) {
-						const auto delta_rotation = now_rotation - model.current_state.rotation;
-
-						auto right = glm::cross(model.up, model.front);
-
-						const glm::mat3 yaw = glm::rotate(delta_rotation.x, model.up);
-						right = yaw * right;
-						const glm::mat3 pitch = glm::rotate(delta_rotation.y, right);
-						model.front = pitch * yaw * model.front;
-						const glm::mat3 roll = glm::rotate(delta_rotation.z, model.front);
-						right = roll * right;
-						model.up = glm::cross(model.front, right);
-
-						model.current_state.rotation = now_rotation;
+						model_rotate(model, now_rotation - model.current_state.rotation);
 					}
 
 					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05, 0, 5);
@@ -3712,7 +3732,8 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
-- move aircraft with arrows
+- control speed with Q-A-Tab
+- name up in model to down
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
 - put lines coords in shader
