@@ -2502,6 +2502,12 @@ int main() {
 		gpu_check_errors();
 	}
 
+	struct {
+		bool enabled = true;
+		glm::vec2 position {-0.9f, -0.8f};
+		float scale = 0.48f;
+	} world_axis;
+
 	auto lines_gpu_program = gpu_program_new(
 		// vertex shader
 		R"GLSL(
@@ -3257,6 +3263,25 @@ int main() {
 			glEnable(GL_DEPTH_TEST);
 		}
 
+		if (world_axis.enabled) {
+			glDisable(GL_DEPTH_TEST);
+
+			glEnable(GL_LINE_SMOOTH);
+			glLineWidth(axis_rendering.line_width);
+
+			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
+			glBindVertexArray(axis_rendering.vao);
+
+			auto new_view_mat = view_mat;
+			new_view_mat[3] = glm::vec4{0, 0, ((1 - world_axis.scale) * -39) - 1, 1};
+			auto trans = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world_axis.position.x, world_axis.position.y, 0});
+
+			glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(trans * projection_mat * new_view_mat));
+			glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
+
+			glEnable(GL_DEPTH_TEST);
+		}
+
 		// render boxes
 		if (box_instances.count > 0) {
 			glUseProgram(lines_gpu_program);
@@ -3433,6 +3458,15 @@ int main() {
 			if (ImGui::TreeNode("Axis Rendering")) {
 				ImGui::Checkbox("On Top", &axis_rendering.on_top);
 				ImGui::DragFloat("Line Width", &axis_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+
+				ImGui::BulletText("World Axis:");
+				if (ImGui::Button("Reset")) {
+					world_axis = {};
+				}
+				ImGui::Checkbox("Enabled", &world_axis.enabled);
+				ImGui::DragFloat2("Position", glm::value_ptr(world_axis.position), 0.05, -1, 1);
+				ImGui::DragFloat("Scale", &world_axis.scale, .05, 0, 1);
+
 				ImGui::TreePop();
 			}
 
