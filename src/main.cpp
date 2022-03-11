@@ -38,6 +38,8 @@ constexpr float AFTERBURNER_THROTTLE_THRESHOLD = 0.80f;
 constexpr float MIN_SPEED = 0.0f;
 constexpr float MAX_SPEED = 50.0f;
 
+constexpr float ZL_SCALE = 0.151f;
+
 struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
@@ -263,7 +265,7 @@ struct Mesh {
 	mn::Buf<bool> vertices_has_smooth_shading; // ???
 	mn::Buf<Face> faces;
 	mn::Buf<uint64_t> gfs; // ???
-	mn::Buf<uint64_t> zls; // ids of faces to create a sprite at the center of (???)
+	mn::Buf<uint64_t> zls; // ids of faces to create a light sprite at the center of them
 	mn::Buf<uint64_t> zzs; // ???
 	mn::Buf<mn::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
 	mn::Buf<MeshState> animation_states; // STA
@@ -2226,6 +2228,10 @@ mn::Buf<Field*> field_list_recursively(Field& self, mn::Allocator allocator = mn
 	return buf;
 }
 
+struct ZLPoint {
+	glm::vec3 center, color;
+};
+
 int main() {
 	test_parser();
 	test_aabbs_intersection();
@@ -2732,6 +2738,68 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+	auto sprite_gpu_program = gpu_program_new(
+		// vertex shader
+		R"GLSL(
+			#version 330 core
+			uniform mat4 projection_view_model;
+
+			out vec2 vs_tex_coord;
+
+			const vec2 quad[6] = vec2[] (
+				vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
+				vec2(-1, -1), vec2(1, -1), vec2(1, 1)
+			);
+
+			const vec2 tex_coords[6] = vec2[] (
+				vec2(1, 1), vec2(0, 1), vec2(0, 0),
+				vec2(0, 0), vec2(1, 0), vec2(1, 1)
+			);
+
+			void main() {
+				gl_Position = projection_view_model * vec4(quad[gl_VertexID], 0, 1);
+				vs_tex_coord = tex_coords[gl_VertexID];
+			}
+		)GLSL",
+
+		// fragment shader
+		R"GLSL(
+			#version 330 core
+			in vec2 vs_tex_coord;
+
+			out vec4 out_fragcolor;
+
+			uniform sampler2D quad_texture;
+			uniform vec3 color;
+
+			void main() {
+				// out_fragcolor = vec4(1, 0, 0, 1);
+				out_fragcolor = texture(quad_texture, vs_tex_coord).r * vec4(color, 1);
+			}
+		)GLSL"
+	);
+	mn_defer(gpu_program_free(sprite_gpu_program));
+
+	// zl_sprite
+	SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
+	if (zl_sprite == nullptr || zl_sprite->pixels == nullptr) {
+		mn::panic("failed to load rwlight.png");
+	}
+	mn_defer(SDL_FreeSurface(zl_sprite));
+
+	GLuint zl_sprite_texture;
+	glGenTextures(1, &zl_sprite_texture);
+	mn_defer({
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glDeleteTextures(1, &zl_sprite_texture);
+	});
+	glBindTexture(GL_TEXTURE_2D, zl_sprite_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, zl_sprite->w, zl_sprite->h, 0, GL_RED, GL_UNSIGNED_INT, zl_sprite->pixels);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
 	while (running) {
 		mn::memory::tmp()->clear_all();
 
@@ -3075,6 +3143,8 @@ int main() {
 			}
 		}
 
+		auto zlpoints = mn::buf_with_allocator<ZLPoint>(mn::memory::tmp());
+
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
@@ -3238,13 +3308,40 @@ int main() {
 							child_mesh->transformation = mesh->transformation;
 							mn::buf_push(meshes_stack, child_mesh);
 						}
+
+						// ZL
+						for (size_t zlid : mesh->zls) {
+							Face& face = mesh->faces[zlid];
+							mn::buf_push(zlpoints, ZLPoint {
+								.center = model_transformation * glm::vec4(face.center, 1.0f),
+								.color = face.color
+							});
+						}
 					}
 				}
 			}
 		}
 
+		if (zlpoints.count > 0) {
+			auto model_transformation = glm::mat4(glm::mat3(view_inverse_mat)) * glm::scale(glm::vec3{ZL_SCALE, ZL_SCALE, 0});
+
+			glUseProgram(sprite_gpu_program);
+			glBindTexture(GL_TEXTURE_2D, zl_sprite_texture);
+			glBindVertexArray(dummy_vao);
+
+			for (const auto& zlpoint : zlpoints) {
+				model_transformation[3] = glm::vec4{zlpoint.center.x, zlpoint.center.y, zlpoint.center.z, 1.0f};
+				glUniform3fv(glGetUniformLocation(sprite_gpu_program, "color"), 1, glm::value_ptr(zlpoint.color));
+				glUniformMatrix4fv(glGetUniformLocation(sprite_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * model_transformation));
+				glDrawArrays(GL_TRIANGLES, 0, 6);
+			}
+		}
+
+		glUseProgram(meshes_gpu_program);
+
 		// render axis
 		if (axis_instances.count > 0) {
+
 			if (axis_rendering.on_top) {
 				glDisable(GL_DEPTH_TEST);
 			} else {
@@ -3800,6 +3897,13 @@ bugs:
 - cessna172r propoller doesn't rotate
 
 TODO:
+- render ZL
+	- render in correct position
+	- flash lights
+	- scale lights correctly (load smaller aircraft)
+	- why some colors are not symmetric (red on right and green on left)?
+	- compare to original
+	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
 - put lines coords in shader
@@ -3850,7 +3954,6 @@ TODO:
 		- no colors
 		- refactor shaders
 		- geometry shaders
-	- 3d axis (camera)
 	- select mesh/object
 	- move selected (translation of axis)
 	- show axis angels
