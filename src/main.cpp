@@ -634,14 +634,14 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 
 				face.center.x = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				face.center.y = parser_token_float(parser);
+				face.center.y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
 				face.center.z = parser_token_float(parser);
 				parser_expect(parser, ' ');
 
 				face.normal.x = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				face.normal.y = parser_token_float(parser);
+				face.normal.y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
 				face.normal.z = parser_token_float(parser);
 				parser_expect(parser, '\n');
@@ -2345,7 +2345,7 @@ int main() {
 	mn_defer(gpu_program_free(meshes_gpu_program));
 
 	// models
-	constexpr int NUM_MODELS = 2;
+	constexpr int NUM_MODELS = 1;
 	Model models[NUM_MODELS];
 	for (auto& model : models) {
 		model = model_from_dnm_file(mn::str_lit(ASSETS_DIR "/aircraft/ys11.dnm"));
@@ -3898,11 +3898,7 @@ bugs:
 
 TODO:
 - render ZL
-	- render in correct position
-	- flash lights
-	- scale lights correctly (load smaller aircraft)
-	- why some colors are not symmetric (red on right and green on left)?
-	- compare to original
+	- flash anti collision lights (2secs)
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
