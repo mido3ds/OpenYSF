@@ -40,6 +40,9 @@ constexpr float MAX_SPEED = 50.0f;
 
 constexpr float ZL_SCALE = 0.151f;
 
+// 2 secs to flash anti collision lights
+constexpr double ANTI_COLL_LIGHT_PERIOD = 4;
+
 struct Face {
 	mn::Buf<uint32_t> vertices_ids;
 	glm::vec4 color;
@@ -497,6 +500,11 @@ struct Model {
 		float throttle = 0;
 		bool afterburner_reheat_enabled = false;
 	} control;
+
+	struct {
+		bool visible = true;
+		double time_left_secs = ANTI_COLL_LIGHT_PERIOD;
+	} anti_coll_lights;
 };
 
 void model_load_to_gpu(Model& self) {
@@ -3150,6 +3158,12 @@ int main() {
 			Model& model = models[i];
 			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
 
+			model.anti_coll_lights.time_left_secs -= delta_time;
+			if (model.anti_coll_lights.time_left_secs < 0) {
+				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
+				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
+			}
+
 			if (model.current_state.visible) {
 				// apply model transformation
 				const auto model_transformation = model_calc_trans(model);
@@ -3310,12 +3324,14 @@ int main() {
 						}
 
 						// ZL
-						for (size_t zlid : mesh->zls) {
-							Face& face = mesh->faces[zlid];
-							mn::buf_push(zlpoints, ZLPoint {
-								.center = model_transformation * glm::vec4(face.center, 1.0f),
-								.color = face.color
-							});
+						if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
+							for (size_t zlid : mesh->zls) {
+								Face& face = mesh->faces[zlid];
+								mn::buf_push(zlpoints, ZLPoint {
+									.center = model_transformation * glm::vec4(face.center, 1.0f),
+									.color = face.color
+								});
+							}
 						}
 					}
 				}
@@ -3898,7 +3914,6 @@ bugs:
 
 TODO:
 - render ZL
-	- flash anti collision lights (2secs)
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
 - separate (updating meshes) from (rendering them)
