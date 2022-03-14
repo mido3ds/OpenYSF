@@ -19,6 +19,7 @@
 #include "gpu.hpp"
 #include "parser.hpp"
 #include "math.hpp"
+#include "audio.hpp"
 
 constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;
@@ -2246,7 +2247,7 @@ int main() {
 	test_polygons_to_triangles();
 
 	SDL_SetMainReady();
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
 		mn::panic(SDL_GetError());
 	}
 	mn_defer(SDL_Quit());
@@ -2278,6 +2279,14 @@ int main() {
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
 		mn::panic("failed to load GLAD function pointers");
 	}
+
+	// setup audio
+	AudioDevice audio_device {};
+	audio_device_init(&audio_device);
+	mn_defer(audio_device_free(audio_device));
+
+	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
+	mn_defer(audio_free(sound));
 
 	// setup imgui
 	auto _imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "open-ysf-imgui.ini");
@@ -3421,6 +3430,10 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			if (ImGui::Button("Sound")) {
+				audio_device_play(audio_device, sound, false);
+			}
+
 			if (ImGui::TreeNodeEx("Window")) {
 				ImGui::Checkbox("Limit FPS", &should_limit_fps);
 				ImGui::BeginDisabled(!should_limit_fps); {
