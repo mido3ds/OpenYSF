@@ -2285,7 +2285,7 @@ int main() {
 	audio_device_init(&audio_device);
 	mn_defer(audio_device_free(audio_device));
 
-	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav", false);
+	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
 	mn_defer(audio_free(sound));
 
 	// setup imgui
@@ -3430,10 +3430,6 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			if (ImGui::Button("Sound")) {
-				audio_device_play(audio_device, sound);
-			}
-
 			if (ImGui::TreeNodeEx("Window")) {
 				ImGui::Checkbox("Limit FPS", &should_limit_fps);
 				ImGui::BeginDisabled(!should_limit_fps); {
@@ -3598,6 +3594,29 @@ int main() {
 
 			if (ImGui::TreeNode("AABB Rendering")) {
 				ImGui::DragFloat("Line Width", &box_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Audio")) {
+				if (ImGui::Button("Play")) {
+					audio_device_play(audio_device, sound);
+				}
+
+				ImGui::SameLine();
+				if (ImGui::Button("Loop")) {
+					audio_device_play_looped(audio_device, sound);
+				}
+
+				ImGui::SameLine();
+				ImGui::BeginDisabled(audio_device_is_playing_loop(audio_device, sound) == false);
+				if (ImGui::Button("Stop")) {
+					audio_device_stop_looped(audio_device, sound);
+				}
+				ImGui::EndDisabled();
+
+				ImGui::SameLine();
+				ImGui::Text(mn::file_name(sound.file_path, mn::memory::tmp()).ptr);
+
 				ImGui::TreePop();
 			}
 

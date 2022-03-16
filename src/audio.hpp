@@ -9,6 +9,7 @@
 
 #include <mn/OS.h>
 #include <mn/Log.h>
+#include <mn/Str.h>
 
 constexpr auto AUDIO_FORMAT = AUDIO_U8;
 
@@ -37,14 +38,14 @@ constexpr auto SDL_AUDIO_ALLOW_CHANGES = 0;
 constexpr int MAX_PLAYABLE_SOUNDS = 32;
 
 struct Audio {
+	mn::Str file_path;
 	uint8_t* buffer;
 	uint32_t len;
 	SDL_AudioSpec specs;
-	bool loop;
 };
 
-Audio audio_new(const char* filename, bool loop) {
-	Audio self { .loop = loop };
+Audio audio_new(const char* filename) {
+	Audio self { .file_path = mn::str_from_c(filename) };
 	if (SDL_LoadWAV(filename, &self.specs, &self.buffer, &self.len) == nullptr) {
         mn::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
@@ -52,6 +53,7 @@ Audio audio_new(const char* filename, bool loop) {
 }
 
 void audio_free(Audio& self) {
+	mn::str_free(self.file_path);
 	SDL_FreeWAV(self.buffer);
 }
 
@@ -59,7 +61,7 @@ void destruct(Audio& self) {
 	audio_free(self);
 }
 
-struct AudioSession {
+struct AudioPlayback {
 	const Audio* audio;
 	uint32_t pos;
 };
@@ -68,8 +70,11 @@ struct AudioDevice {
     SDL_AudioDeviceID id;
     SDL_AudioSpec specs;
 
-	AudioSession audio_sessions[MAX_PLAYABLE_SOUNDS];
-	int audio_sessions_last;
+	AudioPlayback playbacks[MAX_PLAYABLE_SOUNDS];
+	int playbacks_last;
+
+	AudioPlayback looped_playbacks[MAX_PLAYABLE_SOUNDS];
+	int looped_playbacks_last;
 };
 
 void audio_device_init(AudioDevice* self) {
@@ -79,30 +84,42 @@ void audio_device_init(AudioDevice* self) {
 		.channels = AUDIO_CHANNELS,
 		.samples = AUDIO_SAMPLES,
 		.callback = [](void* userdata, uint8_t* stream, int stream_len) {
+			auto dev = (AudioDevice*) userdata;
+
 			// silence the main buffer
 			::memset(stream, 0, stream_len);
 
-			auto dev = (AudioDevice*) userdata;
+			// one shot
 			for (int i = 0; i < MAX_PLAYABLE_SOUNDS; i++) {
-				auto& session = dev->audio_sessions[i];
-				if (session.audio == nullptr) {
+				auto& playback = dev->playbacks[i];
+				if (playback.audio == nullptr) {
 					break;
 				}
 
-				const uint32_t audio_len = session.audio->len - session.pos;
-				const uint32_t min_len = ((uint32_t)stream_len < session.audio->len)? (uint32_t)stream_len : session.audio->len;
-				SDL_MixAudioFormat(stream, session.audio->buffer+session.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+				const uint32_t audio_len = playback.audio->len - playback.pos;
+				const uint32_t min_len = ((uint32_t)stream_len < playback.audio->len)? (uint32_t)stream_len : playback.audio->len;
+				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
-				session.pos += min_len;
-				if (session.pos == session.audio->len) {
-					if (session.audio->loop) {
-						session.pos = 0;
-					} else {
-						session.audio = nullptr;
-						session = dev->audio_sessions[--dev->audio_sessions_last];
-						i--;
-					}
+				playback.pos += min_len;
+				if (playback.pos == playback.audio->len) {
+					playback.audio = nullptr;
+					playback = dev->playbacks[--dev->playbacks_last];
+					i--;
 				}
+			}
+
+			// looped
+			for (int i = 0; i < MAX_PLAYABLE_SOUNDS; i++) {
+				auto& playback = dev->looped_playbacks[i];
+				if (playback.audio == nullptr) {
+					break;
+				}
+
+				const uint32_t audio_len = playback.audio->len - playback.pos;
+				const uint32_t min_len = ((uint32_t)stream_len < playback.audio->len)? (uint32_t)stream_len : playback.audio->len;
+				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+
+				playback.pos = (playback.pos + min_len) % playback.audio->len;
 			}
 		},
 		.userdata = self,
@@ -122,15 +139,56 @@ void audio_device_free(AudioDevice& dev) {
 	SDL_CloseAudioDevice(dev.id);
 }
 
-// makes shallow copy of `audio`, which must be alive as long as it's played
+// `audio` must be alive as long as it's played
 void audio_device_play(AudioDevice& self, const Audio& audio) {
-	if (self.audio_sessions_last+1 == MAX_PLAYABLE_SOUNDS) {
+	if (self.playbacks_last+1 == MAX_PLAYABLE_SOUNDS) {
 		mn::log_warning("full audio buffer");
 		return;
 	}
 
     SDL_LockAudioDevice(self.id);
-	self.audio_sessions[self.audio_sessions_last++] = AudioSession { .audio = &audio };
+	self.playbacks[self.playbacks_last++] = AudioPlayback { .audio = &audio };
+    SDL_UnlockAudioDevice(self.id);
+}
+
+// `audio` must be alive as long as it's played
+void audio_device_play_looped(AudioDevice& self, const Audio& audio) {
+	if (self.looped_playbacks_last+1 == MAX_PLAYABLE_SOUNDS) {
+		mn::log_warning("full audio buffer");
+		return;
+	}
+
+    SDL_LockAudioDevice(self.id);
+	self.looped_playbacks[self.looped_playbacks_last++] = AudioPlayback { .audio = &audio };
+    SDL_UnlockAudioDevice(self.id);
+}
+
+bool audio_device_is_playing_loop(const AudioDevice& self, const Audio& audio) {
+	for (int i = 0; i < self.looped_playbacks_last; i++) {
+		if (self.looped_playbacks[i].audio == nullptr) {
+			return false;
+		}
+		if (self.looped_playbacks[i].audio == &audio) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void audio_device_stop_looped(AudioDevice& self, const Audio& audio) {
+    SDL_LockAudioDevice(self.id);
+	for (int i = 0; i < self.looped_playbacks_last; i++) {
+		auto& playback = self.looped_playbacks[i];
+		if (playback.audio == nullptr) {
+			mn::panic("didn't find audio to stop");
+		}
+
+		if (playback.audio == &audio) {
+			playback.audio = nullptr;
+			playback = self.looped_playbacks[--self.looped_playbacks_last];
+			break;
+		}
+	}
     SDL_UnlockAudioDevice(self.id);
 }
 
