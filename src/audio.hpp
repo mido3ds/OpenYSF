@@ -8,7 +8,7 @@
 #include <SDL.h>
 
 #include <mn/OS.h>
-#include <mn/Buf.h>
+#include <mn/Log.h>
 
 constexpr auto AUDIO_FORMAT = AUDIO_U8;
 
@@ -33,6 +33,8 @@ constexpr auto AUDIO_SAMPLES = 4096;
  * SDL_AUDIO_ALLOW_ANY_CHANGE           Allow all changes above
  */
 constexpr auto SDL_AUDIO_ALLOW_CHANGES = 0;
+
+constexpr int MAX_PLAYABLE_SOUNDS = 32;
 
 struct Audio {
 	uint8_t* buffer;
@@ -65,7 +67,9 @@ struct AudioSession {
 struct AudioDevice {
     SDL_AudioDeviceID id;
     SDL_AudioSpec specs;
-	mn::Buf<AudioSession> audio_sessions;
+
+	AudioSession audio_sessions[MAX_PLAYABLE_SOUNDS];
+	int audio_sessions_last;
 };
 
 void audio_device_init(AudioDevice* self) {
@@ -79,20 +83,27 @@ void audio_device_init(AudioDevice* self) {
 			::memset(stream, 0, stream_len);
 
 			auto dev = (AudioDevice*) userdata;
-			for (auto& session : dev->audio_sessions) {
+			for (int i = 0; i < MAX_PLAYABLE_SOUNDS; i++) {
+				auto& session = dev->audio_sessions[i];
+				if (session.audio == nullptr) {
+					break;
+				}
+
 				const uint32_t audio_len = session.audio->len - session.pos;
 				const uint32_t min_len = ((uint32_t)stream_len < session.audio->len)? (uint32_t)stream_len : session.audio->len;
 				SDL_MixAudioFormat(stream, session.audio->buffer+session.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
 				session.pos += min_len;
-				if (session.audio->loop && session.pos == session.audio->len) {
-					session.pos = 0;
+				if (session.pos == session.audio->len) {
+					if (session.audio->loop) {
+						session.pos = 0;
+					} else {
+						session.audio = nullptr;
+						session = dev->audio_sessions[--dev->audio_sessions_last];
+						i--;
+					}
 				}
 			}
-
-			mn::buf_remove_if(dev->audio_sessions, [](const auto& session) {
-				return session.pos == session.audio->len;
-			});
 		},
 		.userdata = self,
 	};
@@ -109,19 +120,22 @@ void audio_device_init(AudioDevice* self) {
 void audio_device_free(AudioDevice& dev) {
 	SDL_PauseAudioDevice(dev.id, true);
 	SDL_CloseAudioDevice(dev.id);
-	mn::buf_free(dev.audio_sessions);
 }
 
 // makes shallow copy of `audio`, which must be alive as long as it's played
 void audio_device_play(AudioDevice& self, const Audio& audio) {
+	if (self.audio_sessions_last+1 == MAX_PLAYABLE_SOUNDS) {
+		mn::log_warning("full audio buffer");
+		return;
+	}
+
     SDL_LockAudioDevice(self.id);
-	mn::buf_push(self.audio_sessions, AudioSession { .audio = &audio });
+	self.audio_sessions[self.audio_sessions_last++] = AudioSession { .audio = &audio };
     SDL_UnlockAudioDevice(self.id);
 }
 
 /*
 TODO:
-- fix delay
 - test for all files
 - imgui: load any file
 - why multiple clicks result in higher volume?

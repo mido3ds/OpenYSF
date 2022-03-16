@@ -2285,7 +2285,7 @@ int main() {
 	audio_device_init(&audio_device);
 	mn_defer(audio_device_free(audio_device));
 
-	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav", true);
+	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav", false);
 	mn_defer(audio_free(sound));
 
 	// setup imgui
