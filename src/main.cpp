@@ -21,6 +21,8 @@
 #include "math.hpp"
 #include "audio.hpp"
 
+#define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
+
 constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
@@ -2241,6 +2243,69 @@ struct ZLPoint {
 	glm::vec3 center, color;
 };
 
+struct Sounds {
+	union {
+		struct {
+			Audio bang, blast, blast2, bombsaway, burner, damage; // 6
+			Audio extendldg, gearhorn, gun, hit, missile, notice; // 6
+			Audio retractldg, rocket, silence, stallhorn, touchdwn, warning; // 6
+			Audio engine, engine0, engine1, engine2, engine3, engine4, engine5, engine6, engine7, engine8, engine9; // 11
+			Audio prop0, prop1, prop2, prop3, prop4, prop5, prop6, prop7, prop8, prop9; // 10
+		};
+		Audio as_array[39];
+	};
+};
+
+Sounds sounds_load() {
+	Sounds self {};
+	self.bang = audio_new(ASSETS_DIR "/sound/bang.wav");
+	self.blast = audio_new(ASSETS_DIR "/sound/blast.wav");
+	self.blast2 = audio_new(ASSETS_DIR "/sound/blast2.wav");
+	self.bombsaway = audio_new(ASSETS_DIR "/sound/bombsaway.wav");
+	self.burner = audio_new(ASSETS_DIR "/sound/burner.wav");
+	self.damage = audio_new(ASSETS_DIR "/sound/damage.wav");
+	self.engine = audio_new(ASSETS_DIR "/sound/engine.wav");
+	self.engine0 = audio_new(ASSETS_DIR "/sound/engine0.wav");
+	self.engine1 = audio_new(ASSETS_DIR "/sound/engine1.wav");
+	self.engine2 = audio_new(ASSETS_DIR "/sound/engine2.wav");
+	self.engine3 = audio_new(ASSETS_DIR "/sound/engine3.wav");
+	self.engine4 = audio_new(ASSETS_DIR "/sound/engine4.wav");
+	self.engine5 = audio_new(ASSETS_DIR "/sound/engine5.wav");
+	self.engine6 = audio_new(ASSETS_DIR "/sound/engine6.wav");
+	self.engine7 = audio_new(ASSETS_DIR "/sound/engine7.wav");
+	self.engine8 = audio_new(ASSETS_DIR "/sound/engine8.wav");
+	self.engine9 = audio_new(ASSETS_DIR "/sound/engine9.wav");
+	self.extendldg = audio_new(ASSETS_DIR "/sound/extendldg.wav");
+	self.gearhorn = audio_new(ASSETS_DIR "/sound/gearhorn.wav");
+	self.gun = audio_new(ASSETS_DIR "/sound/gun.wav");
+	self.hit = audio_new(ASSETS_DIR "/sound/hit.wav");
+	self.missile = audio_new(ASSETS_DIR "/sound/missile.wav");
+	self.notice = audio_new(ASSETS_DIR "/sound/notice.wav");
+	self.prop0 = audio_new(ASSETS_DIR "/sound/prop0.wav");
+	self.prop1 = audio_new(ASSETS_DIR "/sound/prop1.wav");
+	self.prop2 = audio_new(ASSETS_DIR "/sound/prop2.wav");
+	self.prop3 = audio_new(ASSETS_DIR "/sound/prop3.wav");
+	self.prop4 = audio_new(ASSETS_DIR "/sound/prop4.wav");
+	self.prop5 = audio_new(ASSETS_DIR "/sound/prop5.wav");
+	self.prop6 = audio_new(ASSETS_DIR "/sound/prop6.wav");
+	self.prop7 = audio_new(ASSETS_DIR "/sound/prop7.wav");
+	self.prop8 = audio_new(ASSETS_DIR "/sound/prop8.wav");
+	self.prop9 = audio_new(ASSETS_DIR "/sound/prop9.wav");
+	self.retractldg = audio_new(ASSETS_DIR "/sound/retractldg.wav");
+	self.rocket = audio_new(ASSETS_DIR "/sound/rocket.wav");
+	self.silence = audio_new(ASSETS_DIR "/sound/silence.wav");
+	self.stallhorn = audio_new(ASSETS_DIR "/sound/stallhorn.wav");
+	self.touchdwn = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
+	self.warning = audio_new(ASSETS_DIR "/sound/warning.wav");
+	return self;
+}
+
+void sounds_free(Sounds& self) {
+	for (int i = 0; i < COUNT_OF(self.as_array); i++) {
+		audio_free(self.as_array[i]);
+	}
+}
+
 int main() {
 	test_parser();
 	test_aabbs_intersection();
@@ -2285,8 +2350,8 @@ int main() {
 	audio_device_init(&audio_device);
 	mn_defer(audio_device_free(audio_device));
 
-	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
-	mn_defer(audio_free(sound));
+	auto sounds = sounds_load();
+	mn_defer(sounds_free(sounds));
 
 	// setup imgui
 	auto _imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "open-ysf-imgui.ini");
@@ -3598,24 +3663,32 @@ int main() {
 			}
 
 			if (ImGui::TreeNode("Audio")) {
-				if (ImGui::Button("Play")) {
-					audio_device_play(audio_device, sound);
-				}
+				for (int i = 0; i < COUNT_OF(sounds.as_array); i++) {
+					ImGui::PushID(i);
 
-				ImGui::SameLine();
-				if (ImGui::Button("Loop")) {
-					audio_device_play_looped(audio_device, sound);
-				}
+					const Audio& sound = sounds.as_array[i];
 
-				ImGui::SameLine();
-				ImGui::BeginDisabled(audio_device_is_playing_loop(audio_device, sound) == false);
-				if (ImGui::Button("Stop")) {
-					audio_device_stop_looped(audio_device, sound);
-				}
-				ImGui::EndDisabled();
+					if (ImGui::Button("Play")) {
+						audio_device_play(audio_device, sound);
+					}
 
-				ImGui::SameLine();
-				ImGui::Text(mn::file_name(sound.file_path, mn::memory::tmp()).ptr);
+					ImGui::SameLine();
+					if (ImGui::Button("Loop")) {
+						audio_device_play_looped(audio_device, sound);
+					}
+
+					ImGui::SameLine();
+					ImGui::BeginDisabled(audio_device_is_playing_loop(audio_device, sound) == false);
+					if (ImGui::Button("Stop")) {
+						audio_device_stop_looped(audio_device, sound);
+					}
+					ImGui::EndDisabled();
+
+					ImGui::SameLine();
+					ImGui::Text(mn::file_name(sound.file_path, mn::memory::tmp()).ptr);
+
+					ImGui::PopID();
+				}
 
 				ImGui::TreePop();
 			}
