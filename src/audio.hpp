@@ -38,10 +38,11 @@ struct Audio {
 	uint8_t* buffer;
 	uint32_t len;
 	SDL_AudioSpec specs;
+	bool loop;
 };
 
-Audio audio_new(const char* filename) {
-	Audio self{};
+Audio audio_new(const char* filename, bool loop) {
+	Audio self { .loop = loop };
 	if (SDL_LoadWAV(filename, &self.specs, &self.buffer, &self.len) == nullptr) {
         mn::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
@@ -56,16 +57,15 @@ void destruct(Audio& self) {
 	audio_free(self);
 }
 
-struct AudioPlaySession {
-	const uint8_t* buffer;
-	uint32_t len;
-	// bool loop;
+struct AudioSession {
+	const Audio* audio;
+	uint32_t pos;
 };
 
 struct AudioDevice {
     SDL_AudioDeviceID id;
     SDL_AudioSpec specs;
-	mn::Buf<AudioPlaySession> audio_queue;
+	mn::Buf<AudioSession> audio_sessions;
 };
 
 void audio_device_init(AudioDevice* self) {
@@ -74,22 +74,24 @@ void audio_device_init(AudioDevice* self) {
 		.format = AUDIO_FORMAT,
 		.channels = AUDIO_CHANNELS,
 		.samples = AUDIO_SAMPLES,
-		.callback = [](void* userdata, uint8_t* stream, int len) {
+		.callback = [](void* userdata, uint8_t* stream, int stream_len) {
 			// silence the main buffer
-			::memset(stream, 0, len);
+			::memset(stream, 0, stream_len);
 
 			auto dev = (AudioDevice*) userdata;
-			for (auto& audio : dev->audio_queue) {
-				const uint32_t min_len = ((uint32_t)len < audio.len)? (uint32_t)len : audio.len;
+			for (auto& session : dev->audio_sessions) {
+				const uint32_t audio_len = session.audio->len - session.pos;
+				const uint32_t min_len = ((uint32_t)stream_len < session.audio->len)? (uint32_t)stream_len : session.audio->len;
+				SDL_MixAudioFormat(stream, session.audio->buffer+session.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
-				SDL_MixAudioFormat(stream, audio.buffer, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
-
-				audio.buffer += min_len;
-				audio.len    -= min_len;
+				session.pos += min_len;
+				if (session.audio->loop && session.pos == session.audio->len) {
+					session.pos = 0;
+				}
 			}
 
-			mn::buf_remove_if(dev->audio_queue, [](const auto& a) {
-				return a.len == 0;
+			mn::buf_remove_if(dev->audio_sessions, [](const auto& session) {
+				return session.pos == session.audio->len;
 			});
 		},
 		.userdata = self,
@@ -107,24 +109,18 @@ void audio_device_init(AudioDevice* self) {
 void audio_device_free(AudioDevice& dev) {
 	SDL_PauseAudioDevice(dev.id, true);
 	SDL_CloseAudioDevice(dev.id);
-	mn::buf_free(dev.audio_queue);
+	mn::buf_free(dev.audio_sessions);
 }
 
 // makes shallow copy of `audio`, which must be alive as long as it's played
-void audio_device_play(AudioDevice& self, const Audio& audio, bool loop) {
+void audio_device_play(AudioDevice& self, const Audio& audio) {
     SDL_LockAudioDevice(self.id);
-	mn::buf_push(self.audio_queue, AudioPlaySession {
-		.buffer = audio.buffer,
-		.len = audio.len,
-		// .loop = loop,
-	});
+	mn::buf_push(self.audio_sessions, AudioSession { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 /*
 TODO:
-- loop
-- test loop
 - fix delay
 - test for all files
 - imgui: load any file

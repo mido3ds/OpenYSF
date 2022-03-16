@@ -2285,7 +2285,7 @@ int main() {
 	audio_device_init(&audio_device);
 	mn_defer(audio_device_free(audio_device));
 
-	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
+	auto sound = audio_new(ASSETS_DIR "/sound/touchdwn.wav", true);
 	mn_defer(audio_free(sound));
 
 	// setup imgui
@@ -3431,7 +3431,7 @@ int main() {
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			if (ImGui::Button("Sound")) {
-				audio_device_play(audio_device, sound, false);
+				audio_device_play(audio_device, sound);
 			}
 
 			if (ImGui::TreeNodeEx("Window")) {
