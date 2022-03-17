@@ -81,13 +81,14 @@ void audio_device_init(AudioDevice* self) {
 		.samples = AUDIO_SAMPLES,
 		.callback = [](void* userdata, uint8_t* stream, int stream_len) {
 			auto dev = (AudioDevice*) userdata;
+			mn_assert(dev->playbacks_count >= 0 && dev->playbacks_count <= MAX_PLAYABLE_SOUNDS);
+			mn_assert(dev->looped_playbacks_count >= 0 && dev->looped_playbacks_count <= MAX_PLAYABLE_SOUNDS);
 
 			// silence the main buffer
 			::memset(stream, 0, stream_len);
 
 			// one shot
 			for (int i = dev->playbacks_count - 1; i >= 0; i--) {
-				mn_assert(dev->playbacks_count >= 0 && dev->playbacks_count <= MAX_PLAYABLE_SOUNDS);
 				auto& playback = dev->playbacks[i];
 				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
@@ -97,6 +98,7 @@ void audio_device_init(AudioDevice* self) {
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
 				playback.pos += min_len;
+
 				mn_assert(playback.pos <= playback.audio->len);
 				if (playback.pos == playback.audio->len) {
 					playback = dev->playbacks[--dev->playbacks_count];
@@ -105,7 +107,6 @@ void audio_device_init(AudioDevice* self) {
 
 			// looped
 			for (int i = 0; i < dev->looped_playbacks_count; i++) {
-				mn_assert(dev->looped_playbacks_count >= 0 && dev->looped_playbacks_count <= MAX_PLAYABLE_SOUNDS);
 				auto& playback = dev->looped_playbacks[i];
 				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
