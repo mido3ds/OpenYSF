@@ -12,16 +12,13 @@
 #include <mn/Str.h>
 #include <mn/Defer.h>
 
-constexpr auto AUDIO_FORMAT = AUDIO_U8;
+constexpr int MAX_PLAYABLE_SOUNDS = 32;
+constexpr int AUDIO_FREQUENCY = 8000;
+constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_U8;
+constexpr uint8_t AUDIO_CHANNELS = 1;
 
-/* Frequency of the file */
-constexpr auto AUDIO_FREQUENCY = 8000;
-
-/* 1 mono, 2 stereo, 4 quad, 6 (5.1) */
-constexpr auto AUDIO_CHANNELS = 1;
-
-/* Specifies a unit of audio data to be used at a time. Must be a power of 2 */
-constexpr auto AUDIO_SAMPLES = 4096;
+// size of stream at callback (bigger is slower), should be power of 2
+constexpr auto AUDIO_SAMPLES = 512;
 
 /* Flags OR'd together, which specify how SDL should behave when a device cannot offer a specific feature
  * If flag is set, SDL will change the format in the actual audio file structure (as opposed to dev.specs)
@@ -35,8 +32,6 @@ constexpr auto AUDIO_SAMPLES = 4096;
  * SDL_AUDIO_ALLOW_ANY_CHANGE           Allow all changes above
  */
 constexpr auto SDL_AUDIO_ALLOW_CHANGES = 0;
-
-constexpr int MAX_PLAYABLE_SOUNDS = 32;
 
 struct Audio {
 	mn::Str file_path;
