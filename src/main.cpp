@@ -4012,7 +4012,7 @@ int main() {
 	return 0;
 }
 /*
-bugs:
+BUG:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate

@@ -96,11 +96,12 @@ void audio_device_init(AudioDevice* self) {
 					break;
 				}
 
-				const uint32_t audio_len = playback.audio->len - playback.pos;
-				const uint32_t min_len = ((uint32_t)stream_len < playback.audio->len)? (uint32_t)stream_len : playback.audio->len;
+				const uint32_t audio_current_len = playback.audio->len - playback.pos;
+				const uint32_t min_len = ((uint32_t)stream_len < audio_current_len)? (uint32_t)stream_len : audio_current_len;
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
 				playback.pos += min_len;
+				mn_assert(playback.pos <= playback.audio->len);
 				if (playback.pos == playback.audio->len) {
 					playback.audio = nullptr;
 					playback = dev->playbacks[--dev->playbacks_last];
@@ -115,8 +116,8 @@ void audio_device_init(AudioDevice* self) {
 					break;
 				}
 
-				const uint32_t audio_len = playback.audio->len - playback.pos;
-				const uint32_t min_len = ((uint32_t)stream_len < playback.audio->len)? (uint32_t)stream_len : playback.audio->len;
+				const uint32_t audio_current_len = playback.audio->len - playback.pos;
+				const uint32_t min_len = ((uint32_t)stream_len < audio_current_len)? (uint32_t)stream_len : audio_current_len;
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
 				playback.pos = (playback.pos + min_len) % playback.audio->len;
@@ -193,7 +194,15 @@ void audio_device_stop_looped(AudioDevice& self, const Audio& audio) {
 }
 
 /*
+BUG:
+- incorrect sounds:
+	- all engines
+	- all propeller sounds
+	- gearhorn
+	- notice
+	- stallhorn
+- crashes if hit many times (rocket/notice/stallhorn/gearhorn)
+
 TODO:
-- test for all files
-- why multiple clicks result in higher volume?
+- what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
 */
