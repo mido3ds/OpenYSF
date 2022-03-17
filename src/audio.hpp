@@ -210,5 +210,4 @@ BUG:
 
 TODO:
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
-- stop not looped audio?
 */
