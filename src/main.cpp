@@ -3678,9 +3678,9 @@ int main() {
 					}
 
 					ImGui::SameLine();
-					ImGui::BeginDisabled(audio_device_is_playing_loop(audio_device, sound) == false);
+					ImGui::BeginDisabled(audio_device_is_playing(audio_device, sound) == false);
 					if (ImGui::Button("Stop")) {
-						audio_device_stop_looped(audio_device, sound);
+						audio_device_stop(audio_device, sound);
 					}
 					ImGui::EndDisabled();
 

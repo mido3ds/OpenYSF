@@ -10,6 +10,7 @@
 #include <mn/OS.h>
 #include <mn/Log.h>
 #include <mn/Str.h>
+#include <mn/Defer.h>
 
 constexpr auto AUDIO_FORMAT = AUDIO_U8;
 
@@ -71,10 +72,10 @@ struct AudioDevice {
     SDL_AudioSpec specs;
 
 	AudioPlayback playbacks[MAX_PLAYABLE_SOUNDS];
-	int playbacks_last;
+	int playbacks_count;
 
 	AudioPlayback looped_playbacks[MAX_PLAYABLE_SOUNDS];
-	int looped_playbacks_last;
+	int looped_playbacks_count;
 };
 
 void audio_device_init(AudioDevice* self) {
@@ -90,11 +91,11 @@ void audio_device_init(AudioDevice* self) {
 			::memset(stream, 0, stream_len);
 
 			// one shot
-			for (int i = 0; i < MAX_PLAYABLE_SOUNDS; i++) {
+			for (int i = dev->playbacks_count - 1; i >= 0; i--) {
+				mn_assert(dev->playbacks_count >= 0 && dev->playbacks_count <= MAX_PLAYABLE_SOUNDS);
 				auto& playback = dev->playbacks[i];
-				if (playback.audio == nullptr) {
-					break;
-				}
+				mn_assert(playback.audio);
+				mn_assert(playback.pos < playback.audio->len);
 
 				const uint32_t audio_current_len = playback.audio->len - playback.pos;
 				const uint32_t min_len = ((uint32_t)stream_len < audio_current_len)? (uint32_t)stream_len : audio_current_len;
@@ -103,18 +104,16 @@ void audio_device_init(AudioDevice* self) {
 				playback.pos += min_len;
 				mn_assert(playback.pos <= playback.audio->len);
 				if (playback.pos == playback.audio->len) {
-					playback.audio = nullptr;
-					playback = dev->playbacks[--dev->playbacks_last];
-					i--;
+					playback = dev->playbacks[--dev->playbacks_count];
 				}
 			}
 
 			// looped
-			for (int i = 0; i < MAX_PLAYABLE_SOUNDS; i++) {
+			for (int i = 0; i < dev->looped_playbacks_count; i++) {
+				mn_assert(dev->looped_playbacks_count >= 0 && dev->looped_playbacks_count <= MAX_PLAYABLE_SOUNDS);
 				auto& playback = dev->looped_playbacks[i];
-				if (playback.audio == nullptr) {
-					break;
-				}
+				mn_assert(playback.audio);
+				mn_assert(playback.pos < playback.audio->len);
 
 				const uint32_t audio_current_len = playback.audio->len - playback.pos;
 				const uint32_t min_len = ((uint32_t)stream_len < audio_current_len)? (uint32_t)stream_len : audio_current_len;
@@ -142,67 +141,79 @@ void audio_device_free(AudioDevice& dev) {
 
 // `audio` must be alive as long as it's played
 void audio_device_play(AudioDevice& self, const Audio& audio) {
-	if (self.playbacks_last+1 == MAX_PLAYABLE_SOUNDS) {
+	if (self.playbacks_count == MAX_PLAYABLE_SOUNDS) {
 		mn::log_warning("full audio buffer");
 		return;
 	}
 
     SDL_LockAudioDevice(self.id);
-	self.playbacks[self.playbacks_last++] = AudioPlayback { .audio = &audio };
+	self.playbacks[self.playbacks_count++] = AudioPlayback { .audio = &audio };
     SDL_UnlockAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
 void audio_device_play_looped(AudioDevice& self, const Audio& audio) {
-	if (self.looped_playbacks_last+1 == MAX_PLAYABLE_SOUNDS) {
+	if (self.looped_playbacks_count == MAX_PLAYABLE_SOUNDS) {
 		mn::log_warning("full audio buffer");
 		return;
 	}
 
     SDL_LockAudioDevice(self.id);
-	self.looped_playbacks[self.looped_playbacks_last++] = AudioPlayback { .audio = &audio };
+	self.looped_playbacks[self.looped_playbacks_count++] = AudioPlayback { .audio = &audio };
     SDL_UnlockAudioDevice(self.id);
 }
 
-bool audio_device_is_playing_loop(const AudioDevice& self, const Audio& audio) {
-	for (int i = 0; i < self.looped_playbacks_last; i++) {
-		if (self.looped_playbacks[i].audio == nullptr) {
-			return false;
+bool audio_device_is_playing(const AudioDevice& self, const Audio& audio) {
+	// one shot
+	for (int i = 0; i < self.playbacks_count; i++) {
+		if (self.playbacks[i].audio == &audio) {
+			return true;
 		}
+	}
+
+	// looped
+	for (int i = 0; i < self.looped_playbacks_count; i++) {
 		if (self.looped_playbacks[i].audio == &audio) {
 			return true;
 		}
 	}
+
 	return false;
 }
 
-void audio_device_stop_looped(AudioDevice& self, const Audio& audio) {
+void audio_device_stop(AudioDevice& self, const Audio& audio) {
     SDL_LockAudioDevice(self.id);
-	for (int i = 0; i < self.looped_playbacks_last; i++) {
-		auto& playback = self.looped_playbacks[i];
-		if (playback.audio == nullptr) {
-			mn::panic("didn't find audio to stop");
-		}
+	mn_defer(SDL_UnlockAudioDevice(self.id));
 
-		if (playback.audio == &audio) {
-			playback.audio = nullptr;
-			playback = self.looped_playbacks[--self.looped_playbacks_last];
-			break;
+	// one shot
+	for (int i = 0; i < self.playbacks_count; i++) {
+		if (self.playbacks[i].audio == &audio) {
+			self.playbacks[i] = self.playbacks[--self.playbacks_count];
+			return;
 		}
 	}
-    SDL_UnlockAudioDevice(self.id);
+
+	// looped
+	for (int i = 0; i < self.looped_playbacks_count; i++) {
+		if (self.looped_playbacks[i].audio == &audio) {
+			self.looped_playbacks[i] = self.looped_playbacks[--self.looped_playbacks_count];
+			return;
+		}
+	}
+
+	mn::log_warning("didn't find audio '{}' to stop", mn::file_name(audio.file_path, mn::memory::tmp()));
 }
 
 /*
 BUG:
 - incorrect sounds:
-	- all engines
 	- all propeller sounds
 	- gearhorn
 	- notice
 	- stallhorn
-- crashes if hit many times (rocket/notice/stallhorn/gearhorn)
+	- warning?
 
 TODO:
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
+- stop not looped audio?
 */
