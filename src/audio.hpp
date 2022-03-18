@@ -13,38 +13,50 @@
 #include <mn/Defer.h>
 
 constexpr int MAX_PLAYABLE_SOUNDS = 32;
-constexpr int AUDIO_FREQUENCY = 8000;
-constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_U8;
-constexpr uint8_t AUDIO_CHANNELS = 1;
+constexpr int AUDIO_FREQUENCY = 22000;
+constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_S16MSB;
+constexpr uint8_t AUDIO_CHANNELS = 2;
 
 // size of stream at callback (bigger is slower), should be power of 2
 constexpr auto AUDIO_SAMPLES = 512;
-
-/* Flags OR'd together, which specify how SDL should behave when a device cannot offer a specific feature
- * If flag is set, SDL will change the format in the actual audio file structure (as opposed to dev.specs)
- *
- * Note: If you're having issues with Emscripten / EMCC play around with these flags
- *
- * 0                                    Allow no changes
- * SDL_AUDIO_ALLOW_FREQUENCY_CHANGE     Allow frequency changes (e.g. AUDIO_FREQUENCY is 48k, but allow files to play at 44.1k
- * SDL_AUDIO_ALLOW_FORMAT_CHANGE        Allow Format change (e.g. AUDIO_FORMAT may be S32LSB, but allow wave files of S16LSB to play)
- * SDL_AUDIO_ALLOW_CHANNELS_CHANGE      Allow any number of channels (e.g. AUDIO_CHANNELS being 2, allow actual 1)
- * SDL_AUDIO_ALLOW_ANY_CHANGE           Allow all changes above
- */
-constexpr auto SDL_AUDIO_ALLOW_CHANGES = 0;
 
 struct Audio {
 	mn::Str file_path;
 	uint8_t* buffer;
 	uint32_t len;
-	SDL_AudioSpec specs;
 };
 
 Audio audio_new(const char* filename) {
 	Audio self { .file_path = mn::str_from_c(filename) };
-	if (SDL_LoadWAV(filename, &self.specs, &self.buffer, &self.len) == nullptr) {
+	SDL_AudioSpec spec {};
+	if (SDL_LoadWAV(filename, &spec, &self.buffer, &self.len) == nullptr) {
         mn::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
+
+	// resample
+	auto stream = SDL_NewAudioStream(spec.format, spec.channels, spec.freq, AUDIO_FORMAT, AUDIO_CHANNELS, AUDIO_FREQUENCY);
+	if (stream == nullptr) {
+		mn::panic("failed to resample '{}'", filename);
+	}
+
+	if (SDL_AudioStreamPut(stream, self.buffer, self.len)) {
+		mn::panic("failed to resample '{}'", filename);
+	}
+
+	if (SDL_AudioStreamFlush(stream)) {
+		mn::panic("failed to resample '{}'", filename);
+	}
+
+	self.len = SDL_AudioStreamAvailable(stream);
+	SDL_FreeWAV(self.buffer);
+	self.buffer = (uint8_t*) SDL_malloc(self.len);
+
+	if (SDL_AudioStreamGet(stream, self.buffer, self.len) != self.len) {
+		mn::panic("failed to resample '{}'", filename);
+	}
+
+	SDL_FreeAudioStream(stream);
+
 	return self;
 }
 
@@ -64,7 +76,6 @@ struct AudioPlayback {
 
 struct AudioDevice {
     SDL_AudioDeviceID id;
-    SDL_AudioSpec specs;
 
 	AudioPlayback playbacks[MAX_PLAYABLE_SOUNDS];
 	int playbacks_count;
@@ -74,7 +85,7 @@ struct AudioDevice {
 };
 
 void audio_device_init(AudioDevice* self) {
-	self->specs = {
+	const SDL_AudioSpec spec {
 		.freq = AUDIO_FREQUENCY,
 		.format = AUDIO_FORMAT,
 		.channels = AUDIO_CHANNELS,
@@ -121,7 +132,7 @@ void audio_device_init(AudioDevice* self) {
 		.userdata = self,
 	};
 
-	self->id = SDL_OpenAudioDevice(nullptr, false, &self->specs, nullptr, SDL_AUDIO_ALLOW_CHANGES);
+	self->id = SDL_OpenAudioDevice(nullptr, false, &spec, nullptr, 0);
     if (self->id == 0) {
         mn::panic("failed to open audio device: {}", SDL_GetError());
     }
@@ -202,13 +213,10 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 
 /*
 BUG:
-- incorrect sounds:
-	- all propeller sounds
-	- gearhorn
-	- notice
-	- stallhorn
-	- warning?
+- gun sound is too short
+- looping engine/prop isn't pleasing (maybe loop by copying all over buffer? maybe jump to 20% after loop?)
 
 TODO:
+- is silence 0?
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
 */
