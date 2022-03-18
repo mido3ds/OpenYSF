@@ -76,11 +76,11 @@ struct AudioDevice {
 	mn::Buf<AudioPlayback> playbacks, looped_playbacks;
 };
 
-constexpr uint32_t min32(uint32_t a, uint32_t b) {
+constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
 	return a < b ? a : b;
 }
 
-void memset16(void* dst, uint16_t val, size_t len) {
+void memset_u16(void* dst, uint16_t val, size_t len) {
 	mn_assert(len % 2 == 0);
 	uint16_t* dst_as_16 = (uint16_t*) dst;
 	const size_t len_as_16 = len / 2;
@@ -98,12 +98,7 @@ void audio_device_init(AudioDevice* self) {
 		.callback = [](void* userdata, uint8_t* stream, int stream_len_int) {
 			auto dev = (AudioDevice*) userdata;
 			const uint32_t stream_len = stream_len_int;
-
-			// silence the main buffer
-			if (dev->playbacks.count == 0 && dev->looped_playbacks.count == 0) {
-				memset16(stream, AUDIO_SILENCE_VALUE, stream_len);
-				return;
-			}
+			uint32_t silence_pos = 0;
 
 			SDL_memset(stream, 0, stream_len);
 
@@ -111,21 +106,16 @@ void audio_device_init(AudioDevice* self) {
 			for (auto& playback : dev->playbacks) {
 				mn_assert(playback.pos < playback.audio->len);
 
-				const uint32_t min_len = min32(stream_len, playback.audio->len - playback.pos);
+				const uint32_t min_len = min_u32(stream_len, playback.audio->len - playback.pos);
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 				playback.pos += min_len;
 
-				memset16(stream + min_len, AUDIO_SILENCE_VALUE, stream_len - min_len);
-				break;
+				silence_pos = min_u32(silence_pos + min_len, stream_len);
 			}
-			const bool played = dev->playbacks.count > 0;
 			mn::buf_remove_if(dev->playbacks, [](const AudioPlayback& a) {
 				mn_assert(a.pos <= a.audio->len);
 				return a.pos == a.audio->len;
 			});
-			if (played) {
-				return;
-			}
 
 			// looped
 			for (auto& playback : dev->looped_playbacks) {
@@ -133,12 +123,19 @@ void audio_device_init(AudioDevice* self) {
 
 				uint32_t stream_pos = 0;
 				while (stream_pos < stream_len) {
-					const uint32_t min_len = min32(stream_len - stream_pos, playback.audio->len - playback.pos);
+					const uint32_t min_len = min_u32(stream_len - stream_pos, playback.audio->len - playback.pos);
 					SDL_MixAudioFormat(stream+stream_pos, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 					stream_pos += min_len;
 					playback.pos += min_len;
 					playback.pos %= playback.audio->len;
 				}
+
+				silence_pos = stream_len;
+			}
+
+			// silence the rest of stream
+			if (silence_pos < stream_len) {
+				memset_u16(stream+silence_pos, AUDIO_SILENCE_VALUE, stream_len-silence_pos);
 			}
 		},
 		.userdata = self,
