@@ -97,7 +97,6 @@ void audio_device_init(AudioDevice* self) {
 
 			// one shot
 			for (auto& playback : dev->playbacks) {
-				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
 
 				const uint32_t min_len = min32(stream_len, playback.audio->len - playback.pos);
@@ -111,7 +110,6 @@ void audio_device_init(AudioDevice* self) {
 
 			// looped
 			for (auto& playback : dev->looped_playbacks) {
-				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
 
 				uint32_t stream_pos = 0;
