@@ -10,15 +10,14 @@
 #include <mn/OS.h>
 #include <mn/Log.h>
 #include <mn/Str.h>
+#include <mn/Buf.h>
 #include <mn/Defer.h>
 
-constexpr int MAX_PLAYABLE_SOUNDS = 32;
+// for stream at callback, bigger is slower, should be power of 2
+constexpr auto AUDIO_STREAM_SIZE = 512;
 constexpr int AUDIO_FREQUENCY = 22050;
 constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_U16SYS;
 constexpr uint8_t AUDIO_CHANNELS = 2;
-
-// size of stream at callback (bigger is slower), should be power of 2
-constexpr auto AUDIO_SAMPLES = 512;
 
 struct Audio {
 	mn::Str file_path;
@@ -76,12 +75,7 @@ struct AudioPlayback {
 
 struct AudioDevice {
     SDL_AudioDeviceID id;
-
-	AudioPlayback playbacks[MAX_PLAYABLE_SOUNDS];
-	int playbacks_count;
-
-	AudioPlayback looped_playbacks[MAX_PLAYABLE_SOUNDS];
-	int looped_playbacks_count;
+	mn::Buf<AudioPlayback> playbacks, looped_playbacks;
 };
 
 constexpr uint32_t min32(uint32_t a, uint32_t b) {
@@ -93,38 +87,30 @@ void audio_device_init(AudioDevice* self) {
 		.freq = AUDIO_FREQUENCY,
 		.format = AUDIO_FORMAT,
 		.channels = AUDIO_CHANNELS,
-		.samples = AUDIO_SAMPLES,
+		.samples = AUDIO_STREAM_SIZE,
 		.callback = [](void* userdata, uint8_t* stream, int stream_len_int) {
 			auto dev = (AudioDevice*) userdata;
-			mn_assert(dev->playbacks_count >= 0 && dev->playbacks_count <= MAX_PLAYABLE_SOUNDS);
-			mn_assert(dev->looped_playbacks_count >= 0 && dev->looped_playbacks_count <= MAX_PLAYABLE_SOUNDS);
-
 			const uint32_t stream_len = stream_len_int;
 
 			// silence the main buffer
 			::memset(stream, 0, stream_len);
 
 			// one shot
-			for (int i = dev->playbacks_count - 1; i >= 0; i--) {
-				auto& playback = dev->playbacks[i];
+			for (auto& playback : dev->playbacks) {
 				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
 
-				const uint32_t audio_current_len = playback.audio->len - playback.pos;
-				const uint32_t min_len = stream_len < audio_current_len ? stream_len : audio_current_len;
+				const uint32_t min_len = min32(stream_len, playback.audio->len - playback.pos);
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
-
 				playback.pos += min_len;
-
-				mn_assert(playback.pos <= playback.audio->len);
-				if (playback.pos == playback.audio->len) {
-					playback = dev->playbacks[--dev->playbacks_count];
-				}
 			}
+			mn::buf_remove_if(dev->playbacks, [](const AudioPlayback& a) {
+				mn_assert(a.pos <= a.audio->len);
+				return a.pos == a.audio->len;
+			});
 
 			// looped
-			for (int i = 0; i < dev->looped_playbacks_count; i++) {
-				auto& playback = dev->looped_playbacks[i];
+			for (auto& playback : dev->looped_playbacks) {
 				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
 
@@ -146,54 +132,45 @@ void audio_device_init(AudioDevice* self) {
         mn::panic("failed to open audio device: {}", SDL_GetError());
     }
 
+	self->playbacks = mn::buf_with_capacity<AudioPlayback>(32);
+	self->looped_playbacks = mn::buf_with_capacity<AudioPlayback>(32);
+
 	// unpause
 	SDL_PauseAudioDevice(self->id, false);
 }
 
-void audio_device_free(AudioDevice& dev) {
-	SDL_PauseAudioDevice(dev.id, true);
-	SDL_CloseAudioDevice(dev.id);
+void audio_device_free(AudioDevice& self) {
+	SDL_PauseAudioDevice(self.id, true);
+	SDL_CloseAudioDevice(self.id);
+	mn::buf_free(self.playbacks);
+	mn::buf_free(self.looped_playbacks);
 }
 
 // `audio` must be alive as long as it's played
 void audio_device_play(AudioDevice& self, const Audio& audio) {
-	if (self.playbacks_count == MAX_PLAYABLE_SOUNDS) {
-		mn::log_warning("full audio buffer");
-		return;
-	}
-
     SDL_LockAudioDevice(self.id);
-	self.playbacks[self.playbacks_count++] = AudioPlayback { .audio = &audio };
+	mn::buf_push(self.playbacks, AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
 void audio_device_play_looped(AudioDevice& self, const Audio& audio) {
-	if (self.looped_playbacks_count == MAX_PLAYABLE_SOUNDS) {
-		mn::log_warning("full audio buffer");
-		return;
-	}
-
     SDL_LockAudioDevice(self.id);
-	self.looped_playbacks[self.looped_playbacks_count++] = AudioPlayback { .audio = &audio };
+	mn::buf_push(self.looped_playbacks, AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 bool audio_device_is_playing(const AudioDevice& self, const Audio& audio) {
-	// one shot
-	for (int i = 0; i < self.playbacks_count; i++) {
-		if (self.playbacks[i].audio == &audio) {
+	for (const auto& playback : self.playbacks) {
+		if (playback.audio == &audio) {
 			return true;
 		}
 	}
-
-	// looped
-	for (int i = 0; i < self.looped_playbacks_count; i++) {
-		if (self.looped_playbacks[i].audio == &audio) {
+	for (const auto& playback : self.looped_playbacks) {
+		if (playback.audio == &audio) {
 			return true;
 		}
 	}
-
 	return false;
 }
 
@@ -201,18 +178,16 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
     SDL_LockAudioDevice(self.id);
 	mn_defer(SDL_UnlockAudioDevice(self.id));
 
-	// one shot
-	for (int i = 0; i < self.playbacks_count; i++) {
+	for (size_t i = 0; i < self.playbacks.count; i++) {
 		if (self.playbacks[i].audio == &audio) {
-			self.playbacks[i] = self.playbacks[--self.playbacks_count];
+			mn::buf_remove(self.playbacks, i);
 			return;
 		}
 	}
 
-	// looped
-	for (int i = 0; i < self.looped_playbacks_count; i++) {
+	for (size_t i = 0; i < self.looped_playbacks.count; i++) {
 		if (self.looped_playbacks[i].audio == &audio) {
-			self.looped_playbacks[i] = self.looped_playbacks[--self.looped_playbacks_count];
+			mn::buf_remove(self.looped_playbacks, i);
 			return;
 		}
 	}
@@ -226,7 +201,7 @@ BUG:
 - mixing anything with propoller isn't loud enough
 
 TODO:
-- try 
+- try
 - is silence 0?
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
 */
