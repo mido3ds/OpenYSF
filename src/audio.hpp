@@ -13,8 +13,8 @@
 #include <mn/Defer.h>
 
 constexpr int MAX_PLAYABLE_SOUNDS = 32;
-constexpr int AUDIO_FREQUENCY = 22000;
-constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_S16MSB;
+constexpr int AUDIO_FREQUENCY = 22050;
+constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_U16SYS;
 constexpr uint8_t AUDIO_CHANNELS = 2;
 
 // size of stream at callback (bigger is slower), should be power of 2
@@ -84,16 +84,22 @@ struct AudioDevice {
 	int looped_playbacks_count;
 };
 
+constexpr uint32_t min32(uint32_t a, uint32_t b) {
+	return a < b ? a : b;
+}
+
 void audio_device_init(AudioDevice* self) {
 	const SDL_AudioSpec spec {
 		.freq = AUDIO_FREQUENCY,
 		.format = AUDIO_FORMAT,
 		.channels = AUDIO_CHANNELS,
 		.samples = AUDIO_SAMPLES,
-		.callback = [](void* userdata, uint8_t* stream, int stream_len) {
+		.callback = [](void* userdata, uint8_t* stream, int stream_len_int) {
 			auto dev = (AudioDevice*) userdata;
 			mn_assert(dev->playbacks_count >= 0 && dev->playbacks_count <= MAX_PLAYABLE_SOUNDS);
 			mn_assert(dev->looped_playbacks_count >= 0 && dev->looped_playbacks_count <= MAX_PLAYABLE_SOUNDS);
+
+			const uint32_t stream_len = stream_len_int;
 
 			// silence the main buffer
 			::memset(stream, 0, stream_len);
@@ -105,7 +111,7 @@ void audio_device_init(AudioDevice* self) {
 				mn_assert(playback.pos < playback.audio->len);
 
 				const uint32_t audio_current_len = playback.audio->len - playback.pos;
-				const uint32_t min_len = ((uint32_t)stream_len < audio_current_len)? (uint32_t)stream_len : audio_current_len;
+				const uint32_t min_len = stream_len < audio_current_len ? stream_len : audio_current_len;
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 
 				playback.pos += min_len;
@@ -122,11 +128,14 @@ void audio_device_init(AudioDevice* self) {
 				mn_assert(playback.audio);
 				mn_assert(playback.pos < playback.audio->len);
 
-				const uint32_t audio_current_len = playback.audio->len - playback.pos;
-				const uint32_t min_len = ((uint32_t)stream_len < audio_current_len)? (uint32_t)stream_len : audio_current_len;
-				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
-
-				playback.pos = (playback.pos + min_len) % playback.audio->len;
+				uint32_t stream_pos = 0;
+				while (stream_pos < stream_len) {
+					const uint32_t min_len = min32(stream_len - stream_pos, playback.audio->len - playback.pos);
+					SDL_MixAudioFormat(stream+stream_pos, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+					stream_pos += min_len;
+					playback.pos += min_len;
+					playback.pos %= playback.audio->len;
+				}
 			}
 		},
 		.userdata = self,
@@ -214,9 +223,10 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 /*
 BUG:
 - gun sound is too short
-- looping engine/prop isn't pleasing (maybe loop by copying all over buffer? maybe jump to 20% after loop?)
+- mixing anything with propoller isn't loud enough
 
 TODO:
+- try 
 - is silence 0?
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
 */
