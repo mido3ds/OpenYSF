@@ -32,29 +32,24 @@ Audio audio_new(const char* filename) {
         mn::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
 
-	// resample
-	auto stream = SDL_NewAudioStream(spec.format, spec.channels, spec.freq, AUDIO_FORMAT, AUDIO_CHANNELS, AUDIO_FREQUENCY);
-	if (stream == nullptr) {
-		mn::panic("failed to resample '{}'", filename);
+	// convert
+	SDL_AudioCVT cvt;
+	if (SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, AUDIO_FORMAT, AUDIO_CHANNELS, AUDIO_FREQUENCY) < 0) {
+		mn::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
 	}
+	if (cvt.needed) {
+		cvt.len = self.len;
+		cvt.buf = (Uint8*) SDL_malloc(cvt.len * cvt.len_mult);
+		SDL_memcpy(cvt.buf, self.buffer, cvt.len);
 
-	if (SDL_AudioStreamPut(stream, self.buffer, self.len)) {
-		mn::panic("failed to resample '{}'", filename);
+		if (SDL_ConvertAudio(&cvt) < 0) {
+			mn::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
+		}
+
+		SDL_FreeWAV(self.buffer);
+		self.buffer = cvt.buf;
+		self.len = cvt.len_cvt;
 	}
-
-	if (SDL_AudioStreamFlush(stream)) {
-		mn::panic("failed to resample '{}'", filename);
-	}
-
-	self.len = SDL_AudioStreamAvailable(stream);
-	SDL_FreeWAV(self.buffer);
-	self.buffer = (uint8_t*) SDL_malloc(self.len);
-
-	if (SDL_AudioStreamGet(stream, self.buffer, self.len) != self.len) {
-		mn::panic("failed to resample '{}'", filename);
-	}
-
-	SDL_FreeAudioStream(stream);
 
 	return self;
 }
@@ -93,7 +88,12 @@ void audio_device_init(AudioDevice* self) {
 			const uint32_t stream_len = stream_len_int;
 
 			// silence the main buffer
-			::memset(stream, 0, stream_len);
+			if (dev->playbacks.count == 0 && dev->looped_playbacks.count == 0) {
+				SDL_memset(stream, 128, stream_len);
+				return;
+			}
+
+			SDL_memset(stream, 0, stream_len);
 
 			// one shot
 			for (auto& playback : dev->playbacks) {
@@ -102,11 +102,18 @@ void audio_device_init(AudioDevice* self) {
 				const uint32_t min_len = min32(stream_len, playback.audio->len - playback.pos);
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 				playback.pos += min_len;
+
+				SDL_memset(stream+min_len, 128, stream_len-min_len);
+				break;
 			}
+			const bool played = dev->playbacks.count > 0;
 			mn::buf_remove_if(dev->playbacks, [](const AudioPlayback& a) {
 				mn_assert(a.pos <= a.audio->len);
 				return a.pos == a.audio->len;
 			});
+			if (played) {
+				return;
+			}
 
 			// looped
 			for (auto& playback : dev->looped_playbacks) {
@@ -195,11 +202,10 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 
 /*
 BUG:
-- gun sound is too short
 - mixing anything with propoller isn't loud enough
 
 TODO:
-- try
-- is silence 0?
+- don't use SDL_MixAudioFormat
+- is silence 0? (put correct silence, use silence.wav?)
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
 */
