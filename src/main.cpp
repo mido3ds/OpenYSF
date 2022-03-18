@@ -2248,11 +2248,11 @@ struct Sounds {
 		struct {
 			Audio bang, blast, blast2, bombsaway, burner, damage; // 6
 			Audio extendldg, gearhorn, gun, hit, missile, notice; // 6
-			Audio retractldg, rocket, silence, stallhorn, touchdwn, warning; // 6
+			Audio retractldg, rocket, stallhorn, touchdwn, warning; // 6
 			Audio engine, engine0, engine1, engine2, engine3, engine4, engine5, engine6, engine7, engine8, engine9; // 11
 			Audio prop0, prop1, prop2, prop3, prop4, prop5, prop6, prop7, prop8, prop9; // 10
 		};
-		Audio as_array[39];
+		Audio as_array[38];
 	};
 };
 
@@ -2293,7 +2293,6 @@ Sounds sounds_load() {
 	self.prop9 = audio_new(ASSETS_DIR "/sound/prop9.wav");
 	self.retractldg = audio_new(ASSETS_DIR "/sound/retractldg.wav");
 	self.rocket = audio_new(ASSETS_DIR "/sound/rocket.wav");
-	self.silence = audio_new(ASSETS_DIR "/sound/silence.wav");
 	self.stallhorn = audio_new(ASSETS_DIR "/sound/stallhorn.wav");
 	self.touchdwn = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
 	self.warning = audio_new(ASSETS_DIR "/sound/warning.wav");

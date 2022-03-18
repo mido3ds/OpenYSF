@@ -19,6 +19,9 @@ constexpr int AUDIO_FREQUENCY = 22050;
 constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_U16SYS;
 constexpr uint8_t AUDIO_CHANNELS = 2;
 
+// calculated from original assets sound/silence.wav after converting to stereo/22050HZ/16LSB
+constexpr uint16_t AUDIO_SILENCE_VALUE = 0x7FFF;
+
 struct Audio {
 	mn::Str file_path;
 	uint8_t* buffer;
@@ -77,6 +80,15 @@ constexpr uint32_t min32(uint32_t a, uint32_t b) {
 	return a < b ? a : b;
 }
 
+void memset16(void* dst, uint16_t val, size_t len) {
+	mn_assert(len % 2 == 0);
+	uint16_t* dst_as_16 = (uint16_t*) dst;
+	const size_t len_as_16 = len / 2;
+	for (size_t i = 0; i < len_as_16; i++) {
+		dst_as_16[i] = val;
+	}
+}
+
 void audio_device_init(AudioDevice* self) {
 	const SDL_AudioSpec spec {
 		.freq = AUDIO_FREQUENCY,
@@ -89,7 +101,7 @@ void audio_device_init(AudioDevice* self) {
 
 			// silence the main buffer
 			if (dev->playbacks.count == 0 && dev->looped_playbacks.count == 0) {
-				SDL_memset(stream, 128, stream_len);
+				memset16(stream, AUDIO_SILENCE_VALUE, stream_len);
 				return;
 			}
 
@@ -103,7 +115,7 @@ void audio_device_init(AudioDevice* self) {
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 				playback.pos += min_len;
 
-				SDL_memset(stream+min_len, 128, stream_len-min_len);
+				memset16(stream + min_len, AUDIO_SILENCE_VALUE, stream_len - min_len);
 				break;
 			}
 			const bool played = dev->playbacks.count > 0;
@@ -206,6 +218,6 @@ BUG:
 
 TODO:
 - don't use SDL_MixAudioFormat
-- is silence 0? (put correct silence, use silence.wav?)
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
+- use silence.wav to get correct silence value dynamically?
 */
