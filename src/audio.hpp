@@ -10,8 +10,9 @@
 #include <mn/OS.h>
 #include <mn/Log.h>
 #include <mn/Str.h>
-#include <mn/Buf.h>
 #include <mn/Defer.h>
+
+#include "containers.hpp"
 
 // for stream at callback, bigger is slower, should be power of 2
 constexpr auto AUDIO_STREAM_SIZE = 512;
@@ -73,7 +74,7 @@ struct AudioPlayback {
 
 struct AudioDevice {
     SDL_AudioDeviceID id;
-	mn::Buf<AudioPlayback> playbacks, looped_playbacks;
+	Vec<AudioPlayback> playbacks, looped_playbacks;
 };
 
 constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
@@ -112,10 +113,12 @@ void audio_device_init(AudioDevice* self) {
 
 				silence_pos = min_u32(silence_pos + min_len, stream_len);
 			}
-			mn::buf_remove_if(dev->playbacks, [](const AudioPlayback& a) {
-				mn_assert(a.pos <= a.audio->len);
-				return a.pos == a.audio->len;
-			});
+			for (int i = dev->playbacks.size()-1; i >= 0; i--) {
+				mn_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
+				if (dev->playbacks[i].pos == dev->playbacks[i].audio->len) {
+					vec_remove_unordered(dev->playbacks, i);
+				}
+			}
 
 			// looped
 			for (auto& playback : dev->looped_playbacks) {
@@ -146,8 +149,8 @@ void audio_device_init(AudioDevice* self) {
         mn::panic("failed to open audio device: {}", SDL_GetError());
     }
 
-	self->playbacks = mn::buf_with_capacity<AudioPlayback>(32);
-	self->looped_playbacks = mn::buf_with_capacity<AudioPlayback>(32);
+	self->playbacks.reserve(32);
+	self->looped_playbacks.reserve(32);
 
 	// unpause
 	SDL_PauseAudioDevice(self->id, false);
@@ -156,21 +159,19 @@ void audio_device_init(AudioDevice* self) {
 void audio_device_free(AudioDevice& self) {
 	SDL_PauseAudioDevice(self.id, true);
 	SDL_CloseAudioDevice(self.id);
-	mn::buf_free(self.playbacks);
-	mn::buf_free(self.looped_playbacks);
 }
 
 // `audio` must be alive as long as it's played
 void audio_device_play(AudioDevice& self, const Audio& audio) {
     SDL_LockAudioDevice(self.id);
-	mn::buf_push(self.playbacks, AudioPlayback { .audio = &audio });
+	self.playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
 void audio_device_play_looped(AudioDevice& self, const Audio& audio) {
     SDL_LockAudioDevice(self.id);
-	mn::buf_push(self.looped_playbacks, AudioPlayback { .audio = &audio });
+	self.looped_playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
@@ -192,16 +193,16 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
     SDL_LockAudioDevice(self.id);
 	mn_defer(SDL_UnlockAudioDevice(self.id));
 
-	for (size_t i = 0; i < self.playbacks.count; i++) {
+	for (size_t i = 0; i < self.playbacks.size(); i++) {
 		if (self.playbacks[i].audio == &audio) {
-			mn::buf_remove(self.playbacks, i);
+			self.playbacks.erase(self.playbacks.begin()+i);
 			return;
 		}
 	}
 
-	for (size_t i = 0; i < self.looped_playbacks.count; i++) {
+	for (size_t i = 0; i < self.looped_playbacks.size(); i++) {
 		if (self.looped_playbacks[i].audio == &audio) {
-			mn::buf_remove(self.looped_playbacks, i);
+			self.looped_playbacks.erase(self.looped_playbacks.begin()+i);
 			return;
 		}
 	}

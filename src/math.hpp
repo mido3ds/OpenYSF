@@ -1,5 +1,7 @@
 #pragma once
 
+#include "containers.hpp"
+
 #include <mn/Log.h>
 
 #include <glm/vec3.hpp> // glm::vec3
@@ -286,38 +288,38 @@ bool lines2d_intersect(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2
 	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
-mn::Buf<uint32_t>
-polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t>& orig_indices, const glm::vec3& center) {
+Vec<uint32_t>
+polygons_to_triangles(const Vec<glm::vec3>& vertices, const Vec<uint32_t>& orig_indices, const glm::vec3& center) {
 	// dbl_indices -> orig_indices -> vertices
 	// vertex = vertices[orig_indices[dbl_indices[i]]]
 	// indices to indices to vertices
 	// sort dbl_indices from farthest from center to nearst
-	auto dbl_indices = mn::buf_with_allocator<size_t>(mn::memory::tmp());
-	for (size_t i = 0; i < orig_indices.count; i++) {
-		mn::buf_push(dbl_indices, i);
+	Vec<size_t> dbl_indices(memory::tmp());
+	for (size_t i = 0; i < orig_indices.size(); i++) {
+		dbl_indices.push_back(i);
 	}
-	auto dist_from_center = mn::buf_with_allocator<double>(mn::memory::tmp());
+	Vec<double> dist_from_center(memory::tmp());
 	for (const auto& v : vertices) {
-		mn::buf_push(dist_from_center, glm::distance(center, v));
+		dist_from_center.push_back(glm::distance(center, v));
 	}
-	std::sort(mn::begin(dbl_indices), mn::end(dbl_indices), [&](size_t a, size_t b) {
+	std::sort(dbl_indices.begin(), dbl_indices.end(), [&](size_t a, size_t b) {
 		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
 	});
 
-	mn::Buf<uint32_t> out {};
-	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
+	Vec<uint32_t> out{};
+	auto indices = orig_indices;
 
 	// limit no of iterations to avoid inf loop
-	size_t k = indices.count + 1;
-	while (k > 0 && indices.count > 3) {
+	size_t k = indices.size() + 1;
+	while (k > 0 && indices.size() > 3) {
 		k--;
 
-		for (size_t j = 0; j < dbl_indices.count; j++) {
+		for (size_t j = 0; j < dbl_indices.size(); j++) {
 			auto i = dbl_indices[j];
 
 			// indices
-			const uint32_t iv0 = indices[mod(i-1, indices.count)];
-			const uint32_t iv2 = indices[mod(i+1, indices.count)];
+			const uint32_t iv0 = indices[mod(i-1, indices.size())];
+			const uint32_t iv2 = indices[mod(i+1, indices.size())];
 
 			bool is_ear = true;
 
@@ -325,10 +327,10 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 			// for edge in edges:
 			//   if not share_vertex(segment, edge):
 			//     if intersects(segment, edge): return false
-			for (size_t j = 0; j < indices.count; j++) {
+			for (size_t j = 0; j < indices.size(); j++) {
 				// edge
 				const uint32_t jv0 = indices[j];
-				const uint32_t jv1 = indices[mod(j+1, indices.count)];
+				const uint32_t jv1 = indices[mod(j+1, indices.size())];
 
 				// don't test the edge if it shares a vertex with it
 				if ((jv0 != iv0 && jv0 != iv2) && (jv1 != iv0 && jv1 != iv2)) {
@@ -340,12 +342,12 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 			}
 
 			if (is_ear) {
-				mn::buf_push(out, indices[mod(i-1, indices.count)]);
-				mn::buf_push(out, indices[i]);
-				mn::buf_push(out, indices[mod(i+1, indices.count)]);
+				out.push_back(indices[mod(i-1, indices.size())]);
+				out.push_back(indices[i]);
+				out.push_back(indices[mod(i+1, indices.size())]);
 
-				mn::buf_remove_ordered(indices, i);
-				mn::buf_remove_ordered(dbl_indices, j);
+				indices.erase(indices.begin()+i);
+				dbl_indices.erase(dbl_indices.begin()+j);
 
 				for (auto& id : dbl_indices) {
 					if (id > i) {
@@ -359,57 +361,57 @@ polygons_to_triangles(const mn::Buf<glm::vec3>& vertices, const mn::Buf<uint32_t
 		}
 	}
 
-	if (indices.count != 3) {
+	if (indices.size() != 3) {
 		mn::log_error("failed to tesselate");
 	}
-	mn::buf_concat(out, indices);
+	std::copy(indices.begin(), indices.end(), std::back_inserter(out));
 	return out;
 }
 
-mn::Buf<uint32_t>
-polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices, mn::Allocator allocator = mn::allocator_top()) {
+Vec<uint32_t>
+polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* allocator = memory::default_allocator()) {
 	glm::vec2 center {};
 	for (const auto& vertex : vertices) {
 		center += vertex;
 	}
-	center /= vertices.count;
+	center /= vertices.size();
 
-	auto orig_indices = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
-	mn::buf_reserve(orig_indices, vertices.count);
-	for (int i = 0; i < vertices.count; i++) {
-		mn::buf_push(orig_indices, i);
+	Vec<uint32_t> orig_indices(memory::tmp());
+	orig_indices.reserve(vertices.size());
+	for (int i = 0; i < vertices.size(); i++) {
+		orig_indices.push_back(i);
 	}
 
 	// dbl_indices -> orig_indices -> vertices
 	// vertex = vertices[orig_indices[dbl_indices[i]]]
 	// indices to indices to vertices
 	// sort dbl_indices from farthest from center to nearst
-	auto dbl_indices = mn::buf_with_allocator<size_t>(mn::memory::tmp());
-	for (size_t i = 0; i < orig_indices.count; i++) {
-		mn::buf_push(dbl_indices, i);
+	Vec<size_t> dbl_indices(memory::tmp());
+	for (size_t i = 0; i < orig_indices.size(); i++) {
+		dbl_indices.push_back(i);
 	}
-	auto dist_from_center = mn::buf_with_allocator<double>(mn::memory::tmp());
+	Vec<double> dist_from_center(memory::tmp());
 	for (const auto& v : vertices) {
-		mn::buf_push(dist_from_center, glm::distance(center, v));
+		dist_from_center.push_back(glm::distance(center, v));
 	}
-	std::sort(mn::begin(dbl_indices), mn::end(dbl_indices), [&](size_t a, size_t b) {
+	std::sort(dbl_indices.begin(), dbl_indices.end(), [&](size_t a, size_t b) {
 		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
 	});
 
-	auto out = mn::buf_with_allocator<uint32_t>(allocator);
-	auto indices = mn::buf_clone(orig_indices, mn::memory::tmp());
+	Vec<uint32_t> out(allocator);
+	auto indices = orig_indices;
 
 	// limit no of iterations to avoid inf loop
-	size_t k = indices.count + 1;
-	while (k > 0 && indices.count > 3) {
+	size_t k = indices.size() + 1;
+	while (k > 0 && indices.size() > 3) {
 		k--;
 
-		for (size_t j = 0; j < dbl_indices.count; j++) {
+		for (size_t j = 0; j < dbl_indices.size(); j++) {
 			auto i = dbl_indices[j];
 
 			// indices
-			const uint32_t iv0 = indices[mod(i-1, indices.count)];
-			const uint32_t iv2 = indices[mod(i+1, indices.count)];
+			const uint32_t iv0 = indices[mod(i-1, indices.size())];
+			const uint32_t iv2 = indices[mod(i+1, indices.size())];
 
 			bool is_ear = true;
 
@@ -417,10 +419,10 @@ polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices, mn::Allocator alloca
 			// for edge in edges:
 			//   if not share_vertex(segment, edge):
 			//     if intersects(segment, edge): return false
-			for (size_t j = 0; j < indices.count; j++) {
+			for (size_t j = 0; j < indices.size(); j++) {
 				// edge
 				const uint32_t jv0 = indices[j];
-				const uint32_t jv1 = indices[mod(j+1, indices.count)];
+				const uint32_t jv1 = indices[mod(j+1, indices.size())];
 
 				// don't test the edge if it shares a vertex with it
 				if ((jv0 != iv0 && jv0 != iv2) && (jv1 != iv0 && jv1 != iv2)) {
@@ -432,12 +434,12 @@ polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices, mn::Allocator alloca
 			}
 
 			if (is_ear) {
-				mn::buf_push(out, indices[mod(i-1, indices.count)]);
-				mn::buf_push(out, indices[i]);
-				mn::buf_push(out, indices[mod(i+1, indices.count)]);
+				out.push_back(indices[mod(i-1, indices.size())]);
+				out.push_back(indices[i]);
+				out.push_back(indices[mod(i+1, indices.size())]);
 
-				mn::buf_remove_ordered(indices, i);
-				mn::buf_remove_ordered(dbl_indices, j);
+				indices.erase(indices.begin()+i);
+				dbl_indices.erase(dbl_indices.begin()+j);
 
 				for (auto& id : dbl_indices) {
 					if (id > i) {
@@ -451,41 +453,25 @@ polygons2d_to_triangles(const mn::Buf<glm::vec2>& vertices, mn::Allocator alloca
 		}
 	}
 
-	if (indices.count != 3) {
+	if (indices.size() != 3) {
 		mn::log_error("failed to tesselate");
 	}
-	mn::buf_concat(out, indices);
+	std::copy(indices.begin(), indices.end(), std::back_inserter(out));
 	return out;
 }
 
-template<typename T>
-bool buf_equal(const mn::Buf<T>& a, const mn::Buf<T> b) {
-	if (a.count != b.count) {
-		return false;
-	}
-	for (size_t i = 0; i < a.count; i++) {
-		if (a[i] != b[i]) {
-			return false;
-		}
-	}
-	return true;
-}
-
 void test_polygons_to_triangles() {
-	mn::allocator_push(mn::memory::tmp());
-	mn_defer(mn::allocator_pop());
-
 	{
-		const auto vertices = mn::buf_lit<glm::vec3>({
+		const Vec<glm::vec3> vertices {
 			{2,4,0},
 			{2,2,0},
 			{3,2,0},
 			{4,3,0},
 			{4,4,0},
-		});
-		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		};
+		const auto indices = Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4})));
+		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
@@ -509,41 +495,41 @@ void test_polygons_to_triangles() {
 	}
 
 	{
-		const auto vertices = mn::buf_lit<glm::vec3>({
+		const Vec<glm::vec3> vertices{
 			{4,4,0},
 			{5,3,0},
 			{4,2,0},
 			{3,3,0},
-		});
-		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3});
+		};
+		const auto indices = Vec<uint32_t>({0,1,2,3});
 		const glm::vec3 center {4, 3, 0};
-		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({3, 0, 1, 1, 2, 3})));
+		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
 	}
 
 	{
-		const auto vertices = mn::buf_lit<glm::vec3>({
+		const Vec<glm::vec3> vertices{
 			{2,4,0},
 			{2,2,0},
 			{3,2,0},
 			{4,3,0},
 			{4,4,0},
-		});
-		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		};
+		const auto indices = Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4})));
+		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
-		const auto vertices = mn::buf_lit<glm::vec3>({
+		const Vec<glm::vec3> vertices{
 			{0.19, -0.77, 0.82},
 			{0.23, -0.75, 0.68},
 			{0.20, -0.75, 0.00},
 			{0.32, -0.71, 0.00},
 			{0.31, -0.73, 0.96},
-		});
-		const auto indices = mn::buf_lit<uint32_t>({0,1,2,3,4});
+		};
+		const auto indices = Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {0.25, -0.742, 0.492};
-		mn_assert(buf_equal(polygons_to_triangles(vertices, indices, center), mn::buf_lit<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4})));
+		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
 	}
 
 	mn::log_debug("test_polygons_to_triangles: all passed");

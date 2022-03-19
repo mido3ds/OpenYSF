@@ -48,18 +48,10 @@ constexpr float ZL_SCALE = 0.151f;
 constexpr double ANTI_COLL_LIGHT_PERIOD = 4;
 
 struct Face {
-	mn::Buf<uint32_t> vertices_ids;
+	Vec<uint32_t> vertices_ids;
 	glm::vec4 color;
 	glm::vec3 center, normal;
 };
-
-void face_free(Face& self) {
-	mn::destruct(self.vertices_ids);
-}
-
-void destruct(Face& self) {
-	face_free(self);
-}
 
 // CLA: class of animation (aircraft or ground object or player controled ground vehicles)
 // The CLA animation, possibly standing for class,
@@ -268,14 +260,14 @@ struct Mesh {
 	glm::vec3 cnt;
 
 	mn::Str name; // name in SRF not FIL
-	mn::Buf<glm::vec3> vertices;
-	mn::Buf<bool> vertices_has_smooth_shading; // ???
-	mn::Buf<Face> faces;
-	mn::Buf<uint64_t> gfs; // ???
-	mn::Buf<uint64_t> zls; // ids of faces to create a light sprite at the center of them
-	mn::Buf<uint64_t> zzs; // ???
-	mn::Buf<mn::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
-	mn::Buf<MeshState> animation_states; // STA
+	Vec<glm::vec3> vertices;
+	Vec<bool> vertices_has_smooth_shading; // ???
+	Vec<Face> faces;
+	Vec<uint64_t> gfs; // ???
+	Vec<uint64_t> zls; // ids of faces to create a light sprite at the center of them
+	Vec<uint64_t> zzs; // ???
+	Vec<mn::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
+	Vec<MeshState> animation_states; // STA
 
 	// POS
 	MeshState initial_state; // should be kepts const after init
@@ -295,14 +287,6 @@ struct Mesh {
 
 void mesh_free(Mesh &self) {
 	mn::str_free(self.name);
-	mn::destruct(self.vertices);
-	mn::destruct(self.vertices_has_smooth_shading);
-	mn::destruct(self.faces);
-	mn::destruct(self.gfs);
-	mn::destruct(self.zls);
-	mn::destruct(self.zzs);
-	mn::destruct(self.animation_states);
-	mn::destruct(self.children);
 }
 
 void destruct(Mesh &self) {
@@ -315,23 +299,23 @@ void mesh_load_to_gpu(Mesh& self) {
 		glm::vec4 color;
 		glm::vec3 normal;
 	};
-	auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
+	Vec<Stride> buffer(memory::tmp());
 	for (const auto& face : self.faces) {
-		for (size_t i = 0; i < face.vertices_ids.count; i++) {
-			mn::buf_push(buffer, Stride {
+		for (size_t i = 0; i < face.vertices_ids.size(); i++) {
+			buffer.push_back(Stride {
 				.vertex=self.vertices[face.vertices_ids[i]],
 				.color=face.color,
 				.normal=face.normal,
 			});
 		}
 	}
-	self.gpu.array_count = buffer.count;
+	self.gpu.array_count = buffer.size();
 
 	glGenVertexArrays(1, &self.gpu.vao);
 	glBindVertexArray(self.gpu.vao);
 		glGenBuffers(1, &self.gpu.vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
 
 		size_t offset = 0;
 
@@ -426,10 +410,10 @@ bool _token_bool(Parser& parser) {
 	return false;
 }
 
-mn::Buf<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
+Vec<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
 	auto parser = parser_from_file(stp_file_abs_path, mn::memory::tmp());
 
-	auto start_infos = mn::buf_new<StartInfo>();
+	Vec<StartInfo> start_infos;
 
 	while (parser_finished(parser) == false) {
 		StartInfo start_info {};
@@ -472,7 +456,7 @@ mn::Buf<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
 			while (parser_accept(parser, '\n')) {}
 		}
 
-		mn::buf_push(start_infos, start_info);
+		start_infos.push_back(start_info);
 	}
 
 	return start_infos;
@@ -484,8 +468,8 @@ struct Model {
 	bool should_select_file;
 	bool should_load_file;
 
-	mn::Map<mn::Str, Mesh> meshes;
-	mn::Buf<size_t> root_meshes_indices;
+	Map<Str, Mesh> meshes;
+	Vec<Str> root_meshes_names;
 
 	AABB initial_aabb;
 	AABB current_aabb;
@@ -512,13 +496,13 @@ struct Model {
 };
 
 void model_load_to_gpu(Model& self) {
-	for (auto& [_, mesh] : self.meshes.values) {
+	for (auto& [_, mesh] : self.meshes) {
 		mesh_load_to_gpu(mesh);
 	}
 }
 
 void model_unload_from_gpu(Model& self) {
-	for (auto& [_, mesh] : self.meshes.values) {
+	for (auto& [_, mesh] : self.meshes) {
 		mesh_unload_from_gpu(mesh);
 	}
 }
@@ -586,15 +570,15 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 
 		parser_expect(parser, '\n');
 
-		mn::buf_push(mesh.vertices, v);
-		mn::buf_push(mesh.vertices_has_smooth_shading, smooth_shading);
+		mesh.vertices.push_back(v);
+		mesh.vertices_has_smooth_shading.push_back(smooth_shading);
 	}
-	if (mesh.vertices.count == 0) {
+	if (mesh.vertices.size() == 0) {
 		mn::log_error("'{}': doesn't have any vertices!", name);
 	}
 
 	// <Face>+
-	auto faces_unshaded_light_source = mn::buf_with_allocator<bool>(mn::memory::tmp());
+	Vec<bool> faces_unshaded_light_source(memory::tmp());
 	while (parser_accept(parser, "F\n")) {
 		Face face {};
 		bool parsed_color = false,
@@ -659,13 +643,13 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, 'V')) {
 				// V {x}...
-				auto polygon_vertices_ids = mn::buf_with_allocator<uint32_t>(mn::memory::tmp());
+				Vec<uint32_t> polygon_vertices_ids(memory::tmp());
 				while (parser_accept(parser, ' ')) {
 					auto id = parser_token_u64(parser);
-					if (id >= mesh.vertices.count) {
-						mn::panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.count);
+					if (id >= mesh.vertices.size()) {
+						mn::panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.size());
 					}
-					mn::buf_push(polygon_vertices_ids, (uint32_t) id);
+					polygon_vertices_ids.push_back((uint32_t) id);
 				}
 				parser_expect(parser, '\n');
 
@@ -674,22 +658,22 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 				} else {
 					parsed_vertices = true;
 
-					if (polygon_vertices_ids.count < 3) {
-						mn::log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.count);
+					if (polygon_vertices_ids.size() < 3) {
+						mn::log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.size());
 					}
 
 					face.vertices_ids = polygons_to_triangles(mesh.vertices, polygon_vertices_ids, face.center);
-					if (face.vertices_ids.count % 3 != 0) {
-						auto orig_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
+					if (face.vertices_ids.size() % 3 != 0) {
+						Vec<glm::vec3> orig_vertices(memory::tmp());
 						for (auto id : polygon_vertices_ids) {
-							mn::buf_push(orig_vertices, mesh.vertices[id]);
+							orig_vertices.push_back(mesh.vertices[id]);
 						}
-						auto new_vertices = mn::buf_with_allocator<glm::vec3>(mn::memory::tmp());
+						Vec<glm::vec3> new_vertices(memory::tmp());
 						for (auto id : face.vertices_ids) {
-							mn::buf_push(new_vertices, mesh.vertices[id]);
+							new_vertices.push_back(mesh.vertices[id]);
 						}
 						mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, parser.curr_line+1,
-							face.vertices_ids.count, orig_vertices, new_vertices);
+							face.vertices_ids.size(), orig_vertices, new_vertices);
 					}
 				}
 			} else if (parser_accept(parser, "B\n")) {
@@ -712,8 +696,8 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 			mn::log_error("'{}': face has no vertices", name);
 		}
 
-		mn::buf_push(faces_unshaded_light_source, is_light_source);
-		mn::buf_push(mesh.faces, face);
+		faces_unshaded_light_source.push_back(is_light_source);
+		mesh.faces.push_back(face);
 	}
 
 	size_t zl_count = 0;
@@ -726,17 +710,17 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 		} else if (parser_accept(parser, "GF")) { // [GF< {u64}>+\n]+
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
-				if (id >= mesh.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				if (id >= mesh.faces.size()) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
-				mn::buf_push(mesh.gfs, id);
+				mesh.gfs.push_back(id);
 			}
 			parser_expect(parser, '\n');
 		} else if (parser_accept(parser, "ZA")) { // [ZA< {u64} {u8}>+\n]+
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
-				if (id >= mesh.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				if (id >= mesh.faces.size()) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				parser_expect(parser, ' ');
 				mesh.faces[id].color.a = (255 - parser_token_u8(parser)) / 255.0f;
@@ -754,10 +738,10 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
-				if (id >= mesh.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				if (id >= mesh.faces.size()) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
-				mn::buf_push(mesh.zls, id);
+				mesh.zls.push_back(id);
 			}
 			parser_expect(parser, '\n');
 		} else if  (parser_accept(parser, "ZZ")) { // [ZZ< {u64}>+\n]
@@ -768,10 +752,10 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
-				if (id >= mesh.faces.count) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.count);
+				if (id >= mesh.faces.size()) {
+					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
-				mn::buf_push(mesh.zzs, id);
+				mesh.zzs.push_back(id);
 			}
 			parser_expect(parser, '\n');
 		} else {
@@ -785,7 +769,7 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 			unshaded_count++;
 		}
 	}
-	mesh.is_light_source = (unshaded_count == faces_unshaded_light_source.count);
+	mesh.is_light_source = (unshaded_count == faces_unshaded_light_source.size());
 
 	return mesh;
 }
@@ -800,7 +784,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	}
 	parser_expect(parser, '\n');
 
-	auto meshes = mn::map_new<mn::Str, Mesh>();
+	Map<Str, Mesh> meshes {};
 	while (parser_accept(parser, "PCK ")) {
 		auto name = parser_token_str(parser, mn::memory::tmp());
 		parser_expect(parser, ' ');
@@ -819,7 +803,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
 		}
 
-		mn::map_insert(meshes, name, mesh);
+		meshes[name.ptr] = mesh;
 	}
 
 	while (parser_accept(parser, "SRF ")) {
@@ -833,21 +817,21 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		parser_expect(parser, "FIL ");
 		auto fil = parser_token_str(parser, mn::memory::tmp());
 		parser_expect(parser, '\n');
-		auto surf = mn::map_lookup(meshes, fil);
-		if (!surf) {
+		auto surf = meshes.find(fil.ptr);
+		if (surf == meshes.end()) {
 			mn::panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
-		mn::str_free(surf->value.name);
-		surf->value.name = name;
+		mn::str_free(surf->second.name);
+		surf->second.name = name;
 
 		parser_expect(parser, "CLA ");
 		auto animation_type = parser_token_u8(parser);
-		surf->value.animation_type = (AnimationClass) animation_type;
+		surf->second.animation_type = (AnimationClass) animation_type;
 		parser_expect(parser, '\n');
 
 		parser_expect(parser, "NST ");
 		auto num_stas = parser_token_u64(parser);
-		mn::buf_reserve(surf->value.animation_states, num_stas);
+		surf->second.animation_states.reserve(num_stas);
 		parser_expect(parser, '\n');
 
 		for (size_t i = 0; i < num_stas; i++) {
@@ -877,7 +861,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			}
 			parser_expect(parser, '\n');
 
-			mn::buf_push(surf->value.animation_states, sta);
+			surf->second.animation_states.push_back(sta);
 		}
 
 		bool read_pos = false, read_cnt = false, read_rel_dep = false, read_nch = false;
@@ -885,43 +869,43 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			if (parser_accept(parser, "POS ")) {
 				read_pos = true;
 
-				surf->value.initial_state.translation.x = parser_token_float(parser);
+				surf->second.initial_state.translation.x = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->value.initial_state.translation.y = -parser_token_float(parser);
+				surf->second.initial_state.translation.y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->value.initial_state.translation.z = parser_token_float(parser);
+				surf->second.initial_state.translation.z = parser_token_float(parser);
 				parser_expect(parser, ' ');
 
 				// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-				surf->value.initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf->second.initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 				parser_expect(parser, ' ');
-				surf->value.initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf->second.initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 				parser_expect(parser, ' ');
-				surf->value.initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf->second.initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 
 				// aircraft/cessna172r.dnm is the only file with no visibility
 				if (parser_accept(parser, ' ')) {
 					uint8_t visible = parser_token_u8(parser);
 					if (visible == 1 || visible == 0) {
-						surf->value.initial_state.visible = (visible == 1);
+						surf->second.initial_state.visible = (visible == 1);
 					} else {
 						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 					}
 				} else {
-					surf->value.initial_state.visible = true;
+					surf->second.initial_state.visible = true;
 				}
 
 				parser_expect(parser, '\n');
 
-				surf->value.current_state = surf->value.initial_state;
+				surf->second.current_state = surf->second.initial_state;
 			} else if (parser_accept(parser, "CNT ")) {
 				read_cnt = true;
 
-				surf->value.cnt.x = parser_token_float(parser);
+				surf->second.cnt.x = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->value.cnt.y = -parser_token_float(parser);
+				surf->second.cnt.y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->value.cnt.z = parser_token_float(parser);
+				surf->second.cnt.z = parser_token_float(parser);
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "PAX")) {
 				parser_skip_after(parser, '\n');
@@ -932,7 +916,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 
 				const auto num_children = parser_token_u64(parser);
 				parser_expect(parser, '\n');
-				mn::buf_reserve(surf->value.children, num_children);
+				surf->second.children.reserve(num_children);
 
 				for (size_t i = 0; i < num_children; i++) {
 					parser_expect(parser, "CLD ");
@@ -941,7 +925,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 						mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					mn::str_trim(child_name, "\"");
-					mn::buf_push(surf->value.children, child_name);
+					surf->second.children.push_back(child_name);
 					parser_expect(parser, '\n');
 				}
 			} else {
@@ -964,8 +948,8 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		}
 
 		// reinsert with name instead of FIL
-		surf = mn::map_insert(meshes, mn::str_clone(name), surf->value);
-		if (!mn::map_remove(meshes, fil)) {
+		meshes[name.ptr] = surf->second;
+		if (meshes.erase(fil.ptr) == 0) {
 			parser_panic(parser, "must be able to remove {} from meshes", name, fil);
 		}
 
@@ -977,12 +961,9 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	}
 
 	// check children exist
-	for (const auto [_, srf] : meshes.values) {
+	for (const auto [_, srf] : meshes) {
 		for (const auto child : srf.children) {
-			auto srf2 = mn::map_lookup(meshes, child);
-			if (srf2 == nullptr) {
-				mn::panic("SURF {} contains child {} that doesn't exist", srf.name, child);
-			} else if (srf2->value.name == srf.name) {
+			if (meshes.at(child.ptr).name == srf.name) {
 				mn::log_warning("SURF {} references itself", child);
 			}
 		}
@@ -998,29 +979,28 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	};
 
 	// top level nodes = nodes without parents
-	auto surfs_wth_parents = mn::set_with_allocator<mn::Str>(mn::memory::tmp());
-	for (const auto& [_, surf] : meshes.values) {
+	Set<StrView> surfs_with_parents(memory::tmp());
+	for (const auto& [_, surf] : meshes) {
 		for (const auto& child : surf.children) {
-			mn::set_insert(surfs_wth_parents, child);
+			surfs_with_parents.insert(child.ptr);
 		}
 	}
-	for (size_t i = 0; i < meshes.values.count; i++) {
-		if (mn::set_lookup(surfs_wth_parents, meshes.values[i].key) == nullptr) {
-			mn::buf_push(model.root_meshes_indices, i);
+	for (const auto& [name, mesh] : meshes) {
+		if (surfs_with_parents.find(name) == surfs_with_parents.end()) {
+			model.root_meshes_names.push_back(name);
 		}
 	}
 
 	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
-	auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
-	for (auto i : model.root_meshes_indices) {
-		Mesh* mesh = &model.meshes.values[i].value;
-		mesh->transformation = glm::identity<glm::mat4>();
-		mn::buf_push(meshes_stack, mesh);
+	Vec<Mesh*> meshes_stack(memory::tmp());
+	for (const auto& name : model.root_meshes_names) {
+		Mesh& mesh = model.meshes.at(name);
+		mesh.transformation = glm::identity<glm::mat4>();
+		meshes_stack.push_back(&mesh);
 	}
-	while (meshes_stack.count > 0) {
-		Mesh* mesh = mn::buf_top(meshes_stack);
-		mn_assert(mesh);
-		mn::buf_pop(meshes_stack);
+	while (meshes_stack.size() > 0) {
+		Mesh* mesh = *meshes_stack.rbegin();
+		meshes_stack.pop_back();
 
 		for (auto& v : mesh->vertices) {
 			v -= mesh->cnt;
@@ -1044,19 +1024,11 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		}
 
 		for (const mn::Str& child_name : mesh->children) {
-			auto* kv = mn::map_lookup(model.meshes, child_name);
-			mn_assert(kv);
-
-			Mesh* child_mesh = &kv->value;
-			child_mesh->cnt += mesh->cnt;
-
-			mn::buf_push(meshes_stack, child_mesh);
+			auto& child_mesh = model.meshes.at(child_name.ptr);
+			child_mesh.cnt += mesh->cnt;
+			meshes_stack.push_back(&child_mesh);
 		}
 	}
-
-	// to sphere
-	// model.initial_aabb.min = glm::vec3(glm::min(glm::min(model.initial_aabb.min[0], model.initial_aabb.min[1]), model.initial_aabb.min[2]));
-	// model.initial_aabb.max = glm::vec3(glm::max(glm::max(model.initial_aabb.max[0], model.initial_aabb.max[1]), model.initial_aabb.max[2]));
 
 	model.current_aabb = model.initial_aabb;
 
@@ -1065,8 +1037,6 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 
 void model_free(Model& self) {
 	mn::str_free(self.file_abs_path);
-	mn::destruct(self.meshes);
-	mn::destruct(self.root_meshes_indices);
 }
 
 void destruct(Model& self) {
@@ -1203,8 +1173,8 @@ struct TerrMesh {
 	glm::vec2 scale = {1,1};
 
 	// [z][x] where (z=0,x=0) is bot-left most
-	mn::Buf<mn::Buf<float>> nodes_height;
-	mn::Buf<mn::Buf<Block>> blocks;
+	Vec<Vec<float>> nodes_height;
+	Vec<Vec<Block>> blocks;
 
 	struct {
 		bool enabled;
@@ -1229,8 +1199,6 @@ struct TerrMesh {
 void terr_mesh_free(TerrMesh& self) {
 	mn::str_free(self.name);
 	mn::str_free(self.tag);
-	mn::destruct(self.nodes_height);
-	mn::destruct(self.blocks);
 }
 
 void destruct(TerrMesh& self) {
@@ -1242,71 +1210,71 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		glm::vec3 vertex;
 		glm::vec4 color;
 	};
-	auto buffer = mn::buf_with_allocator<Stride>(mn::memory::tmp());
+	Vec<Stride> buffer(memory::tmp());
 
 	// main triangles
-	for (size_t z = 0; z < self.blocks.count; z++) {
-		for (size_t x = 0; x < self.blocks[z].count; x++) {
+	for (size_t z = 0; z < self.blocks.size(); z++) {
+		for (size_t x = 0; x < self.blocks[z].size(); x++) {
 			if (self.blocks[z][x].orientation == Block::RIGHT) {
 				// face 1
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[1],
 				});
 			} else {
 				// face 1
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				mn::buf_push(buffer, Stride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
 			}
 		}
 	}
-	self.gpu.array_count = buffer.count;
+	self.gpu.array_count = buffer.size();
 
 	for (auto& stride : buffer) {
 		stride.vertex.x *= self.scale.x;
@@ -1318,7 +1286,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 	glBindVertexArray(self.gpu.vao);
 		glGenBuffers(1, &self.gpu.vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
 
 		size_t offset = 0;
 
@@ -1371,7 +1339,7 @@ struct Primitive2D {
 	glm::vec3 color2; // only for kind=GRADATION_QUAD_STRIPS
 
 	// (X,Z), y=0
-	mn::Buf<glm::vec2> vertices;
+	Vec<glm::vec2> vertices;
 
 	struct {
 		GLuint vao, vbo;
@@ -1380,12 +1348,8 @@ struct Primitive2D {
 	} gpu;
 };
 
-void prmitive2d_free(Primitive2D& self) {
-	mn::buf_free(self.vertices);
-}
-
 void primitive2d_load_to_gpu(Primitive2D& self) {
-	auto vertices = mn::buf_with_allocator<glm::vec2>(mn::memory::tmp());
+	Vec<glm::vec2> vertices(memory::tmp());
 	switch (self.kind) {
 	case Primitive2D::Kind::POINTS:
 		self.gpu.primitive_type = GL_POINTS;
@@ -1405,48 +1369,48 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 		break;
 	case Primitive2D::Kind::QUADRILATERAL:
 		self.gpu.primitive_type = GL_TRIANGLES;
-		for (int i = 0; i < (int)self.vertices.count - 3; i += 4) {
-			mn::buf_push(vertices, self.vertices[i]);
-			mn::buf_push(vertices, self.vertices[i+3]);
-			mn::buf_push(vertices, self.vertices[i+2]);
+		for (int i = 0; i < (int)self.vertices.size() - 3; i += 4) {
+			vertices.push_back(self.vertices[i]);
+			vertices.push_back(self.vertices[i+3]);
+			vertices.push_back(self.vertices[i+2]);
 
-			mn::buf_push(vertices, self.vertices[i]);
-			mn::buf_push(vertices, self.vertices[i+2]);
-			mn::buf_push(vertices, self.vertices[i+1]);
+			vertices.push_back(self.vertices[i]);
+			vertices.push_back(self.vertices[i+2]);
+			vertices.push_back(self.vertices[i+1]);
 		}
 		break;
 	case Primitive2D::Kind::GRADATION_QUAD_STRIPS: // same as QUAD_STRIPS but with extra color
 	case Primitive2D::Kind::QUAD_STRIPS:
 		self.gpu.primitive_type = GL_TRIANGLES;
-		for (int i = 0; i < (int)self.vertices.count - 2; i += 2) {
-			mn::buf_push(vertices, self.vertices[i]);
-			mn::buf_push(vertices, self.vertices[i+1]);
-			mn::buf_push(vertices, self.vertices[i+3]);
+		for (int i = 0; i < (int)self.vertices.size() - 2; i += 2) {
+			vertices.push_back(self.vertices[i]);
+			vertices.push_back(self.vertices[i+1]);
+			vertices.push_back(self.vertices[i+3]);
 
-			mn::buf_push(vertices, self.vertices[i]);
-			mn::buf_push(vertices, self.vertices[i+2]);
-			mn::buf_push(vertices, self.vertices[i+3]);
+			vertices.push_back(self.vertices[i]);
+			vertices.push_back(self.vertices[i+2]);
+			vertices.push_back(self.vertices[i+3]);
 		}
 		break;
 	case Primitive2D::Kind::POLYGON:
 	{
 		self.gpu.primitive_type = GL_TRIANGLES;
-		auto indices = polygons2d_to_triangles(self.vertices, mn::memory::tmp());
+		auto indices = polygons2d_to_triangles(self.vertices, memory::tmp());
 		for (auto& index : indices) {
-			mn::buf_push(vertices, self.vertices[index]);
+			vertices.push_back(self.vertices[index]);
 		}
 		break;
 	}
 	default: mn_unreachable();
 	}
-	self.gpu.array_count = vertices.count;
+	self.gpu.array_count = vertices.size();
 
 	// load vertices to gpu
 	glGenVertexArrays(1, &self.gpu.vao);
 	glBindVertexArray(self.gpu.vao);
 		glGenBuffers(1, &self.gpu.vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
-		glBufferData(GL_ARRAY_BUFFER, vertices.count * sizeof(glm::vec2), vertices.ptr, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec2), vertices.data(), GL_STATIC_DRAW);
 
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(
@@ -1469,15 +1433,11 @@ void prmitive2d_unload_from_gpu(Primitive2D& self) {
 	self.gpu = {};
 }
 
-void destruct(Primitive2D& self) {
-	prmitive2d_free(self);
-}
-
 struct Picture2D {
 	mn::Str name;
 	FieldID id;
 
-	mn::Buf<Primitive2D> primitives;
+	Vec<Primitive2D> primitives;
 	struct {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
@@ -1487,7 +1447,6 @@ struct Picture2D {
 
 void picture2d_free(Picture2D& self) {
 	mn::str_free(self.name);
-	mn::destruct(self.primitives);
 }
 
 void destruct(Picture2D& self) {
@@ -1556,11 +1515,11 @@ struct Field {
 	glm::vec3 ground_color, sky_color;
 	bool ground_specular; // ????
 
-	mn::Buf<TerrMesh> terr_meshes;
-	mn::Buf<Picture2D> pictures;
-	mn::Buf<FieldRegion> regions;
-	mn::Buf<Field> subfields;
-	mn::Buf<Mesh> meshes;
+	Vec<TerrMesh> terr_meshes;
+	Vec<Picture2D> pictures;
+	Vec<FieldRegion> regions;
+	Vec<Field> subfields;
+	Vec<Mesh> meshes;
 
 	mn::Str file_abs_path;
 	bool should_select_file, should_load_file;
@@ -1576,11 +1535,6 @@ struct Field {
 
 void field_free(Field& self) {
 	mn::str_free(self.name);
-	mn::destruct(self.terr_meshes);
-	mn::destruct(self.pictures);
-	mn::destruct(self.regions);
-	mn::destruct(self.subfields);
-	mn::destruct(self.meshes);
 	mn::str_free(self.file_abs_path);
 }
 
@@ -1683,7 +1637,7 @@ Field _field_from_fld_str(Parser& parser) {
 			auto subfield = _field_from_fld_str(subparser);
 			subfield.name = name;
 
-			mn::buf_push(field.subfields, subfield);
+			field.subfields.push_back(subfield);
 		} else if (parser_accept(parser, "TerrMesh\n")) {
 			TerrMesh terr_mesh { .name=name };
 
@@ -1754,25 +1708,25 @@ Field _field_from_fld_str(Parser& parser) {
 			}
 
 			// create blocks
-			terr_mesh.blocks = mn::buf_with_count<mn::Buf<Block>>(num_blocks_z);
+			terr_mesh.blocks.resize(num_blocks_z);
 			for (auto& row : terr_mesh.blocks) {
-				row = mn::buf_with_count<Block>(num_blocks_x);
+				row.resize(num_blocks_x);
 			}
 
 			// create nodes
-			terr_mesh.nodes_height = mn::buf_with_count<mn::Buf<float>>(num_blocks_z+1);
+			terr_mesh.nodes_height.resize(num_blocks_z+1);
 			for (auto& row : terr_mesh.nodes_height) {
-				row = mn::buf_with_count<float>(num_blocks_x+1);
+				row.resize(num_blocks_x+1);
 			}
 
 			// parse blocks and nodes
-			for (size_t z = 0; z < terr_mesh.nodes_height.count; z++) {
-				for (size_t x = 0; x < terr_mesh.nodes_height[z].count; x++) {
+			for (size_t z = 0; z < terr_mesh.nodes_height.size(); z++) {
+				for (size_t x = 0; x < terr_mesh.nodes_height[z].size(); x++) {
 					parser_expect(parser, "BLO ");
 					terr_mesh.nodes_height[z][x] = parser_token_float(parser);
 
 					// don't read rest of block if node is on edge/wedge
-					if (z == terr_mesh.nodes_height.count-1 || x == terr_mesh.nodes_height[z].count-1) {
+					if (z == terr_mesh.nodes_height.size()-1 || x == terr_mesh.nodes_height[z].size()-1) {
 						parser_skip_after(parser, '\n');
 						continue;
 					}
@@ -1826,7 +1780,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 			parser_expect(parser, "END\n");
 
-			mn::buf_push(field.terr_meshes, terr_mesh);
+			field.terr_meshes.push_back(terr_mesh);
 		} else if (parser_accept(parser, "Pict2\n")) {
 			Picture2D picture { .name=name };
 
@@ -1908,34 +1862,34 @@ Field _field_from_fld_str(Parser& parser) {
 					vertex.y = parser_token_float(parser);
 					parser_expect(parser, '\n');
 
-					mn::buf_push(permitive.vertices, vertex);
+					permitive.vertices.push_back(vertex);
 				}
 
-				if (permitive.vertices.count == 0) {
+				if (permitive.vertices.size() == 0) {
 					parser_panic(parser, "{}: no vertices", parser.curr_line+1);
-				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.count % 3 != 0) {
-					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, permitive.vertices.count);
-				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.count % 2 != 0) {
-					mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.count);
-					mn::buf_pop(permitive.vertices);
-				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.count == 1) {
+				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.size() % 3 != 0) {
+					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, permitive.vertices.size());
+				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.size() % 2 != 0) {
+					mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.size());
+					permitive.vertices.pop_back();
+				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.size() == 1) {
 					parser_panic(parser, "{}: kind is line but has one point", parser.curr_line+1);
-				} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.count % 4 != 0) {
-					parser_panic(parser, "{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", parser.curr_line+1, permitive.vertices.count);
-				} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.count >= 4 && permitive.vertices.count % 2 == 0) == false) {
-					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, permitive.vertices.count);
+				} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.size() % 4 != 0) {
+					parser_panic(parser, "{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", parser.curr_line+1, permitive.vertices.size());
+				} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.size() >= 4 && permitive.vertices.size() % 2 == 0) == false) {
+					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, permitive.vertices.size());
 				}
 
-				mn::buf_push(picture.primitives, permitive);
+				picture.primitives.push_back(permitive);
 			}
 
-			mn::buf_push(field.pictures, picture);
+			field.pictures.push_back(picture);
 		} else if (parser_peek(parser, "Surf\n")) {
 			auto subparser = parser_fork(parser, total_lines_count);
 			auto mesh = mesh_from_srf_str(subparser, name);
 			mn::str_free(name);
 
-			mn::buf_push(field.meshes, mesh);
+			field.meshes.push_back(mesh);
 		} else {
 			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, mn::memory::tmp()));
 		}
@@ -2123,7 +2077,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 			parser_expect(parser, "END\n");
 
-			mn::buf_push(field.regions, region);
+			field.regions.push_back(region);
 		} else if (parser_accept(parser, "PST\n")) {
 			// TODO
 			mn::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
@@ -2227,13 +2181,13 @@ void field_unload_from_gpu(Field& self) {
 	}
 }
 
-mn::Buf<Field*> field_list_recursively(Field& self, mn::Allocator allocator = mn::allocator_top()) {
-	auto buf = mn::buf_with_allocator<Field*>(allocator);
-	mn::buf_push(buf, &self);
+Vec<Field*> field_list_recursively(Field& self, memory::Allocator* allocator = memory::default_allocator()) {
+	Vec<Field*> buf(allocator);
+	buf.push_back(&self);
 
-	for (size_t i = 0; i < buf.count; i++) {
+	for (size_t i = 0; i < buf.size(); i++) {
 		for (auto& f : buf[i]->subfields) {
-			mn::buf_push(buf, &f);
+			buf.push_back(&f);
 		}
 	}
 
@@ -2433,13 +2387,12 @@ int main() {
 
 	// start infos
 	auto start_infos = start_info_from_stp_file(mn::str_lit(ASSETS_DIR "/scenery/small.stp"));
-	mn_defer(mn::destruct(start_infos));
-	mn::buf_insert(start_infos, 0, StartInfo {
+	start_infos.insert(start_infos.begin(), StartInfo {
 		.name=mn::str_from_c("-NULL-")
 	});
 
 	for (int i = 0; i < NUM_MODELS; i++) {
-		model_set_start(models[i], start_infos[mod(i, start_infos.count)]);
+		model_set_start(models[i], start_infos[mod(i, start_infos.size())]);
 	}
 
 	Camera camera {
@@ -2529,23 +2482,21 @@ int main() {
 			glm::vec3 vertex;
 			glm::vec4 color;
 		};
-		mn::allocator_push(mn::memory::tmp());
-		const auto buffer = mn::buf_lit({
+		const Vec<Stride> buffer {
 			Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
 			Stride {{1, 0, 0}, {1, 0, 0, 1}},
 			Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
 			Stride {{0, 1, 0}, {0, 1, 0, 1}},
 			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
 			Stride {{0, 0, 1}, {0, 0, 1, 1}},
-		});
-		mn::allocator_pop();
-		axis_rendering.points_count = buffer.count;
+		};
+		axis_rendering.points_count = buffer.size();
 
 		glGenVertexArrays(1, &axis_rendering.vao);
 		glBindVertexArray(axis_rendering.vao);
 			glGenBuffers(1, &axis_rendering.vbo);
 			glBindBuffer(GL_ARRAY_BUFFER, axis_rendering.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(Stride), buffer.ptr, GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
 
 			size_t offset = 0;
 
@@ -2615,8 +2566,7 @@ int main() {
 		glDeleteVertexArrays(1, &box_rendering.vao);
 	});
 	{
-		mn::allocator_push(mn::memory::tmp());
-		const auto buffer = mn::buf_lit<glm::vec3>({
+		const Vec<glm::vec3> buffer {
 			{0, 0, 0}, // face x0
 			{0, 1, 0},
 			{0, 1, 1},
@@ -2647,15 +2597,14 @@ int main() {
 			{1, 1, 1},
 			{0, 1, 1},
 			{0, 0, 1},
-		});
-		mn::allocator_pop();
-		box_rendering.points_count = buffer.count;
+		};
+		box_rendering.points_count = buffer.size();
 
 		glGenVertexArrays(1, &box_rendering.vao);
 		glBindVertexArray(box_rendering.vao);
 			glGenBuffers(1, &box_rendering.vbo);
 			glBindBuffer(GL_ARRAY_BUFFER, box_rendering.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.count * sizeof(glm::vec3), buffer.ptr, GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(glm::vec3), buffer.data(), GL_STATIC_DRAW);
 
 			glEnableVertexAttribArray(0);
 			glVertexAttribPointer(
@@ -2868,6 +2817,7 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	while (running) {
+		memory::reset_tmp();
 		mn::memory::tmp()->clear_all();
 
 		auto overlay_text = mn::str_tmp();
@@ -3015,7 +2965,7 @@ int main() {
 
 		// test intersection
 		struct Box { glm::vec3 translation, scale, color; };
-		auto box_instances = mn::buf_with_allocator<Box>(mn::memory::tmp());
+		Vec<Box> box_instances(memory::tmp());
 		for (int i = 0; i < NUM_MODELS-1; i++) {
 			if (models[i].current_state.visible == false) {
 				overlay_text = mn::strf(overlay_text, "model[{}] invisible and won't intersect\n", i);
@@ -3041,7 +2991,7 @@ int main() {
 
 				if (models[j].render_aabb) {
 					auto aabb = models[j].current_aabb;
-					mn::buf_push(box_instances, Box {
+					box_instances.push_back(Box {
 						.translation = aabb.min,
 						.scale = aabb.max - aabb.min,
 						.color = j_color,
@@ -3051,7 +3001,7 @@ int main() {
 
 			if (models[i].render_aabb) {
 				auto aabb = models[i].current_aabb;
-				mn::buf_push(box_instances, Box {
+				box_instances.push_back(Box {
 					.translation = aabb.min,
 					.scale = aabb.max - aabb.min,
 					.color = i_color,
@@ -3059,7 +3009,7 @@ int main() {
 			}
 		}
 
-		auto axis_instances = mn::buf_with_allocator<glm::mat4>(mn::memory::tmp());
+		Vec<glm::mat4> axis_instances(memory::tmp());
 
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
@@ -3078,7 +3028,7 @@ int main() {
 		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
-		const auto all_fields = field_list_recursively(field, mn::memory::tmp());
+		const auto all_fields = field_list_recursively(field, memory::tmp());
 
 		// transform fields
 		field.transformation = glm::identity<glm::mat4>();
@@ -3098,7 +3048,7 @@ int main() {
 
 			for (auto& mesh : fld->meshes) {
 				if (mesh.render_cnt_axis) {
-					mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
+					axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
 				}
 
 				// apply mesh transformation
@@ -3109,7 +3059,7 @@ int main() {
 				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 
 				if (mesh.render_pos_axis) {
-					mn::buf_push(axis_instances, mesh.transformation);
+					axis_instances.push_back(mesh.transformation);
 				}
 			}
 		}
@@ -3122,7 +3072,7 @@ int main() {
 
 		glBindTexture(GL_TEXTURE_2D, groundtile_texture);
 		glBindVertexArray(dummy_vao);
-		glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(all_fields[all_fields.count-1]->ground_color));
+		glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(all_fields[all_fields.size()-1]->ground_color));
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 
 		// render fields pictures
@@ -3210,7 +3160,7 @@ int main() {
 			}
 		}
 
-		auto zlpoints = mn::buf_with_allocator<ZLPoint>(mn::memory::tmp());
+		Vec<ZLPoint> zlpoints(memory::tmp());
 
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
@@ -3304,23 +3254,22 @@ int main() {
 				}
 
 				// start with root meshes
-				auto meshes_stack = mn::buf_with_allocator<Mesh*>(mn::memory::tmp());
-				for (auto i : model.root_meshes_indices) {
-					Mesh* mesh = &model.meshes.values[i].value;
-					mesh->transformation = model_transformation;
-					mn::buf_push(meshes_stack, mesh);
+				Vec<Mesh*> meshes_stack(memory::tmp());
+				for (const auto& name : model.root_meshes_names) {
+					auto& mesh = model.meshes.at(name);
+					mesh.transformation = model_transformation;
+					meshes_stack.push_back(&mesh);
 				}
 
-				while (meshes_stack.count > 0) {
-					Mesh* mesh = mn::buf_top(meshes_stack);
-					mn_assert(mesh);
-					mn::buf_pop(meshes_stack);
+				while (meshes_stack.size() > 0) {
+					Mesh* mesh = *meshes_stack.rbegin();
+					meshes_stack.pop_back();
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
 						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
 					}
 
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.count > 1) {
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
 						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
 						const MeshState& state_up   = mesh->animation_states[0];
 						const MeshState& state_down = mesh->animation_states[1];
@@ -3353,7 +3302,7 @@ int main() {
 
 					if (mesh->current_state.visible) {
 						if (mesh->render_cnt_axis) {
-							mn::buf_push(axis_instances, glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
+							axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
 						}
 
 						// apply mesh transformation
@@ -3363,7 +3312,7 @@ int main() {
 						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
 
 						if (mesh->render_pos_axis) {
-							mn::buf_push(axis_instances, mesh->transformation);
+							axis_instances.push_back(mesh->transformation);
 						}
 
 						// upload transofmation model
@@ -3375,18 +3324,16 @@ int main() {
 						glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
 
 						for (const mn::Str& child_name : mesh->children) {
-							auto* kv = mn::map_lookup(model.meshes, child_name);
-							mn_assert(kv);
-							Mesh* child_mesh = &kv->value;
-							child_mesh->transformation = mesh->transformation;
-							mn::buf_push(meshes_stack, child_mesh);
+							auto& child_mesh = model.meshes.at(child_name.ptr);
+							child_mesh.transformation = mesh->transformation;
+							meshes_stack.push_back(&child_mesh);
 						}
 
 						// ZL
 						if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
 							for (size_t zlid : mesh->zls) {
 								Face& face = mesh->faces[zlid];
-								mn::buf_push(zlpoints, ZLPoint {
+								zlpoints.push_back(ZLPoint {
 									.center = model_transformation * glm::vec4(face.center, 1.0f),
 									.color = face.color
 								});
@@ -3397,7 +3344,7 @@ int main() {
 			}
 		}
 
-		if (zlpoints.count > 0) {
+		if (zlpoints.size() > 0) {
 			auto model_transformation = glm::mat4(glm::mat3(view_inverse_mat)) * glm::scale(glm::vec3{ZL_SCALE, ZL_SCALE, 0});
 
 			glUseProgram(sprite_gpu_program);
@@ -3415,7 +3362,7 @@ int main() {
 		glUseProgram(meshes_gpu_program);
 
 		// render axis
-		if (axis_instances.count > 0) {
+		if (axis_instances.size() > 0) {
 
 			if (axis_rendering.on_top) {
 				glDisable(GL_DEPTH_TEST);
@@ -3455,7 +3402,7 @@ int main() {
 		}
 
 		// render boxes
-		if (box_instances.count > 0) {
+		if (box_instances.size() > 0) {
 			glUseProgram(lines_gpu_program);
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(box_rendering.line_width);
@@ -3537,7 +3484,7 @@ int main() {
 				if (camera.kind == Camera::Kind::FLY) {
 					static size_t start_info_index = 0;
 					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
-						for (size_t j = 0; j < start_infos.count; j++) {
+						for (size_t j = 0; j < start_infos.size(); j++) {
 							if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
 								start_info_index = j;
 								camera.position = start_infos[j].position;
@@ -3689,14 +3636,14 @@ int main() {
 					}
 					if (ImGui::Button("Reset All")) {
 						model.current_state = {};
-						for (auto& [_, mesh] : model.meshes.values) {
+						for (auto& [_, mesh] : model.meshes) {
 							mesh.current_state = mesh.initial_state;
 						}
 					}
 
 					static size_t start_info_index = 0;
 					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
-						for (size_t j = 0; j < start_infos.count; j++) {
+						for (size_t j = 0; j < start_infos.size(); j++) {
 							if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
 								start_info_index = j;
 								model_set_start(models[i], start_infos[start_info_index]);
@@ -3741,14 +3688,14 @@ int main() {
 					}
 
 					size_t light_sources_count = 0;
-					for (const auto& [_, mesh] : model.meshes.values) {
+					for (const auto& [_, mesh] : model.meshes) {
 						if (mesh.is_light_source) {
 							light_sources_count++;
 						}
 					}
 
-					ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.count,
-						model.root_meshes_indices.count, light_sources_count).ptr);
+					ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.size(),
+						model.root_meshes_names.size(), light_sources_count).ptr);
 
 					std::function<void(Mesh&)> render_mesh_ui;
 					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max](Mesh& mesh) {
@@ -3772,17 +3719,15 @@ int main() {
 
 							ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
 
-							ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.count).ptr);
+							ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.size()).ptr);
 							ImGui::Indent();
 							for (const auto& child_name : mesh.children) {
-								auto kv = mn::map_lookup(model.meshes, child_name);
-								mn_assert(kv);
-								render_mesh_ui(kv->value);
+								render_mesh_ui(model.meshes.at(child_name.ptr));
 							}
 							ImGui::Unindent();
 
-							if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.count).ptr)) {
-								for (size_t i = 0; i < mesh.faces.count; i++) {
+							if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.size()).ptr)) {
+								for (size_t i = 0; i < mesh.faces.size(); i++) {
 									if (ImGui::TreeNode(mn::str_tmpf("{}", i).ptr)) {
 										ImGui::TextWrapped("Vertices: %s", mn::str_tmpf("{}", mesh.faces[i].vertices_ids).ptr);
 
@@ -3807,8 +3752,8 @@ int main() {
 					};
 
 					ImGui::Indent();
-					for (auto i : model.root_meshes_indices) {
-						render_mesh_ui(model.meshes.values[i].value);
+					for (const auto& name : model.root_meshes_names) {
+						render_mesh_ui(model.meshes.at(name));
 					}
 					ImGui::Unindent();
 
@@ -3858,7 +3803,7 @@ int main() {
 						render_field_imgui(subfield, false);
 					}
 
-					ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.count);
+					ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.size());
 					for (auto& terr_mesh : field.terr_meshes) {
 						if (ImGui::TreeNode(terr_mesh.name.ptr)) {
 							if (ImGui::Button("Reset State")) {
@@ -3887,7 +3832,7 @@ int main() {
 						}
 					}
 
-					ImGui::BulletText("Pict2: %d", (int)field.pictures.count);
+					ImGui::BulletText("Pict2: %d", (int)field.pictures.size());
 					for (auto& picture : field.pictures) {
 						if (ImGui::TreeNode(picture.name.ptr)) {
 							if (ImGui::Button("Reset State")) {
@@ -3914,7 +3859,7 @@ int main() {
 						}
 					}
 
-					ImGui::BulletText("Meshes: %d", (int)field.meshes.count);
+					ImGui::BulletText("Meshes: %d", (int)field.meshes.size());
 					for (auto& mesh : field.meshes) {
 						ImGui::Text("%s", mesh.name.ptr);
 					}
@@ -4001,8 +3946,10 @@ BUG:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
+- f10 has one beacon on right but not on left
 
 TODO:
+- use Str instead of mn::Str
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
@@ -4063,7 +4010,7 @@ TODO:
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
-- Mesh contains mn::Buf<Mesh> instead of names
+- Mesh contains Vec<Mesh> instead of names
 - dnm hot realod per model
 
 - optimization:
