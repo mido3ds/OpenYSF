@@ -20,6 +20,7 @@
 #include "parser.hpp"
 #include "math.hpp"
 #include "audio.hpp"
+#include "containers.hpp"
 
 #define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 

@@ -87,6 +87,8 @@ add_executable(open-ysf
 	src/gpu.hpp
 	src/imgui.hpp
 	src/audio.hpp
+	src/containers.hpp
+	src/memory.cpp
 )
 
 target_link_libraries(open-ysf
