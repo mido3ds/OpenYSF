@@ -118,62 +118,62 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const AnimationClass &c, FormatContext &ctx) {
-			mn::Str s {};
+			StrView s {};
 			switch (c) {
 			case AnimationClass::AIRCRAFT_LANDING_GEAR /*| AnimationClass::GROUND_DEFAULT*/:
-				s = mn::str_lit("(AIRCRAFT_LANDING_GEAR||GROUND_DEFAULT)");
+				s = "(AIRCRAFT_LANDING_GEAR||GROUND_DEFAULT)";
 				break;
 			case AnimationClass::AIRCRAFT_VARIABLE_GEOMETRY_WING /*| AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING*/:
-				s = mn::str_lit("(AIRCRAFT_VARIABLE_GEOMETRY_WING||GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING)");
+				s = "(AIRCRAFT_VARIABLE_GEOMETRY_WING||GROUND_ANTI_AIRCRAFT_GUN_HORIZONTAL_TRACKING)";
 				break;
 			case AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT /*| AnimationClass::GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING*/:
-				s = mn::str_lit("(AIRCRAFT_AFTERBURNER_REHEAT||GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING)");
+				s = "(AIRCRAFT_AFTERBURNER_REHEAT||GROUND_ANTI_AIRCRAFT_GUN_VERTICAL_TRACKING)";
 				break;
 			case AnimationClass::AIRCRAFT_SPINNER_PROPELLER /*| AnimationClass::GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING*/:
-				s = mn::str_lit("(AIRCRAFT_SPINNER_PROPELLER||GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING)");
+				s = "(AIRCRAFT_SPINNER_PROPELLER||GROUND_SAM_LAUNCHER_HORIZONTAL_TRACKING)";
 				break;
 			case AnimationClass::AIRCRAFT_AIRBRAKE /*| AnimationClass::GROUND_SAM_LAUNCHER_VERTICAL_TRACKING*/:
-				s = mn::str_lit("(AIRCRAFT_AIRBRAKE||GROUND_SAM_LAUNCHER_VERTICAL_TRACKING)");
+				s = "(AIRCRAFT_AIRBRAKE||GROUND_SAM_LAUNCHER_VERTICAL_TRACKING)";
 				break;
 			case AnimationClass::AIRCRAFT_FLAPS /*| AnimationClass::GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING*/:
-				s = mn::str_lit("(AIRCRAFT_FLAPS||GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING)");
+				s = "(AIRCRAFT_FLAPS||GROUND_ANTI_GROUND_OBJECT_HORIZONTAL_TRACKING)";
 				break;
 			case AnimationClass::AIRCRAFT_ELEVATOR /*| AnimationClass::GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING*/:
-				s = mn::str_lit("(AIRCRAFT_ELEVATOR||GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING)");
+				s = "(AIRCRAFT_ELEVATOR||GROUND_ANTI_GROUND_OBJECT_VERTICAL_TRACKING)";
 				break;
 			case AnimationClass::AIRCRAFT_VTOL_NOZZLE /*| AnimationClass::GROUND_SPINNING_RADAR_SLOW*/:
-				s = mn::str_lit("(AIRCRAFT_VTOL_NOZZLE||GROUND_SPINNING_RADAR_SLOW)");
+				s = "(AIRCRAFT_VTOL_NOZZLE||GROUND_SPINNING_RADAR_SLOW)";
 				break;
 			case AnimationClass::AIRCRAFT_THRUST_REVERSE /*| AnimationClass::GROUND_SPINNING_RADAR_FAST*/:
-				s = mn::str_lit("(AIRCRAFT_THRUST_REVERSE||GROUND_SPINNING_RADAR_FAST)");
+				s = "(AIRCRAFT_THRUST_REVERSE||GROUND_SPINNING_RADAR_FAST)";
 				break;
 
-			case AnimationClass::AIRCRAFT_AILERONS: s = mn::str_lit("AIRCRAFT_AILERONS"); break;
-			case AnimationClass::AIRCRAFT_RUDDER: s = mn::str_lit("AIRCRAFT_RUDDER"); break;
-			case AnimationClass::AIRCRAFT_BOMB_BAY_DOORS: s = mn::str_lit("AIRCRAFT_BOMB_BAY_DOORS"); break;
-			case AnimationClass::AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG: s = mn::str_lit("AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG"); break;
-			case AnimationClass::AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT: s = mn::str_lit("AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT"); break;
-			case AnimationClass::AIRCRAFT_GEAR_DOORS_TRANSITION: s = mn::str_lit("AIRCRAFT_GEAR_DOORS_TRANSITION"); break;
-			case AnimationClass::AIRCRAFT_INSIDE_GEAR_BAY: s = mn::str_lit("AIRCRAFT_INSIDE_GEAR_BAY"); break;
-			case AnimationClass::AIRCRAFT_BRAKE_ARRESTER: s = mn::str_lit("AIRCRAFT_BRAKE_ARRESTER"); break;
-			case AnimationClass::AIRCRAFT_GEAR_DOORS: s = mn::str_lit("AIRCRAFT_GEAR_DOORS"); break;
-			case AnimationClass::AIRCRAFT_LOW_THROTTLE: s = mn::str_lit("AIRCRAFT_LOW_THROTTLE"); break;
-			case AnimationClass::AIRCRAFT_HIGH_THROTTLE: s = mn::str_lit("AIRCRAFT_HIGH_THROTTLE"); break;
-			case AnimationClass::AIRCRAFT_TURRET_OBJECTS: s = mn::str_lit("AIRCRAFT_TURRET_OBJECTS"); break;
-			case AnimationClass::AIRCRAFT_ROTATING_WHEELS: s = mn::str_lit("AIRCRAFT_ROTATING_WHEELS"); break;
-			case AnimationClass::AIRCRAFT_STEERING: s = mn::str_lit("AIRCRAFT_STEERING"); break;
-			case AnimationClass::AIRCRAFT_NAV_LIGHTS: s = mn::str_lit("AIRCRAFT_NAV_LIGHTS"); break;
-			case AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS: s = mn::str_lit("AIRCRAFT_ANTI_COLLISION_LIGHTS"); break;
-			case AnimationClass::AIRCRAFT_STROBE_LIGHTS: s = mn::str_lit("AIRCRAFT_STROBE_LIGHTS"); break;
-			case AnimationClass::AIRCRAFT_LANDING_LIGHTS: s = mn::str_lit("AIRCRAFT_LANDING_LIGHTS"); break;
-			case AnimationClass::AIRCRAFT_LANDING_GEAR_LIGHTS: s = mn::str_lit("AIRCRAFT_LANDING_GEAR_LIGHTS"); break;
+			case AnimationClass::AIRCRAFT_AILERONS: s = "AIRCRAFT_AILERONS"; break;
+			case AnimationClass::AIRCRAFT_RUDDER: s = "AIRCRAFT_RUDDER"; break;
+			case AnimationClass::AIRCRAFT_BOMB_BAY_DOORS: s = "AIRCRAFT_BOMB_BAY_DOORS"; break;
+			case AnimationClass::AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG: s = "AIRCRAFT_THRUST_VECTOR_ANIMATION_LONG"; break;
+			case AnimationClass::AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT: s = "AIRCRAFT_THRUST_VECTOR_ANIMATION_SHORT"; break;
+			case AnimationClass::AIRCRAFT_GEAR_DOORS_TRANSITION: s = "AIRCRAFT_GEAR_DOORS_TRANSITION"; break;
+			case AnimationClass::AIRCRAFT_INSIDE_GEAR_BAY: s = "AIRCRAFT_INSIDE_GEAR_BAY"; break;
+			case AnimationClass::AIRCRAFT_BRAKE_ARRESTER: s = "AIRCRAFT_BRAKE_ARRESTER"; break;
+			case AnimationClass::AIRCRAFT_GEAR_DOORS: s = "AIRCRAFT_GEAR_DOORS"; break;
+			case AnimationClass::AIRCRAFT_LOW_THROTTLE: s = "AIRCRAFT_LOW_THROTTLE"; break;
+			case AnimationClass::AIRCRAFT_HIGH_THROTTLE: s = "AIRCRAFT_HIGH_THROTTLE"; break;
+			case AnimationClass::AIRCRAFT_TURRET_OBJECTS: s = "AIRCRAFT_TURRET_OBJECTS"; break;
+			case AnimationClass::AIRCRAFT_ROTATING_WHEELS: s = "AIRCRAFT_ROTATING_WHEELS"; break;
+			case AnimationClass::AIRCRAFT_STEERING: s = "AIRCRAFT_STEERING"; break;
+			case AnimationClass::AIRCRAFT_NAV_LIGHTS: s = "AIRCRAFT_NAV_LIGHTS"; break;
+			case AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS: s = "AIRCRAFT_ANTI_COLLISION_LIGHTS"; break;
+			case AnimationClass::AIRCRAFT_STROBE_LIGHTS: s = "AIRCRAFT_STROBE_LIGHTS"; break;
+			case AnimationClass::AIRCRAFT_LANDING_LIGHTS: s = "AIRCRAFT_LANDING_LIGHTS"; break;
+			case AnimationClass::AIRCRAFT_LANDING_GEAR_LIGHTS: s = "AIRCRAFT_LANDING_GEAR_LIGHTS"; break;
 
-			case AnimationClass::PLAYER_GROUND_LEFT_DOOR: s = mn::str_lit("PLAYER_GROUND_LEFT_DOOR"); break;
-			case AnimationClass::PLAYER_GROUND_RIGHT_DOOR: s = mn::str_lit("PLAYER_GROUND_RIGHT_DOOR"); break;
-			case AnimationClass::PLAYER_GROUND_REAR_DOOR: s = mn::str_lit("PLAYER_GROUND_REAR_DOOR"); break;
-			case AnimationClass::PLAYER_GROUND_CARGO_DOOR: s = mn::str_lit("PLAYER_GROUND_CARGO_DOOR"); break;
+			case AnimationClass::PLAYER_GROUND_LEFT_DOOR: s = "PLAYER_GROUND_LEFT_DOOR"; break;
+			case AnimationClass::PLAYER_GROUND_RIGHT_DOOR: s = "PLAYER_GROUND_RIGHT_DOOR"; break;
+			case AnimationClass::PLAYER_GROUND_REAR_DOOR: s = "PLAYER_GROUND_REAR_DOOR"; break;
+			case AnimationClass::PLAYER_GROUND_CARGO_DOOR: s = "PLAYER_GROUND_CARGO_DOOR"; break;
 
-			case AnimationClass::UNKNOWN: s = mn::str_lit("UNKNOWN"); break;
+			case AnimationClass::UNKNOWN: s = "UNKNOWN"; break;
 
 			default: mn_unreachable();
 			}
@@ -259,14 +259,14 @@ struct Mesh {
 	// Flaps and ailerons and the like are also easily made (in the wing) and they move much better.
 	glm::vec3 cnt;
 
-	mn::Str name; // name in SRF not FIL
+	Str name; // name in SRF not FIL
 	Vec<glm::vec3> vertices;
 	Vec<bool> vertices_has_smooth_shading; // ???
 	Vec<Face> faces;
 	Vec<uint64_t> gfs; // ???
 	Vec<uint64_t> zls; // ids of faces to create a light sprite at the center of them
 	Vec<uint64_t> zzs; // ???
-	Vec<mn::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
+	Vec<Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
 	Vec<MeshState> animation_states; // STA
 
 	// POS
@@ -284,14 +284,6 @@ struct Mesh {
 	bool render_pos_axis;
 	bool render_cnt_axis;
 };
-
-void mesh_free(Mesh &self) {
-	mn::str_free(self.name);
-}
-
-void destruct(Mesh &self) {
-	mesh_free(self);
-}
 
 void mesh_load_to_gpu(Mesh& self) {
 	struct Stride {
@@ -364,21 +356,13 @@ void mesh_unload_from_gpu(Mesh& self) {
 }
 
 struct StartInfo {
-	mn::Str name;
+	Str name;
 	glm::vec3 position;
 	glm::vec3 attitude;
 	float speed;
 	float throttle;
 	bool landing_gear_is_out = true;
 };
-
-void start_info_free(StartInfo& self) {
-	mn::str_free(self.name);
-}
-
-void destruct(StartInfo& self) {
-	start_info_free(self);
-}
 
 float _token_distance(Parser& parser) {
 	const float x = parser_token_float(parser);
@@ -400,7 +384,7 @@ float _token_angle(Parser& parser) {
 }
 
 bool _token_bool(Parser& parser) {
-	const auto x = parser_token_str(parser, mn::memory::tmp());
+	const auto x = parser_token_str(parser, memory::tmp());
 	if (x == "TRUE") {
 		return true;
 	} else if (x == "FALSE") {
@@ -410,8 +394,8 @@ bool _token_bool(Parser& parser) {
 	return false;
 }
 
-Vec<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
-	auto parser = parser_from_file(stp_file_abs_path, mn::memory::tmp());
+Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
+	auto parser = parser_from_file(stp_file_abs_path, memory::tmp());
 
 	Vec<StartInfo> start_infos;
 
@@ -464,7 +448,7 @@ Vec<StartInfo> start_info_from_stp_file(const mn::Str& stp_file_abs_path) {
 
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
-	mn::Str file_abs_path;
+	Str file_abs_path;
 	bool should_select_file;
 	bool should_load_file;
 
@@ -546,13 +530,13 @@ glm::mat4 model_calc_trans(const Model& self) {
 	);
 }
 
-Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version = 1) {
+Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
 	if (parser_accept(parser, "SURF\n") == false) {
 		parser_expect(parser, "Surf\n");
 	}
 
-	Mesh mesh { .name=mn::str_clone(name) };
+	Mesh mesh { .name = Str(name) };
 
 	// V {x} {y} {z}[ R]\n
 	while (parser_accept(parser, "V ")) {
@@ -774,8 +758,19 @@ Mesh mesh_from_srf_str(Parser& parser, const mn::Str& name, size_t dnm_version =
 	return mesh;
 }
 
-Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
-	auto parser = parser_from_file(dnm_file_abs_path, mn::memory::tmp());
+inline static void
+_str_unquote(Str& s) {
+	if (s.size() < 2) {
+		return;
+	}
+	if (s[0] == s[s.size()-1] && s[0] == '\"') {
+		s.pop_back();
+		s.erase(s.begin());
+	}
+}
+
+Model model_from_dnm_file(StrView dnm_file_abs_path) {
+	auto parser = parser_from_file(dnm_file_abs_path, memory::tmp());
 
 	parser_expect(parser, "DYNAMODEL\nDNMVER ");
 	const uint8_t dnm_version = parser_token_u8(parser);
@@ -786,7 +781,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 
 	Map<Str, Mesh> meshes {};
 	while (parser_accept(parser, "PCK ")) {
-		auto name = parser_token_str(parser, mn::memory::tmp());
+		auto name = parser_token_str(parser, memory::tmp());
 		parser_expect(parser, ' ');
 		const auto pck_expected_no_lines = parser_token_u64(parser);
 		parser_expect(parser, '\n');
@@ -803,25 +798,24 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
 		}
 
-		meshes[name.ptr] = mesh;
+		meshes[name] = mesh;
 	}
 
 	while (parser_accept(parser, "SRF ")) {
 		auto name = parser_token_str(parser);
-		if (!(mn::str_prefix(name, "\"") && mn::str_suffix(name, "\""))) {
+		if (!(str_prefix(name, "\"") && str_suffix(name, "\""))) {
 			mn::panic("name must be in \"\" found={}", name);
 		}
-		mn::str_trim(name, "\"");
+		_str_unquote(name);
 		parser_expect(parser, '\n');
 
 		parser_expect(parser, "FIL ");
-		auto fil = parser_token_str(parser, mn::memory::tmp());
+		auto fil = parser_token_str(parser, memory::tmp());
 		parser_expect(parser, '\n');
-		auto surf = meshes.find(fil.ptr);
+		auto surf = meshes.find(fil);
 		if (surf == meshes.end()) {
 			mn::panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
-		mn::str_free(surf->second.name);
 		surf->second.name = name;
 
 		parser_expect(parser, "CLA ");
@@ -921,10 +915,10 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 				for (size_t i = 0; i < num_children; i++) {
 					parser_expect(parser, "CLD ");
 					auto child_name = parser_token_str(parser);
-					if (!(mn::str_prefix(child_name, "\"") && mn::str_suffix(child_name, "\""))) {
+					if (!(str_prefix(child_name, "\"") && str_suffix(child_name, "\""))) {
 						mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
-					mn::str_trim(child_name, "\"");
+					_str_unquote(child_name);
 					surf->second.children.push_back(child_name);
 					parser_expect(parser, '\n');
 				}
@@ -948,8 +942,8 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		}
 
 		// reinsert with name instead of FIL
-		meshes[name.ptr] = surf->second;
-		if (meshes.erase(fil.ptr) == 0) {
+		meshes[name] = surf->second;
+		if (meshes.erase(fil) == 0) {
 			parser_panic(parser, "must be able to remove {} from meshes", name, fil);
 		}
 
@@ -963,14 +957,14 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	// check children exist
 	for (const auto [_, srf] : meshes) {
 		for (const auto child : srf.children) {
-			if (meshes.at(child.ptr).name == srf.name) {
+			if (meshes.at(child).name == srf.name) {
 				mn::log_warning("SURF {} references itself", child);
 			}
 		}
 	}
 
 	auto model = Model {
-		.file_abs_path = mn::str_clone(dnm_file_abs_path),
+		.file_abs_path = Str(dnm_file_abs_path),
 		.meshes = meshes,
 		.initial_aabb = AABB {
 			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
@@ -982,7 +976,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	Set<StrView> surfs_with_parents(memory::tmp());
 	for (const auto& [_, surf] : meshes) {
 		for (const auto& child : surf.children) {
-			surfs_with_parents.insert(child.ptr);
+			surfs_with_parents.insert(child);
 		}
 	}
 	for (const auto& [name, mesh] : meshes) {
@@ -998,7 +992,7 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 		mesh.transformation = glm::identity<glm::mat4>();
 		meshes_stack.push_back(&mesh);
 	}
-	while (meshes_stack.size() > 0) {
+	while (meshes_stack.empty() == false) {
 		Mesh* mesh = *meshes_stack.rbegin();
 		meshes_stack.pop_back();
 
@@ -1023,8 +1017,8 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 			}
 		}
 
-		for (const mn::Str& child_name : mesh->children) {
-			auto& child_mesh = model.meshes.at(child_name.ptr);
+		for (const Str& child_name : mesh->children) {
+			auto& child_mesh = model.meshes.at(child_name);
 			child_mesh.cnt += mesh->cnt;
 			meshes_stack.push_back(&child_mesh);
 		}
@@ -1033,14 +1027,6 @@ Model model_from_dnm_file(const mn::Str& dnm_file_abs_path) {
 	model.current_aabb = model.initial_aabb;
 
 	return model;
-}
-
-void model_free(Model& self) {
-	mn::str_free(self.file_abs_path);
-}
-
-void destruct(Model& self) {
-	model_free(self);
 }
 
 struct PerspectiveProjection {
@@ -1166,7 +1152,7 @@ struct Block {
 };
 
 struct TerrMesh {
-	mn::Str name, tag;
+	Str name, tag;
 	FieldID id;
 
 	// x,z
@@ -1195,15 +1181,6 @@ struct TerrMesh {
 		bool visible = true;
 	} current_state, initial_state;
 };
-
-void terr_mesh_free(TerrMesh& self) {
-	mn::str_free(self.name);
-	mn::str_free(self.tag);
-}
-
-void destruct(TerrMesh& self) {
-	terr_mesh_free(self);
-}
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
 	struct Stride {
@@ -1434,7 +1411,7 @@ void prmitive2d_unload_from_gpu(Primitive2D& self) {
 }
 
 struct Picture2D {
-	mn::Str name;
+	Str name;
 	FieldID id;
 
 	Vec<Primitive2D> primitives;
@@ -1444,14 +1421,6 @@ struct Picture2D {
 		bool visible = true;
 	} current_state, initial_state;
 };
-
-void picture2d_free(Picture2D& self) {
-	mn::str_free(self.name);
-}
-
-void destruct(Picture2D& self) {
-	picture2d_free(self);
-}
 
 void picture2d_load_to_gpu(Picture2D& self) {
 	for (auto& primitive : self.primitives) {
@@ -1496,19 +1465,11 @@ struct FieldRegion {
 	glm::vec2 min, max;
 	glm::mat4 transformation;
 	FieldID id;
-	mn::Str tag;
+	Str tag;
 };
 
-void region_free(FieldRegion& self) {
-	mn::str_free(self.tag);
-}
-
-void destruct(FieldRegion& self) {
-	region_free(self);
-}
-
 struct Field {
-	mn::Str name;
+	Str name;
 	FieldID id;
 
 	AreaKind default_area;
@@ -1521,7 +1482,7 @@ struct Field {
 	Vec<Field> subfields;
 	Vec<Mesh> meshes;
 
-	mn::Str file_abs_path;
+	Str file_abs_path;
 	bool should_select_file, should_load_file;
 
 	glm::mat4 transformation;
@@ -1532,15 +1493,6 @@ struct Field {
 		bool visible = true;
 	} current_state, initial_state;
 };
-
-void field_free(Field& self) {
-	mn::str_free(self.name);
-	mn::str_free(self.file_abs_path);
-}
-
-void destruct(Field& self) {
-	field_free(self);
-}
 
 Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, "FIELD\n");
@@ -1587,7 +1539,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 	field.default_area = AreaKind::NOAREA;
 	if (parser_accept(parser, "DEFAREA ")) {
-		const auto default_area_str = parser_token_str(parser, mn::memory::tmp());
+		const auto default_area_str = parser_token_str(parser, memory::tmp());
 		parser_expect(parser, '\n');
 		if (default_area_str == "NOAREA") {
 			field.default_area = AreaKind::NOAREA;
@@ -1625,7 +1577,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 	while (parser_accept(parser, "PCK ")) {
 		auto name = parser_token_str(parser);
-		mn::str_trim(name, "\"");
+		_str_unquote(name);
 		parser_expect(parser, ' ');
 
 		const auto total_lines_count = parser_token_u64(parser);
@@ -1789,7 +1741,7 @@ Field _field_from_fld_str(Parser& parser) {
 			while (parser_accept(parser, "ENDPICT\n") == false) {
 				Primitive2D permitive {};
 
-				auto kind_str = parser_token_str(parser, mn::memory::tmp());
+				auto kind_str = parser_token_str(parser, memory::tmp());
 				parser_expect(parser, '\n');
 
 				if (kind_str == "LSQ") {
@@ -1887,11 +1839,9 @@ Field _field_from_fld_str(Parser& parser) {
 		} else if (parser_peek(parser, "Surf\n")) {
 			auto subparser = parser_fork(parser, total_lines_count);
 			auto mesh = mesh_from_srf_str(subparser, name);
-			mn::str_free(name);
-
 			field.meshes.push_back(mesh);
 		} else {
-			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, mn::memory::tmp()));
+			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, memory::tmp()));
 		}
 
 		const size_t last_line_no = parser.curr_line+1;
@@ -1909,8 +1859,8 @@ Field _field_from_fld_str(Parser& parser) {
 	while (parser_finished(parser) == false) {
 		if (parser_accept(parser, "FLD\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, mn::memory::tmp());
-			mn::str_trim(name, "\"");
+			auto name = parser_token_str(parser, memory::tmp());
+			_str_unquote(name);
 			parser_expect(parser, '\n');
 
 			Field* subfield = nullptr;
@@ -1945,8 +1895,8 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, "\nEND\n");
 		} else if (parser_accept(parser, "TER\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, mn::memory::tmp());
-			mn::str_trim(name, "\"");
+			auto name = parser_token_str(parser, memory::tmp());
+			_str_unquote(name);
 			parser_expect(parser, '\n');
 
 			TerrMesh* terr_mesh = nullptr;
@@ -1982,15 +1932,15 @@ Field _field_from_fld_str(Parser& parser) {
 
 			if (parser_accept(parser, "TAG ")) {
 				terr_mesh->tag = parser_token_str(parser);
-				mn::str_trim(terr_mesh->tag, "\"");
+				_str_unquote(terr_mesh->tag);
 				parser_expect(parser, '\n');
 			}
 
 			parser_expect(parser, "END\n");
 		} else if (parser_accept(parser, "PC2\n") || parser_accept(parser, "PLT\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, mn::memory::tmp());
-			mn::str_trim(name, "\"");
+			auto name = parser_token_str(parser, memory::tmp());
+			_str_unquote(name);
 			parser_expect(parser, '\n');
 
 			Picture2D* picture = nullptr;
@@ -2071,7 +2021,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 			if (parser_accept(parser, "TAG ")) {
 				region.tag = parser_token_str(parser);
-				mn::str_trim(region.tag, "\"");
+				_str_unquote(region.tag);
 				parser_expect(parser, '\n');
 			}
 
@@ -2092,8 +2042,8 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "SRF\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, mn::memory::tmp());
-			mn::str_trim(name, "\"");
+			auto name = parser_token_str(parser, memory::tmp());
+			_str_unquote(name);
 			parser_expect(parser, '\n');
 
 			Mesh* mesh = nullptr;
@@ -2132,20 +2082,20 @@ Field _field_from_fld_str(Parser& parser) {
 		} else if (parser_accept(parser, '\n')) {
 			// aomori.fld adds extra spaces
 		} else {
-			parser_panic(parser, "{}: found invalid type = '{}'", parser.curr_line+1, parser_token_str(parser, mn::memory::tmp()));
+			parser_panic(parser, "{}: found invalid type = '{}'", parser.curr_line+1, parser_token_str(parser, memory::tmp()));
 		}
 	}
 
 	return field;
 }
 
-Field field_from_fld_file(const mn::Str& fld_file_abs_path) {
-	auto parser = parser_from_file(fld_file_abs_path, mn::memory::tmp());
+Field field_from_fld_file(StrView fld_file_abs_path) {
+	auto parser = parser_from_file(fld_file_abs_path, memory::tmp());
 
 	auto field = _field_from_fld_str(parser);
-	field.file_abs_path = mn::str_clone(fld_file_abs_path);
-	if (field.name.count == 0) {
-		field.name = mn::file_name(fld_file_abs_path);
+	field.file_abs_path = Str(fld_file_abs_path);
+	if (field.name.size() == 0) {
+		field.name = Str(mn::file_name(fld_file_abs_path.data(), mn::memory::tmp()).ptr);
 	}
 
 	return field;
@@ -2208,10 +2158,15 @@ struct Sounds {
 		};
 		Audio as_array[38];
 	};
+
+	~Sounds() {
+		for (int i = 0; i < COUNT_OF(this->as_array); i++) {
+			audio_free(this->as_array[i]);
+		}
+	}
 };
 
-Sounds sounds_load() {
-	Sounds self {};
+void sounds_load(Sounds& self) {
 	self.bang = audio_new(ASSETS_DIR "/sound/bang.wav");
 	self.blast = audio_new(ASSETS_DIR "/sound/blast.wav");
 	self.blast2 = audio_new(ASSETS_DIR "/sound/blast2.wav");
@@ -2231,17 +2186,10 @@ Sounds sounds_load() {
 	self.warning = audio_new(ASSETS_DIR "/sound/warning.wav");
 	self.engine = audio_new(ASSETS_DIR "/sound/engine.wav");
 	for (int i = 0; i < COUNT_OF(self.engines); i++) {
-		self.engines[i] = audio_new(mn::str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i).ptr);
+		self.engines[i] = audio_new(str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i));
 	}
 	for (int i = 0; i < COUNT_OF(self.engines); i++) {
-		self.props[i] = audio_new(mn::str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i).ptr);
-	}
-	return self;
-}
-
-void sounds_free(Sounds& self) {
-	for (int i = 0; i < COUNT_OF(self.as_array); i++) {
-		audio_free(self.as_array[i]);
+		self.props[i] = audio_new(str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
 	}
 }
 
@@ -2289,12 +2237,11 @@ int main() {
 	audio_device_init(&audio_device);
 	mn_defer(audio_device_free(audio_device));
 
-	auto sounds = sounds_load();
-	mn_defer(sounds_free(sounds));
+	Sounds sounds{};
+	sounds_load(sounds);
 
 	// setup imgui
-	auto _imgui_ini_file_path = mn::strf("{}/{}", mn::folder_config(mn::memory::tmp()), "open-ysf-imgui.ini");
-	mn_defer(mn::str_free(_imgui_ini_file_path));
+	auto _imgui_ini_file_path = str_format("{}/{}", mn::folder_config(mn::memory::tmp()), "open-ysf-imgui.ini");
 
 	IMGUI_CHECKVERSION();
     if (ImGui::CreateContext() == nullptr) {
@@ -2312,7 +2259,7 @@ int main() {
 	}
 	mn_defer(ImGui_ImplOpenGL3_Shutdown());
 
-	ImGui::GetIO().IniFilename = _imgui_ini_file_path.ptr;
+	ImGui::GetIO().IniFilename = _imgui_ini_file_path.c_str();
 
 	auto meshes_gpu_program = gpu_program_new(
 		// vertex shader
@@ -2369,26 +2316,24 @@ int main() {
 	constexpr int NUM_MODELS = 1;
 	Model models[NUM_MODELS];
 	for (auto& model : models) {
-		model = model_from_dnm_file(mn::str_lit(ASSETS_DIR "/aircraft/ys11.dnm"));
+		model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
 		model_load_to_gpu(model);
 	}
 	mn_defer({
 		for (auto& model : models) {
 			model_unload_from_gpu(model);
-			model_free(model);
 		}
 	});
 
 	// field
-	auto field = field_from_fld_file(mn::str_lit(ASSETS_DIR "/scenery/small.fld"));
-	mn_defer(field_free(field));
+	auto field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
 	field_load_to_gpu(field);
 	mn_defer(field_unload_from_gpu(field));
 
 	// start infos
-	auto start_infos = start_info_from_stp_file(mn::str_lit(ASSETS_DIR "/scenery/small.stp"));
+	auto start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
 	start_infos.insert(start_infos.begin(), StartInfo {
-		.name=mn::str_from_c("-NULL-")
+		.name="-NULL-"
 	});
 
 	for (int i = 0; i < NUM_MODELS; i++) {
@@ -2412,39 +2357,42 @@ int main() {
 	int fps_limit = 60;
 	int millis_till_render = 0;
 
-	auto logs_arena = mn::allocator_arena_new();
-	mn_defer(mn::allocator_free(logs_arena));
-	auto logs = mn::buf_with_allocator<mn::Str>(logs_arena);
-	bool logs_auto_scrolling = true;
-	bool logs_wrapped = false;
-	float logs_last_scrolled_line = 0;
+	struct Logs {
+		memory::Arena arena;
+		Vec<Str> buffer;
+		bool auto_scrolling = true;
+		bool wrapped = false;
+		float last_scrolled_line = 0;
+	} logs {
+		.buffer = Vec<Str>(&logs.arena),
+	};
+
 	mn::log_debug("logs will be copied to logs window");
-	auto old_log_interface = mn::log_interface_set(mn::Log_Interface{
-		// pointer to user data
+	mn::log_interface_set(mn::Log_Interface{
 		.self = &logs,
 		.debug = +[](void* self, const char* msg) {
-			auto logs = (mn::Buf<mn::Str>*) self;
-			auto formatted = mn::strf(logs->allocator, "> {}\n", msg);
-			mn::buf_push(*logs, formatted);
-			::fprintf(stdout, "%s", formatted.ptr);
+			auto logs = (Logs*) self;
+			auto formatted = str_format(&logs->arena, "> {}\n", msg);
+			logs->buffer.push_back(formatted);
+			::fprintf(stdout, "%s", formatted.c_str());
 		},
 		.info = +[](void* self, const char* msg) {
-			auto logs = (mn::Buf<mn::Str>*) self;
-			auto formatted = mn::strf(logs->allocator, "[info] {}\n", msg);
-			mn::buf_push(*logs, formatted);
-			::fprintf(stdout, "%s", formatted.ptr);
+			auto logs = (Logs*) self;
+			auto formatted = str_format(&logs->arena, "[info] {}\n", msg);
+			logs->buffer.push_back(formatted);
+			::fprintf(stdout, "%s", formatted.c_str());
 		},
 		.warning = +[](void* self, const char* msg) {
-			auto logs = (mn::Buf<mn::Str>*) self;
-			auto formatted = mn::strf(logs->allocator, "[warning] {}\n", msg);
-			mn::buf_push(*logs, formatted);
-			::fprintf(stderr, "%s", formatted.ptr);
+			auto logs = (Logs*) self;
+			auto formatted = str_format(&logs->arena, "[warning] {}\n", msg);
+			logs->buffer.push_back(formatted);
+			::fprintf(stderr, "%s", formatted.c_str());
 		},
 		.error = +[](void* self, const char* msg) {
-			auto logs = (mn::Buf<mn::Str>*) self;
-			auto formatted = mn::strf(logs->allocator, "[error] {}\n", msg);
-			mn::buf_push(*logs, formatted);
-			::fprintf(stderr, "%s", formatted.ptr);
+			auto logs = (Logs*) self;
+			auto formatted = str_format(&logs->arena, "[error] {}\n", msg);
+			logs->buffer.push_back(formatted);
+			::fprintf(stderr, "%s", formatted.c_str());
 		},
 		.critical = +[](void* self, const char* msg) {
 			mn::panic("{}", msg);
@@ -2917,8 +2865,7 @@ int main() {
 
 			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
 			if (result.size() == 1) {
-				mn::str_free(field.file_abs_path);
-				mn::str_push(field.file_abs_path, result[0].c_str());
+				field.file_abs_path = result[0];
 				mn::log_debug("loading '{}'", field.file_abs_path);
 				field.should_load_file = true;
 			}
@@ -2927,13 +2874,12 @@ int main() {
 			field.should_load_file = false;
 
 			Field new_field {};
-			if (field.file_abs_path.count > 0) {
+			if (field.file_abs_path.empty() == false) {
 				new_field = field_from_fld_file(field.file_abs_path);
 				field_load_to_gpu(new_field);
 			}
 
 			field_unload_from_gpu(field);
-			field_free(field);
 			field = new_field;
 		}
 
@@ -2943,8 +2889,7 @@ int main() {
 
 				auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
 				if (result.size() == 1) {
-					mn::str_free(models[i].file_abs_path);
-					mn::str_push(models[i].file_abs_path, result[0].c_str());
+					models[i].file_abs_path = result[0];
 					mn::log_debug("loading '{}'", models[i].file_abs_path);
 					models[i].should_load_file = true;
 				}
@@ -2955,7 +2900,6 @@ int main() {
 				model_load_to_gpu(model);
 
 				model_unload_from_gpu(models[i]);
-				model_free(models[i]);
 				models[i] = model;
 
 				mn::log_debug("loaded '{}'", models[i].file_abs_path);
@@ -3261,7 +3205,7 @@ int main() {
 					meshes_stack.push_back(&mesh);
 				}
 
-				while (meshes_stack.size() > 0) {
+				while (meshes_stack.empty() == false) {
 					Mesh* mesh = *meshes_stack.rbegin();
 					meshes_stack.pop_back();
 
@@ -3323,8 +3267,8 @@ int main() {
 						glBindVertexArray(mesh->gpu.vao);
 						glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
 
-						for (const mn::Str& child_name : mesh->children) {
-							auto& child_mesh = model.meshes.at(child_name.ptr);
+						for (const Str& child_name : mesh->children) {
+							auto& child_mesh = model.meshes.at(child_name);
 							child_mesh.transformation = mesh->transformation;
 							meshes_stack.push_back(&child_mesh);
 						}
@@ -3344,7 +3288,7 @@ int main() {
 			}
 		}
 
-		if (zlpoints.size() > 0) {
+		if (zlpoints.empty() == false) {
 			auto model_transformation = glm::mat4(glm::mat3(view_inverse_mat)) * glm::scale(glm::vec3{ZL_SCALE, ZL_SCALE, 0});
 
 			glUseProgram(sprite_gpu_program);
@@ -3362,7 +3306,7 @@ int main() {
 		glUseProgram(meshes_gpu_program);
 
 		// render axis
-		if (axis_instances.size() > 0) {
+		if (axis_instances.empty() == false) {
 
 			if (axis_rendering.on_top) {
 				glDisable(GL_DEPTH_TEST);
@@ -3402,7 +3346,7 @@ int main() {
 		}
 
 		// render boxes
-		if (box_instances.size() > 0) {
+		if (box_instances.empty() == false) {
 			glUseProgram(lines_gpu_program);
 			glEnable(GL_LINE_SMOOTH);
 			glLineWidth(box_rendering.line_width);
@@ -3483,9 +3427,9 @@ int main() {
 
 				if (camera.kind == Camera::Kind::FLY) {
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
+					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.c_str())) {
 						for (size_t j = 0; j < start_infos.size(); j++) {
-							if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
+							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
 								camera.position = start_infos[j].position;
 							}
@@ -3617,7 +3561,7 @@ int main() {
 					ImGui::EndDisabled();
 
 					ImGui::SameLine();
-					ImGui::Text(mn::file_name(sound.file_path, mn::memory::tmp()).ptr);
+					ImGui::Text(mn::file_name(sound.file_path.c_str(), mn::memory::tmp()).ptr);
 
 					ImGui::PopID();
 				}
@@ -3642,9 +3586,9 @@ int main() {
 					}
 
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.ptr)) {
+					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.c_str())) {
 						for (size_t j = 0; j < start_infos.size(); j++) {
-							if (ImGui::Selectable(start_infos[j].name.ptr, j == start_info_index)) {
+							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
 								model_set_start(models[i], start_infos[start_info_index]);
 							}
@@ -3722,7 +3666,7 @@ int main() {
 							ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.size()).ptr);
 							ImGui::Indent();
 							for (const auto& child_name : mesh.children) {
-								render_mesh_ui(model.meshes.at(child_name.ptr));
+								render_mesh_ui(model.meshes.at(child_name.c_str()));
 							}
 							ImGui::Unindent();
 
@@ -3805,12 +3749,12 @@ int main() {
 
 					ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.size());
 					for (auto& terr_mesh : field.terr_meshes) {
-						if (ImGui::TreeNode(terr_mesh.name.ptr)) {
+						if (ImGui::TreeNode(terr_mesh.name.c_str())) {
 							if (ImGui::Button("Reset State")) {
 								terr_mesh.current_state = terr_mesh.initial_state;
 							}
 
-							ImGui::Text("Tag: %s", terr_mesh.tag.ptr);
+							ImGui::Text("Tag: %s", terr_mesh.tag.c_str());
 
 							MyImGui::EnumsCombo("ID", &terr_mesh.id, {
 								{FieldID::NONE, "NONE"},
@@ -3834,7 +3778,7 @@ int main() {
 
 					ImGui::BulletText("Pict2: %d", (int)field.pictures.size());
 					for (auto& picture : field.pictures) {
-						if (ImGui::TreeNode(picture.name.ptr)) {
+						if (ImGui::TreeNode(picture.name.c_str())) {
 							if (ImGui::Button("Reset State")) {
 								picture.current_state = picture.initial_state;
 							}
@@ -3861,7 +3805,7 @@ int main() {
 
 					ImGui::BulletText("Meshes: %d", (int)field.meshes.size());
 					for (auto& mesh : field.meshes) {
-						ImGui::Text("%s", mesh.name.ptr);
+						ImGui::Text("%s", mesh.name.c_str());
 					}
 
 					ImGui::TreePop();
@@ -3873,32 +3817,33 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
-			ImGui::Checkbox("Auto-Scroll", &logs_auto_scrolling);
+			ImGui::Checkbox("Auto-Scroll", &logs.auto_scrolling);
 			ImGui::SameLine();
-			ImGui::Checkbox("Wrapped", &logs_wrapped);
+			ImGui::Checkbox("Wrapped", &logs.wrapped);
 			ImGui::SameLine();
 			if (ImGui::Button("Clear")) {
-				mn::destruct(logs);
+				logs = {};
 			}
 
-			if (ImGui::BeginChild("logs child", {}, false, logs_wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
+			if (ImGui::BeginChild("logs child", {}, false, logs.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
-				ImGuiListClipper clipper(logs.count);
+				ImGuiListClipper clipper(logs.buffer.size());
 				while (clipper.Step()) {
 					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-						if (logs_wrapped) {
-							ImGui::TextWrapped("%s", logs[i].ptr);
+						if (logs.wrapped) {
+							ImGui::TextWrapped("%s", logs.buffer[i].c_str());
 						} else {
-							ImGui::TextUnformatted(mn::begin(logs[i]), mn::end(logs[i]));
+							auto log = logs.buffer[i];
+							ImGui::TextUnformatted(&log[0], &log[log.size()-1]);
 						}
 					}
 				}
 				ImGui::PopStyleVar();
 
 				// scroll
-				if (logs_auto_scrolling) {
-					if (logs_last_scrolled_line != logs.count) {
-						logs_last_scrolled_line = logs.count;
+				if (logs.auto_scrolling) {
+					if (logs.last_scrolled_line != logs.buffer.size()) {
+						logs.last_scrolled_line = logs.buffer.size();
 						ImGui::SetScrollHereY();
 					}
 				}
@@ -3949,7 +3894,10 @@ BUG:
 - f10 has one beacon on right but not on left
 
 TODO:
-- use Str instead of mn::Str
+- remove mn
+	- replace filesystem api
+	- replace panic
+	- replace logging
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?

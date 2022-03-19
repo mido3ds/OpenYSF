@@ -11,6 +11,21 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 
+template<typename T, size_t N>
+using Arr = std::array<T, N>;
+
+using Str = std::pmr::string;
+using StrView = std::string_view;
+
+template<typename T>
+using Vec = std::pmr::vector<T>;
+
+template<typename K, typename V>
+using Map = std::pmr::unordered_map<K, V>;
+
+template<typename T>
+using Set = std::pmr::unordered_set<T>;
+
 namespace memory {
 	using Allocator = std::pmr::memory_resource;
 	using Arena = std::pmr::monotonic_buffer_resource;
@@ -33,9 +48,6 @@ namespace memory {
 	}
 }
 
-template<typename T>
-using Vec = std::pmr::vector<T>;
-
 template<class T>
 void vec_remove_unordered(typename Vec<T>& v, int i) {
     auto last = v.rbegin();
@@ -45,23 +57,56 @@ void vec_remove_unordered(typename Vec<T>& v, int i) {
     v.pop_back();
 }
 
-template<typename K, typename V>
-using Map = std::pmr::unordered_map<K, V>;
-
-template<typename K>
-using Set = std::pmr::unordered_set<K>;
-
-using Str = std::pmr::string;
-
-using StrView = std::string_view;
-
 inline static StrView
 operator"" _str_lit(const char* s, size_t l) {
 	return StrView(s, l);
 }
 
-template<typename T, size_t N>
-using Arr = std::array<T, N>;
+inline static void
+str_replace(Str& self, StrView search, StrView replace) {
+    size_t pos = 0;
+    while ((pos = self.find(search, pos)) != Str::npos) {
+         self.replace(pos, search.length(), replace);
+         pos += replace.length();
+    }
+}
+
+inline static bool
+str_prefix(StrView self, StrView search) {
+	return self.find_first_of(search) == 0;
+}
+
+inline static bool
+str_suffix(StrView self, StrView search) {
+	return self.find_last_of(search) == self.size()-1;
+}
+
+// appends the formatted string to the end of self
+template<typename ... Args>
+inline static void
+str_push(Str& self, StrView format_str, const Args& ... args) {
+	fmt::format_to(std::back_inserter(self), format_str, args...);
+}
+
+template<typename ... Args>
+inline static Str
+str_format(memory::Allocator* allocator, StrView format_str, const Args& ... args) {
+	Str self(allocator);
+	fmt::format_to(std::back_inserter(self), format_str, args...);
+	return std::move(self);
+}
+
+template<typename ... Args>
+inline static Str
+str_format(StrView format_str, const Args& ... args) {
+	return std::move(str_format(memory::default_allocator(), format_str, args...));
+}
+
+template<typename ... Args>
+inline static Str
+str_tmpf(StrView format_str, const Args& ... args) {
+	return std::move(str_format(memory::tmp(), format_str, args...));
+}
 
 namespace fmt {
 	template<typename T>

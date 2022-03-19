@@ -24,15 +24,15 @@ constexpr uint8_t AUDIO_CHANNELS = 2;
 constexpr uint16_t AUDIO_SILENCE_VALUE = 0x7FFF;
 
 struct Audio {
-	mn::Str file_path;
+	Str file_path;
 	uint8_t* buffer;
 	uint32_t len;
 };
 
-Audio audio_new(const char* filename) {
-	Audio self { .file_path = mn::str_from_c(filename) };
+Audio audio_new(StrView filename) {
+	Audio self { .file_path = Str(filename) };
 	SDL_AudioSpec spec {};
-	if (SDL_LoadWAV(filename, &spec, &self.buffer, &self.len) == nullptr) {
+	if (SDL_LoadWAV(filename.data(), &spec, &self.buffer, &self.len) == nullptr) {
         mn::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
 
@@ -59,7 +59,6 @@ Audio audio_new(const char* filename) {
 }
 
 void audio_free(Audio& self) {
-	mn::str_free(self.file_path);
 	SDL_FreeWAV(self.buffer);
 }
 
@@ -207,7 +206,7 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 		}
 	}
 
-	mn::log_warning("didn't find audio '{}' to stop", mn::file_name(audio.file_path, mn::memory::tmp()));
+	mn::log_warning("didn't find audio '{}' to stop", mn::file_name(audio.file_path.c_str(), mn::memory::tmp()));
 }
 
 /*

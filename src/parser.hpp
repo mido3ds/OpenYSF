@@ -1,46 +1,38 @@
 #pragma once
 
-#include <mn/Str.h>
+#include "containers.hpp"
+
 #include <mn/Log.h>
-#include <mn/Defer.h>
 #include <mn/Assert.h>
 
 struct Parser {
-	mn::Str str;
-	mn::Str file_path;
+	Str str;
+	Str file_path;
 	size_t pos; // index in string
 	size_t curr_line; // 0 is first line
 };
 
-void parser_free(Parser& self) {
-	mn::str_free(self.str);
-	mn::str_free(self.file_path);
-}
-
-void destruct(Parser& self) {
-	parser_free(self);
-}
-
-Parser parser_from_str(const mn::Str& str, mn::Allocator allocator = mn::allocator_top()) {
-	auto str_clone = mn::str_clone(str, allocator);
-	mn::str_replace(str_clone, "\r\n", "\n");
+Parser parser_from_str(StrView str, memory::Allocator* allocator = memory::default_allocator()) {
+	Str str_clone(str, allocator);
+	str_replace(str_clone, "\r\n", "\n");
 	return Parser {
 		.str = str_clone,
-		.file_path = mn::str_from_c("%memory%", allocator),
+		.file_path = Str("%memory%", allocator),
 	};
 }
 
-Parser parser_from_file(const mn::Str& file_path, mn::Allocator allocator = mn::allocator_top()) {
-	auto str = mn::file_content_str(file_path, allocator);
-	mn::str_replace(str, "\r\n", "\n");
+Parser parser_from_file(StrView file_path, memory::Allocator* allocator = memory::default_allocator()) {
+	auto str = mn::file_content_str(file_path.data(), mn::memory::tmp());
+	Str str_clone(str.ptr, allocator);
+	str_replace(str_clone, "\r\n", "\n");
 	return Parser {
-		.str = str,
-		.file_path = mn::str_clone(file_path, allocator),
+		.str = str_clone,
+		.file_path = Str(file_path, allocator),
 	};
 }
 
 bool parser_peek(const Parser& self, char c) {
-	if ((self.pos + 1) > self.str.count) {
+	if ((self.pos + 1) > self.str.size()) {
 		return false;
 	}
 
@@ -51,12 +43,11 @@ bool parser_peek(const Parser& self, char c) {
 	return true;
 }
 
-bool parser_peek(const Parser& self, const char* s) {
-	const size_t len = ::strlen(s);
-	if ((self.pos + len) > self.str.count) {
+bool parser_peek(const Parser& self, StrView s) {
+	if ((self.pos + s.size()) > self.str.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < len; i++) {
+	for (size_t i = 0; i < s.size(); i++) {
 		if (self.str[i+self.pos] != s[i]) {
 			return false;
 		}
@@ -76,14 +67,13 @@ bool parser_accept(Parser& self, char c) {
 	return false;
 }
 
-bool parser_accept(Parser& self, const char* s) {
-	const size_t len = ::strlen(s);
-	if ((self.pos + len) > self.str.count) {
+bool parser_accept(Parser& self, StrView s) {
+	if ((self.pos + s.size()) > self.str.size()) {
 		return false;
 	}
 
 	size_t lines = 0;
-	for (size_t i = 0; i < len; i++) {
+	for (size_t i = 0; i < s.size(); i++) {
 		if (self.str[i+self.pos] != s[i]) {
 			return false;
 		}
@@ -92,21 +82,21 @@ bool parser_accept(Parser& self, const char* s) {
 		}
 	}
 
-	self.pos += len;
+	self.pos += s.size();
 	self.curr_line += lines;
 	return true;
 }
 
 template<typename ... Args>
-void parser_panic(const Parser& self, const char* err_msg, const Args& ... args) {
-	auto summary = mn::str_clone(self.str, mn::memory::tmp());
-	if (summary.count > 90) {
-		mn::str_resize(summary, 90);
-		mn::str_push(summary, "....");
+void parser_panic(const Parser& self, StrView err_msg, const Args& ... args) {
+	Str summary(self.str, memory::tmp());
+	if (summary.size() > 90) {
+		summary.resize(90);
+		summary += "....";
 	}
-	mn::str_replace(summary, "\n", "\\n");
+	str_replace(summary, "\n", "\\n");
 
-	mn::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, mn::str_tmpf(err_msg, args...), summary, self.pos);
+	mn::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, mn::str_tmpf(err_msg.data(), args...), summary, self.pos);
 }
 
 template<typename T>
@@ -118,7 +108,7 @@ void parser_expect(Parser& self, T s) {
 
 void parser_skip_after(Parser& self, char c) {
 	size_t lines = 0;
-	for (size_t i = self.pos; i < self.str.count; i++) {
+	for (size_t i = self.pos; i < self.str.size(); i++) {
 		if (self.str[i] == '\n') {
 			lines++;
 		}
@@ -130,54 +120,53 @@ void parser_skip_after(Parser& self, char c) {
 	}
 }
 
-void parser_skip_after(Parser& self, const char* s) {
-	const auto s2 = mn::str_lit(s);
-	const size_t index = mn::str_find(self.str, s2, self.pos);
-	if (index == SIZE_MAX) {
-		parser_panic(self, "failed to find '{}'", s2);
+void parser_skip_after(Parser& self, StrView s) {
+	const size_t index = self.str.find(s, self.pos);
+	if (index == Str::npos) {
+		parser_panic(self, "failed to find '{}'", s);
 	}
 
-	for (size_t i = self.pos; i < index+s2.count; i++) {
+	for (size_t i = self.pos; i < index+s.size(); i++) {
 		if (self.str[i] == '\n') {
 			self.curr_line++;
 		}
 	}
-	self.pos = index + s2.count;
+	self.pos = index + s.size();
 }
 
 float parser_token_float(Parser& self) {
-	if (self.pos >= self.str.count) {
+	if (self.pos >= self.str.size()) {
 		parser_panic(self, "can't find float at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
 		parser_panic(self, "can't find float, string doesn't start with digit or -");
 	}
 
 	char* pos = nullptr;
-	const float d = strtod(mn::begin(self.str)+self.pos, &pos);
-	if (mn::begin(self.str)+self.pos == pos) {
+	const float d = strtod(&self.str[self.pos], &pos);
+	if (&self.str[self.pos] == pos) {
 		parser_panic(self, "failed to parse float");
 	}
 
-	const size_t float_str_len = pos - (mn::begin(self.str)+self.pos);
+	const size_t float_str_len = pos - (&self.str[self.pos]);
 	self.pos += float_str_len;
 
 	return d;
 }
 
 uint64_t parser_token_u64(Parser& self) {
-	if (self.pos >= self.str.count) {
+	if (self.pos >= self.str.size()) {
 		parser_panic(self, "can't find u64 at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
 		parser_panic(self, "can't find u64, string doesn't start with digit or -");
 	}
 
 	char* pos = nullptr;
-	const uint64_t d = strtoull(mn::begin(self.str)+self.pos, &pos, 10);
-	if (mn::begin(self.str)+self.pos == pos) {
+	const uint64_t d = strtoull(&self.str[self.pos], &pos, 10);
+	if (&self.str[self.pos] == pos) {
 		parser_panic(self, "failed to parse u64");
 	}
 
-	const size_t int_str_len = pos - (mn::begin(self.str)+self.pos);
+	const size_t int_str_len = pos - (&self.str[self.pos]);
 	self.pos += int_str_len;
 
 	return d;
@@ -192,34 +181,34 @@ uint8_t parser_token_u8(Parser& self) {
 }
 
 int64_t parser_token_i64(Parser& self) {
-	if (self.pos >= self.str.count) {
+	if (self.pos >= self.str.size()) {
 		parser_panic(self, "can't find i64 at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
 		parser_panic(self, "can't find i64, string doesn't start with digit or -");
 	}
 
 	char* pos = nullptr;
-	const int64_t d = strtoll(mn::begin(self.str)+self.pos, &pos, 10);
-	if (mn::begin(self.str)+self.pos == pos) {
+	const int64_t d = strtoll(&self.str[self.pos], &pos, 10);
+	if (&self.str[self.pos] == pos) {
 		parser_panic(self, "failed to parse i64");
 	}
 
-	const size_t int_str_len = pos - (mn::begin(self.str)+self.pos);
+	const size_t int_str_len = pos - (&self.str[self.pos]);
 	self.pos += int_str_len;
 
 	return d;
 }
 
-mn::Str parser_token_str(Parser& self, mn::Allocator allocator = mn::allocator_top()) {
-	const char* a = mn::begin(self.str)+self.pos;
-	while (self.pos < self.str.count && self.str[self.pos] != ' ' && self.str[self.pos] != '\n') {
+Str parser_token_str(Parser& self, memory::Allocator* allocator = memory::default_allocator()) {
+	auto a = &self.str[self.pos];
+	while (self.pos < self.str.size() && self.str[self.pos] != ' ' && self.str[self.pos] != '\n') {
 		self.pos++;
 	}
-	return mn::str_from_substr(a, mn::begin(self.str)+self.pos, allocator);
+	return Str(a, &self.str[self.pos], allocator);
 }
 
 bool parser_finished(Parser& self) {
-	return self.pos >= self.str.count;
+	return self.pos >= self.str.size();
 }
 
 Parser parser_fork(Parser& self, size_t lines) {
@@ -227,24 +216,25 @@ Parser parser_fork(Parser& self, size_t lines) {
 
 	size_t i = other.pos;
 	size_t lines_in_other = 0;
-	for (;i < other.str.count && lines_in_other < lines; i++) {
+	while (i < other.str.size() && lines_in_other < lines) {
 		if (self.str[i] == '\n') {
 			lines_in_other++;
 		}
+		i++;
 	}
 	if (lines_in_other != lines) {
 		parser_panic(self, "failed to fork parser, can't find {} lines in str", lines);
 	}
 
-	other.str.count = other.str.cap = i+1;
-	self.pos = i;	 
+	other.str.resize(i+1);
+	self.pos = i;
 	self.curr_line += lines;
 
 	return other;
 }
 
 void test_parser() {
-	Parser parser = parser_from_str(mn::str_lit("hello world \r\n m"), mn::memory::tmp());
+	Parser parser = parser_from_str("hello world \r\n m", memory::tmp());
 	auto orig = parser;
 
 	mn_assert(parser_peek(parser, "hello"));
@@ -275,12 +265,12 @@ void test_parser() {
 		parser_expect(parser, " m");
 	}
 
-	parser = parser_from_str(mn::str_lit("5\n-1.4\nhello 1%"), mn::memory::tmp());
+	parser = parser_from_str("5\n-1.4\nhello 1%", memory::tmp());
 	mn_assert(parser_token_u64(parser) == 5);
 	parser_expect(parser, '\n');
 	mn_assert(parser_token_float(parser) == -1.4f);
 	parser_expect(parser, '\n');
-	mn_assert(parser_token_str(parser, mn::memory::tmp()) == "hello");
+	mn_assert(parser_token_str(parser, memory::tmp()) == "hello");
 	parser_expect(parser, ' ');
 	mn_assert(parser_token_u64(parser) == 1);
 	parser_expect(parser, '%');
