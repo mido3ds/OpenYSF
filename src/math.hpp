@@ -2,7 +2,7 @@
 
 #include "containers.hpp"
 
-#include <mn/Log.h>
+#include "log.hpp"
 
 #include <glm/vec3.hpp> // glm::vec3
 #include <glm/vec4.hpp> // glm::vec4
@@ -197,7 +197,7 @@ void test_aabbs_intersection() {
 		mn_assert(aabbs_intersect(x, y));
 	}
 
-	mn::log_debug("test_aabbs_intersection: all passed");
+	log_debug("test_aabbs_intersection: all passed");
 }
 
 // margin of error
@@ -362,7 +362,7 @@ polygons_to_triangles(const Vec<glm::vec3>& vertices, const Vec<uint32_t>& orig_
 	}
 
 	if (indices.size() != 3) {
-		mn::log_error("failed to tesselate");
+		log_error("failed to tesselate");
 	}
 	std::copy(indices.begin(), indices.end(), std::back_inserter(out));
 	return out;
@@ -454,7 +454,7 @@ polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* alloc
 	}
 
 	if (indices.size() != 3) {
-		mn::log_error("failed to tesselate");
+		log_error("failed to tesselate");
 	}
 	std::copy(indices.begin(), indices.end(), std::back_inserter(out));
 	return out;
@@ -532,7 +532,7 @@ void test_polygons_to_triangles() {
 		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
 	}
 
-	mn::log_debug("test_polygons_to_triangles: all passed");
+	log_debug("test_polygons_to_triangles: all passed");
 }
 
 auto clamp(auto x, auto lower_limit, auto upper_limit) {

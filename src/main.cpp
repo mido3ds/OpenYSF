@@ -21,6 +21,21 @@
 #include "math.hpp"
 #include "audio.hpp"
 #include "containers.hpp"
+#include "log.hpp"
+
+static ILogger* log_global_logger = nullptr;
+
+namespace memory {
+	static thread_local Arena tmp_allocator_;
+
+	Allocator* tmp() {
+		return &tmp_allocator_;
+	}
+
+	void reset_tmp() {
+		tmp_allocator_.reset();
+	}
+}
 
 #define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
@@ -229,7 +244,7 @@ namespace fmt {
 			case FieldID::FRIENDLY_TANK_GENERATOR: return format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
 			case FieldID::TOWER:                   return format_to(ctx.out(), "FieldID::TOWER");
 			case FieldID::VIEW_POINT:              return format_to(ctx.out(), "FieldID::VIEW_POINT");
-			default: mn::log_error("found unknown ID = {}", (int) v);
+			default: log_error("found unknown ID = {}", (int) v);
 			}
 			return format_to(ctx.out(), "FieldID::????");
 		}
@@ -558,7 +573,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		mesh.vertices_has_smooth_shading.push_back(smooth_shading);
 	}
 	if (mesh.vertices.size() == 0) {
-		mn::log_error("'{}': doesn't have any vertices!", name);
+		log_error("'{}': doesn't have any vertices!", name);
 	}
 
 	// <Face>+
@@ -638,12 +653,12 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 				parser_expect(parser, '\n');
 
 				if (parsed_vertices) {
-					mn::log_error("'{}': found more than one vertices line, ignore others", name);
+					log_error("'{}': found more than one vertices line, ignore others", name);
 				} else {
 					parsed_vertices = true;
 
 					if (polygon_vertices_ids.size() < 3) {
-						mn::log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.size());
+						log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.size());
 					}
 
 					face.vertices_ids = polygons_to_triangles(mesh.vertices, polygon_vertices_ids, face.center);
@@ -656,13 +671,13 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 						for (auto id : face.vertices_ids) {
 							new_vertices.push_back(mesh.vertices[id]);
 						}
-						mn::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, parser.curr_line+1,
+						log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, parser.curr_line+1,
 							face.vertices_ids.size(), orig_vertices, new_vertices);
 					}
 				}
 			} else if (parser_accept(parser, "B\n")) {
 				if (is_light_source) {
-					mn::log_error("'{}': found more than 1 B for same face", name);
+					log_error("'{}': found more than 1 B for same face", name);
 				}
 				is_light_source = true;
 			} else {
@@ -671,13 +686,13 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		}
 
 		if (!parsed_color) {
-			mn::log_error("'{}': face has no color", name);
+			log_error("'{}': face has no color", name);
 		}
 		if (!parsed_normal) {
-			mn::log_error("'{}': face has no normal", name);
+			log_error("'{}': face has no normal", name);
 		}
 		if (!parsed_vertices) {
-			mn::log_error("'{}': face has no vertices", name);
+			log_error("'{}': face has no vertices", name);
 		}
 
 		faces_unshaded_light_source.push_back(is_light_source);
@@ -795,7 +810,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		const auto current_lineno = parser.curr_line;
 		const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
 		if (pck_found_linenos != pck_expected_no_lines) {
-			mn::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
+			log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
 		}
 
 		meshes[name] = mesh;
@@ -851,7 +866,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 			if (visible == 1 || visible == 0) {
 				sta.visible = (visible == 1);
 			} else {
-				mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
+				log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 			}
 			parser_expect(parser, '\n');
 
@@ -883,7 +898,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 					if (visible == 1 || visible == 0) {
 						surf->second.initial_state.visible = (visible == 1);
 					} else {
-						mn::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
+						log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 					}
 				} else {
 					surf->second.initial_state.visible = true;
@@ -935,7 +950,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		}
 		if (read_rel_dep == false) {
 			// aircraft/cessna172r.dnm doesn't have REL DEP
-			mn::log_error("'{}':{} failed to find REL DEP", name, parser.curr_line+1);
+			log_error("'{}':{} failed to find REL DEP", name, parser.curr_line+1);
 		}
 		if (read_nch == false) {
 			parser_panic(parser, "failed to find NCH");
@@ -958,7 +973,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	for (const auto [_, srf] : meshes) {
 		for (const auto child : srf.children) {
 			if (meshes.at(child).name == srf.name) {
-				mn::log_warning("SURF {} references itself", child);
+				log_warning("SURF {} references itself", child);
 			}
 		}
 	}
@@ -1502,14 +1517,14 @@ Field _field_from_fld_str(Parser& parser) {
 	while (true) {
 		if (parser_accept(parser, "FLDVERSION ")) {
 			// TODO
-			mn::log_warning("{}: found FLDVERSION, doesn't support it, skip for now", parser.curr_line+1);
+			log_warning("{}: found FLDVERSION, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, '\n');
 		} else if (parser_accept(parser, "FLDNAME ")) {
-			mn::log_warning("{}: found FLDNAME, doesn't support it, skip for now", parser.curr_line+1);
+			log_warning("{}: found FLDNAME, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, '\n');
 		} else if (parser_accept(parser, "TEXMAN")) {
 			// TODO
-			mn::log_warning("{}: found TEXMAN, doesn't support it, skip for now", parser.curr_line+1);
+			log_warning("{}: found TEXMAN, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "TEXMAN ENDTEXTURE\n");
 		} else {
 			break;
@@ -1554,24 +1569,24 @@ Field _field_from_fld_str(Parser& parser) {
 
 	if (parser_accept(parser, "BASEELV ")) {
 		// TODO
-		mn::log_warning("{}: found BASEELV, doesn't understand it, skip for now", parser.curr_line+1);
+		log_warning("{}: found BASEELV, doesn't understand it, skip for now", parser.curr_line+1);
 		parser_skip_after(parser, '\n');
 	}
 
 	if (parser_accept(parser, "MAGVAR ")) {
 		// TODO
-		mn::log_warning("{}: found MAGVAR, doesn't understand it, skip for now", parser.curr_line+1);
+		log_warning("{}: found MAGVAR, doesn't understand it, skip for now", parser.curr_line+1);
 		parser_skip_after(parser, '\n');
 	}
 
 	if (parser_accept(parser, "CANRESUME TRUE\n") || parser_accept(parser, "CANRESUME FALSE\n")) {
 		// TODO
-		mn::log_warning("{}: found CANRESUME, doesn't understand it, skip for now", parser.curr_line+1);
+		log_warning("{}: found CANRESUME, doesn't understand it, skip for now", parser.curr_line+1);
 	}
 
 	while (parser_accept(parser, "AIRROUTE\n")) {
 		// TODO
-		mn::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", parser.curr_line+1);
+		log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", parser.curr_line+1);
 		parser_skip_after(parser, "ENDAIRROUTE\n");
 	}
 
@@ -1595,12 +1610,12 @@ Field _field_from_fld_str(Parser& parser) {
 
 			if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 				// TODO
-				mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
+				log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
 			if (parser_accept(parser, "TEX MAIN")) {
 				// TODO
-				mn::log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", parser.curr_line+1);
+				log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", parser.curr_line+1);
 				parser_skip_after(parser, "\n");
 			}
 
@@ -1761,14 +1776,14 @@ Field _field_from_fld_str(Parser& parser) {
 				} else if (kind_str == "TRI") {
 					permitive.kind = Primitive2D::Kind::TRIANGLES;
 				} else {
-					mn::log_warning("{}: invalid pict2 kind={}, skip for now", parser.curr_line+1, kind_str);
+					log_warning("{}: invalid pict2 kind={}, skip for now", parser.curr_line+1, kind_str);
 					parser_skip_after(parser, "ENDO\n");
 					continue;
 				}
 
 				if (parser_accept(parser, "DST ")) {
 					// TODO
-					mn::log_warning("{}: found DST, doesn't understand it, skip for now", parser.curr_line+1);
+					log_warning("{}: found DST, doesn't understand it, skip for now", parser.curr_line+1);
 					parser_skip_after(parser, '\n');
 				}
 
@@ -1793,13 +1808,13 @@ Field _field_from_fld_str(Parser& parser) {
 				while (parser_accept(parser, "ENDO\n") == false) {
 					if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 						// TODO
-						mn::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
+						log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 						continue;
 					}
 
 					if (parser_accept(parser, "TXL")) {
 						// TODO
-						mn::log_warning("{}: found TXL, doesn't understand it, skip for now", parser.curr_line+1);
+						log_warning("{}: found TXL, doesn't understand it, skip for now", parser.curr_line+1);
 						parser_skip_after(parser, '\n');
 						while (parser_accept(parser, "TXC")) {
 							parser_skip_after(parser, '\n');
@@ -1822,7 +1837,7 @@ Field _field_from_fld_str(Parser& parser) {
 				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.size() % 3 != 0) {
 					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, permitive.vertices.size());
 				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.size() % 2 != 0) {
-					mn::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.size());
+					log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.size());
 					permitive.vertices.pop_back();
 				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.size() == 1) {
 					parser_panic(parser, "{}: kind is line but has one point", parser.curr_line+1);
@@ -1847,7 +1862,7 @@ Field _field_from_fld_str(Parser& parser) {
 		const size_t last_line_no = parser.curr_line+1;
 		const size_t curr_lines_count = last_line_no - first_line_no;
 		if (curr_lines_count != total_lines_count) {
-			mn::log_error("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
+			log_error("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
 		}
 
 		parser_expect(parser, "\n\n");
@@ -1989,7 +2004,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 			if (parser_accept(parser, "SUB DEADLOCKFREEAP\n")) {
 				// TODO
-				mn::log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", parser.curr_line+1);
+				log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
 			parser_expect(parser, "POS ");
@@ -2030,15 +2045,15 @@ Field _field_from_fld_str(Parser& parser) {
 			field.regions.push_back(region);
 		} else if (parser_accept(parser, "PST\n")) {
 			// TODO
-			mn::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
+			log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "GOB\n")) {
 			// TODO
-			mn::log_warning("{}: found GOB, doesn't understand it, skip for now", parser.curr_line+1);
+			log_warning("{}: found GOB, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "AOB\n")) {
 			// TODO
-			mn::log_warning("{}: found AOB, doesn't understand it, skip for now", parser.curr_line+1);
+			log_warning("{}: found AOB, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "SRF\n")) {
 			parser_expect(parser, "FIL ");
@@ -2193,7 +2208,41 @@ void sounds_load(Sounds& self) {
 	}
 }
 
+struct ImGuiWindowLogger : public ILogger {
+	Vec<Str> buffer;
+	bool auto_scrolling = true;
+	bool wrapped = false;
+	float last_scrolled_line = 0;
+
+	virtual void log_debug([[maybe_unused]] StrView str) override {
+		auto formatted = str_format("> {}\n", str);
+		buffer.emplace_back(formatted);
+		fmt::print("[debug] {}\n", str);
+	}
+
+	virtual void log_info(StrView str) override {
+		auto formatted = str_format("[info] {}\n", str);
+		buffer.emplace_back(formatted);
+		fmt::print(formatted);
+	}
+
+	virtual void log_warning(StrView str) override {
+		auto formatted = str_format("[warning] {}\n", str);
+		buffer.emplace_back(formatted);
+		fmt::print(formatted);
+	}
+
+	virtual void log_error(StrView str) override {
+		auto formatted = str_format("[error] {}\n", str);
+		buffer.emplace_back(formatted);
+		fmt::print(formatted);
+	}
+};
+
 int main() {
+	FmtLogger default_logger {};
+	log_global_logger = &default_logger;
+
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
@@ -2357,47 +2406,9 @@ int main() {
 	int fps_limit = 60;
 	int millis_till_render = 0;
 
-	struct Logs {
-		memory::Arena arena;
-		Vec<Str> buffer;
-		bool auto_scrolling = true;
-		bool wrapped = false;
-		float last_scrolled_line = 0;
-	} logs {
-		.buffer = Vec<Str>(&logs.arena),
-	};
-
-	mn::log_debug("logs will be copied to logs window");
-	mn::log_interface_set(mn::Log_Interface{
-		.self = &logs,
-		.debug = +[](void* self, const char* msg) {
-			auto logs = (Logs*) self;
-			auto formatted = str_format(&logs->arena, "> {}\n", msg);
-			logs->buffer.push_back(formatted);
-			::fprintf(stdout, "%s", formatted.c_str());
-		},
-		.info = +[](void* self, const char* msg) {
-			auto logs = (Logs*) self;
-			auto formatted = str_format(&logs->arena, "[info] {}\n", msg);
-			logs->buffer.push_back(formatted);
-			::fprintf(stdout, "%s", formatted.c_str());
-		},
-		.warning = +[](void* self, const char* msg) {
-			auto logs = (Logs*) self;
-			auto formatted = str_format(&logs->arena, "[warning] {}\n", msg);
-			logs->buffer.push_back(formatted);
-			::fprintf(stderr, "%s", formatted.c_str());
-		},
-		.error = +[](void* self, const char* msg) {
-			auto logs = (Logs*) self;
-			auto formatted = str_format(&logs->arena, "[error] {}\n", msg);
-			logs->buffer.push_back(formatted);
-			::fprintf(stderr, "%s", formatted.c_str());
-		},
-		.critical = +[](void* self, const char* msg) {
-			mn::panic("{}", msg);
-		},
-	});
+	log_debug("logs will be copied to logs window");
+	ImGuiWindowLogger logs {};
+	log_global_logger = (ILogger*) &logs;
 
 	struct {
 		bool smooth_lines = true;
@@ -2866,7 +2877,7 @@ int main() {
 			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
 			if (result.size() == 1) {
 				field.file_abs_path = result[0];
-				mn::log_debug("loading '{}'", field.file_abs_path);
+				log_debug("loading '{}'", field.file_abs_path);
 				field.should_load_file = true;
 			}
 		}
@@ -2890,7 +2901,7 @@ int main() {
 				auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
 				if (result.size() == 1) {
 					models[i].file_abs_path = result[0];
-					mn::log_debug("loading '{}'", models[i].file_abs_path);
+					log_debug("loading '{}'", models[i].file_abs_path);
 					models[i].should_load_file = true;
 				}
 			}
@@ -2902,7 +2913,7 @@ int main() {
 				model_unload_from_gpu(models[i]);
 				models[i] = model;
 
-				mn::log_debug("loaded '{}'", models[i].file_abs_path);
+				log_debug("loaded '{}'", models[i].file_abs_path);
 				models[i].should_load_file = false;
 			}
 		}
@@ -3887,17 +3898,14 @@ int main() {
 	return 0;
 }
 /*
-BUG:
+TODO:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
 - f10 has one beacon on right but not on left
-
-TODO:
 - remove mn
 	- replace filesystem api
 	- replace panic
-	- replace logging
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?

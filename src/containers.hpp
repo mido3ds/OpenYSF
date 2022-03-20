@@ -7,9 +7,18 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <memory>
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+
+template<typename T>
+using Box = std::unique_ptr<T>;
+
+template <class T, class... Types, std::enable_if_t<!std::is_array_v<T>, int> = 0>
+[[nodiscard]] Box<T> box_new(Types&&... _Args) {
+    return Box<T>(new T(std::forward<Types>(_Args)...));
+}
 
 template<typename T, size_t N>
 using Arr = std::array<T, N>;
@@ -28,7 +37,28 @@ using Set = std::pmr::unordered_set<T>;
 
 namespace memory {
 	using Allocator = std::pmr::memory_resource;
-	using Arena = std::pmr::monotonic_buffer_resource;
+
+	class Arena : public Allocator {
+	public:
+		inline Arena() { reset(); }
+
+		inline void reset() {
+			mbr_ = box_new<std::pmr::monotonic_buffer_resource>();
+		}
+
+	protected:
+		std::unique_ptr<std::pmr::monotonic_buffer_resource> mbr_;
+
+		virtual void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+			return mbr_->allocate(bytes, alignment);
+		}
+
+		virtual void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override { }
+
+		virtual bool do_is_equal(const Allocator& other) const noexcept override {
+			return this == &other;
+		}
+	};
 
 	Allocator* tmp();
 

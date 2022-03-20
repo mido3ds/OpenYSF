@@ -17,7 +17,7 @@ void gpu_check_errors() {
 			case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
 			case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
 			}
-			mn::log_error("GL::{}", error);
+			log_error("GL::{}", error);
 			errors++;
 		}
 		if (errors > 0) {

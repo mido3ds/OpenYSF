@@ -2,7 +2,7 @@
 
 #include "containers.hpp"
 
-#include <mn/Log.h>
+#include "log.hpp"
 #include <mn/Assert.h>
 
 struct Parser {
@@ -276,7 +276,7 @@ void test_parser() {
 	parser_expect(parser, '%');
 	mn_assert(parser.curr_line == 2);
 
-	mn::log_debug("test_parser: all tests pass");
+	log_debug("test_parser: all tests pass");
 }
 
 /*

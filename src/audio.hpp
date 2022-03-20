@@ -8,7 +8,7 @@
 #include <SDL.h>
 
 #include <mn/OS.h>
-#include <mn/Log.h>
+#include "log.hpp"
 #include <mn/Str.h>
 #include <mn/Defer.h>
 
@@ -206,14 +206,12 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 		}
 	}
 
-	mn::log_warning("didn't find audio '{}' to stop", mn::file_name(audio.file_path.c_str(), mn::memory::tmp()));
+	log_warning("didn't find audio '{}' to stop", mn::file_name(audio.file_path.c_str(), mn::memory::tmp()));
 }
 
 /*
-BUG:
-- mixing anything with propoller isn't loud enough
-
 TODO:
+- mixing anything with propoller isn't loud enough
 - don't use SDL_MixAudioFormat
 - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
 - use silence.wav to get correct silence value dynamically?
