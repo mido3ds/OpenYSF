@@ -2218,25 +2218,25 @@ struct ImGuiWindowLogger : public ILogger {
 	ImGuiWindowLogger() : buffer(&arena) {}
 
 	virtual void log_debug(StrView str) override {
-		auto formatted = str_format(&arena, "> {}\n", str);
+		const auto formatted = str_format(&arena, "> {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print("[debug] {}\n", str);
 	}
 
 	virtual void log_info(StrView str) override {
-		auto formatted = str_format(&arena, "[info] {}\n", str);
+		const auto formatted = str_format(&arena, "[info] {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 
 	virtual void log_warning(StrView str) override {
-		auto formatted = str_format(&arena, "[warning] {}\n", str);
+		const auto formatted = str_format(&arena, "[warning] {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 
 	virtual void log_error(StrView str) override {
-		auto formatted = str_format(&arena, "[error] {}\n", str);
+		const auto formatted = str_format(&arena, "[error] {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print(formatted);
 	}
