@@ -2209,40 +2209,40 @@ void sounds_load(Sounds& self) {
 }
 
 struct ImGuiWindowLogger : public ILogger {
+	memory::Arena arena;
 	Vec<Str> buffer;
 	bool auto_scrolling = true;
 	bool wrapped = false;
 	float last_scrolled_line = 0;
 
-	virtual void log_debug([[maybe_unused]] StrView str) override {
-		auto formatted = str_format("> {}\n", str);
+	ImGuiWindowLogger() : buffer(&arena) {}
+
+	virtual void log_debug(StrView str) override {
+		auto formatted = str_format(&arena, "> {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print("[debug] {}\n", str);
 	}
 
 	virtual void log_info(StrView str) override {
-		auto formatted = str_format("[info] {}\n", str);
+		auto formatted = str_format(&arena, "[info] {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 
 	virtual void log_warning(StrView str) override {
-		auto formatted = str_format("[warning] {}\n", str);
+		auto formatted = str_format(&arena, "[warning] {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 
 	virtual void log_error(StrView str) override {
-		auto formatted = str_format("[error] {}\n", str);
+		auto formatted = str_format(&arena, "[error] {}\n", str);
 		buffer.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 };
 
 int main() {
-	FmtLogger default_logger {};
-	log_global_logger = &default_logger;
-
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
@@ -2407,8 +2407,8 @@ int main() {
 	int millis_till_render = 0;
 
 	log_debug("logs will be copied to logs window");
-	ImGuiWindowLogger logs {};
-	log_global_logger = (ILogger*) &logs;
+	Box<ImGuiWindowLogger> imgui_window_logger = box_new<ImGuiWindowLogger>();
+	log_global_logger = (ILogger*) imgui_window_logger.get();
 
 	struct {
 		bool smooth_lines = true;
@@ -3828,23 +3828,24 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
-			ImGui::Checkbox("Auto-Scroll", &logs.auto_scrolling);
+			ImGui::Checkbox("Auto-Scroll", &imgui_window_logger->auto_scrolling);
 			ImGui::SameLine();
-			ImGui::Checkbox("Wrapped", &logs.wrapped);
+			ImGui::Checkbox("Wrapped", &imgui_window_logger->wrapped);
 			ImGui::SameLine();
 			if (ImGui::Button("Clear")) {
-				logs = {};
+				imgui_window_logger = box_new<ImGuiWindowLogger>();
+				log_global_logger = (ILogger*) imgui_window_logger.get();
 			}
 
-			if (ImGui::BeginChild("logs child", {}, false, logs.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
+			if (ImGui::BeginChild("logs child", {}, false, imgui_window_logger->wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
-				ImGuiListClipper clipper(logs.buffer.size());
+				ImGuiListClipper clipper(imgui_window_logger->buffer.size());
 				while (clipper.Step()) {
 					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-						if (logs.wrapped) {
-							ImGui::TextWrapped("%s", logs.buffer[i].c_str());
+						if (imgui_window_logger->wrapped) {
+							ImGui::TextWrapped("%s", imgui_window_logger->buffer[i].c_str());
 						} else {
-							auto log = logs.buffer[i];
+							auto log = imgui_window_logger->buffer[i];
 							ImGui::TextUnformatted(&log[0], &log[log.size()-1]);
 						}
 					}
@@ -3852,9 +3853,9 @@ int main() {
 				ImGui::PopStyleVar();
 
 				// scroll
-				if (logs.auto_scrolling) {
-					if (logs.last_scrolled_line != logs.buffer.size()) {
-						logs.last_scrolled_line = logs.buffer.size();
+				if (imgui_window_logger->auto_scrolling) {
+					if (imgui_window_logger->last_scrolled_line != imgui_window_logger->buffer.size()) {
+						imgui_window_logger->last_scrolled_line = imgui_window_logger->buffer.size();
 						ImGui::SetScrollHereY();
 					}
 				}
