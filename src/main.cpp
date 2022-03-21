@@ -26,14 +26,14 @@
 static ILogger* log_global_logger = nullptr;
 
 namespace memory {
-	static thread_local Arena tmp_allocator_;
+	static thread_local Arena _tmp_allocator;
 
 	Allocator* tmp() {
-		return &tmp_allocator_;
+		return &_tmp_allocator;
 	}
 
 	void reset_tmp() {
-		tmp_allocator_.reset();
+		_tmp_allocator = {};
 	}
 }
 
@@ -2209,40 +2209,42 @@ void sounds_load(Sounds& self) {
 }
 
 struct ImGuiWindowLogger : public ILogger {
-	memory::Arena arena;
-	Vec<Str> buffer;
+	memory::Arena _arena;
+	Vec<Str> logs;
+
 	bool auto_scrolling = true;
 	bool wrapped = false;
 	float last_scrolled_line = 0;
 
-	ImGuiWindowLogger() : buffer(&arena) {}
-
 	virtual void log_debug(StrView str) override {
-		const auto formatted = str_format(&arena, "> {}\n", str);
-		buffer.emplace_back(formatted);
+		const auto formatted = str_format(&_arena, "> {}\n", str);
+		logs.emplace_back(formatted);
 		fmt::print("[debug] {}\n", str);
 	}
 
 	virtual void log_info(StrView str) override {
-		const auto formatted = str_format(&arena, "[info] {}\n", str);
-		buffer.emplace_back(formatted);
+		const auto formatted = str_format(&_arena, "[info] {}\n", str);
+		logs.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 
 	virtual void log_warning(StrView str) override {
-		const auto formatted = str_format(&arena, "[warning] {}\n", str);
-		buffer.emplace_back(formatted);
+		const auto formatted = str_format(&_arena, "[warning] {}\n", str);
+		logs.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 
 	virtual void log_error(StrView str) override {
-		const auto formatted = str_format(&arena, "[error] {}\n", str);
-		buffer.emplace_back(formatted);
+		const auto formatted = str_format(&_arena, "[error] {}\n", str);
+		logs.emplace_back(formatted);
 		fmt::print(formatted);
 	}
 };
 
 int main() {
+	ImGuiWindowLogger imgui_window_logger {};
+	log_global_logger = (ILogger*) &imgui_window_logger;
+
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
@@ -2405,10 +2407,6 @@ int main() {
 	bool should_limit_fps = true;
 	int fps_limit = 60;
 	int millis_till_render = 0;
-
-	log_debug("logs will be copied to logs window");
-	Box<ImGuiWindowLogger> imgui_window_logger = box_new<ImGuiWindowLogger>();
-	log_global_logger = (ILogger*) imgui_window_logger.get();
 
 	struct {
 		bool smooth_lines = true;
@@ -3828,24 +3826,23 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
-			ImGui::Checkbox("Auto-Scroll", &imgui_window_logger->auto_scrolling);
+			ImGui::Checkbox("Auto-Scroll", &imgui_window_logger.auto_scrolling);
 			ImGui::SameLine();
-			ImGui::Checkbox("Wrapped", &imgui_window_logger->wrapped);
+			ImGui::Checkbox("Wrapped", &imgui_window_logger.wrapped);
 			ImGui::SameLine();
 			if (ImGui::Button("Clear")) {
-				imgui_window_logger = box_new<ImGuiWindowLogger>();
-				log_global_logger = (ILogger*) imgui_window_logger.get();
+				imgui_window_logger = {};
 			}
 
-			if (ImGui::BeginChild("logs child", {}, false, imgui_window_logger->wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
+			if (ImGui::BeginChild("logs child", {}, false, imgui_window_logger.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
-				ImGuiListClipper clipper(imgui_window_logger->buffer.size());
+				ImGuiListClipper clipper(imgui_window_logger.logs.size());
 				while (clipper.Step()) {
 					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-						if (imgui_window_logger->wrapped) {
-							ImGui::TextWrapped("%s", imgui_window_logger->buffer[i].c_str());
+						if (imgui_window_logger.wrapped) {
+							ImGui::TextWrapped("%s", imgui_window_logger.logs[i].c_str());
 						} else {
-							auto log = imgui_window_logger->buffer[i];
+							auto log = imgui_window_logger.logs[i];
 							ImGui::TextUnformatted(&log[0], &log[log.size()-1]);
 						}
 					}
@@ -3853,9 +3850,9 @@ int main() {
 				ImGui::PopStyleVar();
 
 				// scroll
-				if (imgui_window_logger->auto_scrolling) {
-					if (imgui_window_logger->last_scrolled_line != imgui_window_logger->buffer.size()) {
-						imgui_window_logger->last_scrolled_line = imgui_window_logger->buffer.size();
+				if (imgui_window_logger.auto_scrolling) {
+					if (imgui_window_logger.last_scrolled_line != imgui_window_logger.logs.size()) {
+						imgui_window_logger.last_scrolled_line = imgui_window_logger.logs.size();
 						ImGui::SetScrollHereY();
 					}
 				}

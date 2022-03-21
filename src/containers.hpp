@@ -16,7 +16,8 @@ template<typename T>
 using Box = std::unique_ptr<T>;
 
 template <class T, class... Types, std::enable_if_t<!std::is_array_v<T>, int> = 0>
-[[nodiscard]] Box<T> box_new(Types&&... _Args) {
+[[nodiscard]] Box<T>
+box_new(Types&&... _Args) {
     return Box<T>(new T(std::forward<Types>(_Args)...));
 }
 
@@ -39,18 +40,10 @@ namespace memory {
 	using Allocator = std::pmr::memory_resource;
 
 	class Arena : public Allocator {
-	public:
-		inline Arena() { reset(); }
-
-		inline void reset() {
-			mbr_ = box_new<std::pmr::monotonic_buffer_resource>();
-		}
-
-	protected:
-		std::unique_ptr<std::pmr::monotonic_buffer_resource> mbr_;
+		Box<std::pmr::monotonic_buffer_resource> _mbr = box_new<std::pmr::monotonic_buffer_resource>();
 
 		virtual void* do_allocate(std::size_t bytes, std::size_t alignment) override {
-			return mbr_->allocate(bytes, alignment);
+			return _mbr->allocate(bytes, alignment);
 		}
 
 		virtual void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override { }
