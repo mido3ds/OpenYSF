@@ -106,3 +106,17 @@ Str folder_config(memory::Allocator* allocator) {
 #else
 // TODO implement for linux and mac
 #endif
+
+ILogger* log_global_logger = nullptr;
+
+namespace memory {
+	static thread_local Arena _tmp_allocator;
+
+	Allocator* tmp() {
+		return &_tmp_allocator;
+	}
+
+	void reset_tmp() {
+		_tmp_allocator = {};
+	}
+}

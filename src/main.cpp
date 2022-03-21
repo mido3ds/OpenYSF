@@ -16,22 +16,6 @@
 #include "audio.hpp"
 #include "utils.hpp"
 
-static ILogger* log_global_logger = nullptr;
-
-namespace memory {
-	static thread_local Arena _tmp_allocator;
-
-	Allocator* tmp() {
-		return &_tmp_allocator;
-	}
-
-	void reset_tmp() {
-		_tmp_allocator = {};
-	}
-}
-
-#define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
-
 constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
