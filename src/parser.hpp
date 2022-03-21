@@ -96,7 +96,7 @@ void parser_panic(const Parser& self, StrView err_msg, const Args& ... args) {
 	}
 	str_replace(summary, "\n", "\\n");
 
-	mn::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, mn::str_tmpf(err_msg.data(), args...), summary, self.pos);
+	mn::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, str_tmpf(err_msg.data(), args...), summary, self.pos);
 }
 
 template<typename T>

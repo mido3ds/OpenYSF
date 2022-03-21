@@ -2777,7 +2777,7 @@ int main() {
 		memory::reset_tmp();
 		mn::memory::tmp()->clear_all();
 
-		auto overlay_text = mn::str_tmp();
+		Vec<Str> overlay_text(memory::tmp());
 
 		// time
 		{
@@ -2802,7 +2802,7 @@ int main() {
 				delta_time = 0.0001f;
 			}
 		}
-		overlay_text = mn::strf(overlay_text, "fps: {:.2f}\n", 1.0f/delta_time);
+		overlay_text.emplace_back(str_tmpf("fps: {:.2f}", 1.0f/delta_time));
 
 		camera_update(camera, delta_time);
 
@@ -2921,7 +2921,7 @@ int main() {
 		Vec<Box> box_instances(memory::tmp());
 		for (int i = 0; i < NUM_MODELS-1; i++) {
 			if (models[i].current_state.visible == false) {
-				overlay_text = mn::strf(overlay_text, "model[{}] invisible and won't intersect\n", i);
+				overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", i));
 				continue;
 			}
 
@@ -2929,17 +2929,17 @@ int main() {
 
 			for (int j = i+1; j < NUM_MODELS; j++) {
 				if (models[j].current_state.visible == false) {
-					overlay_text = mn::strf(overlay_text, "model[{}] invisible and won't intersect\n", j);
+					overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", j));
 					continue;
 				}
 
 				glm::vec3 j_color {0, 0, 1};
 
 				if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
-					overlay_text = mn::strf(overlay_text, "model[{}] intersects model[{}]\n", i, j);
+					overlay_text.emplace_back(str_tmpf("model[{}] intersects model[{}]", i, j));
 					j_color = i_color = {1, 0, 0};
 				} else {
-					overlay_text = mn::strf(overlay_text, "model[{}] doesn't intersect model[{}]\n", i, j);
+					overlay_text.emplace_back(str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
 				}
 
 				if (models[j].render_aabb) {
@@ -3118,7 +3118,7 @@ int main() {
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
-			overlay_text = mn::strf(overlay_text, "models[{}]: '{}'\n", i, model.file_abs_path);
+			overlay_text.emplace_back(str_tmpf("models[{}]: '{}'", i, mn::file_name(model.file_abs_path.c_str(), mn::memory::tmp()).ptr));
 
 			model.anti_coll_lights.time_left_secs -= delta_time;
 			if (model.anti_coll_lights.time_left_secs < 0) {
@@ -3461,9 +3461,9 @@ int main() {
 							break;
 						}
 					}
-					if (ImGui::BeginCombo("Tracked Model", mn::str_tmpf("Model[{}]", tracked_model_index).ptr)) {
+					if (ImGui::BeginCombo("Tracked Model", str_tmpf("Model[{}]", tracked_model_index).c_str())) {
 						for (size_t j = 0; j < NUM_MODELS; j++) {
-							if (ImGui::Selectable(mn::str_tmpf("Model[{}]", j).ptr, j == tracked_model_index)) {
+							if (ImGui::Selectable(str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
 								camera.model = &models[j];
 							}
 						}
@@ -3580,7 +3580,7 @@ int main() {
 
 			for (int i = 0; i < NUM_MODELS; i++) {
 				Model& model = models[i];
-				if (ImGui::TreeNode(mn::str_tmpf("Model {}", i).ptr)) {
+				if (ImGui::TreeNode(str_tmpf("Model {}", i).c_str())) {
 					models[i].should_select_file = ImGui::Button("Load DNM");
 					models[i].should_load_file = ImGui::Button("Reload");
 
@@ -3647,12 +3647,12 @@ int main() {
 						}
 					}
 
-					ImGui::BulletText(mn::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.size(),
-						model.root_meshes_names.size(), light_sources_count).ptr);
+					ImGui::BulletText(str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.size(),
+						model.root_meshes_names.size(), light_sources_count).c_str());
 
 					std::function<void(Mesh&)> render_mesh_ui;
 					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max](Mesh& mesh) {
-						if (ImGui::TreeNode(mn::str_tmpf("{}", mesh.name).ptr)) {
+						if (ImGui::TreeNode(str_tmpf("{}", mesh.name).c_str())) {
 							if (ImGui::Button("Reset")) {
 								mesh.current_state = mesh.initial_state;
 							}
@@ -3670,19 +3670,19 @@ int main() {
 							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
 							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, current_angle_max);
 
-							ImGui::Text(mn::str_tmpf("{}", mesh.animation_type).ptr);
+							ImGui::Text(str_tmpf("{}", mesh.animation_type).c_str());
 
-							ImGui::BulletText(mn::str_tmpf("Children: ({})", mesh.children.size()).ptr);
+							ImGui::BulletText(str_tmpf("Children: ({})", mesh.children.size()).c_str());
 							ImGui::Indent();
 							for (const auto& child_name : mesh.children) {
 								render_mesh_ui(model.meshes.at(child_name.c_str()));
 							}
 							ImGui::Unindent();
 
-							if (ImGui::TreeNode(mn::str_tmpf("Faces: ({})", mesh.faces.size()).ptr)) {
+							if (ImGui::TreeNode(str_tmpf("Faces: ({})", mesh.faces.size()).c_str())) {
 								for (size_t i = 0; i < mesh.faces.size(); i++) {
-									if (ImGui::TreeNode(mn::str_tmpf("{}", i).ptr)) {
-										ImGui::TextWrapped("Vertices: %s", mn::str_tmpf("{}", mesh.faces[i].vertices_ids).ptr);
+									if (ImGui::TreeNode(str_tmpf("{}", i).c_str())) {
+										ImGui::TextWrapped("Vertices: %s", str_tmpf("{}", mesh.faces[i].vertices_ids).c_str());
 
 										bool changed = false;
 										changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
@@ -3716,7 +3716,7 @@ int main() {
 
 			std::function<void(Field&,bool)> render_field_imgui;
 			render_field_imgui = [&render_field_imgui, &current_angle_max](Field& field, bool is_root) {
-				if (ImGui::TreeNode(mn::str_tmpf("Field {}", field.name).ptr)) {
+				if (ImGui::TreeNode(str_tmpf("Field {}", field.name).c_str())) {
 					if (is_root) {
 						field.should_select_file = ImGui::Button("Open FLD");
 						field.should_load_file = ImGui::Button("Reload");
@@ -3879,7 +3879,9 @@ int main() {
 			| ImGuiWindowFlags_NoFocusOnAppearing
 			| ImGuiWindowFlags_NoNav
 			| ImGuiWindowFlags_NoMove)) {
-			ImGui::TextWrapped(overlay_text.ptr);
+			for (const auto& line : overlay_text) {
+				ImGui::TextWrapped(str_tmpf("> {}", line).c_str());
+			}
 		}
 		ImGui::End();
 
@@ -3901,6 +3903,8 @@ TODO:
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
 - f10 has one beacon on right but not on left
+- uh60.dnm/tu160.dnm rotors/wings are messed up
+- tu160.dnm direction of movement is wrong
 - remove mn
 	- replace filesystem api
 	- replace panic
