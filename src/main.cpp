@@ -9,7 +9,6 @@
 #undef near
 #undef far
 
-#include <mn/Defer.h>
 #include <mn/Thread.h>
 #include <mn/Path.h>
 
@@ -2250,7 +2249,7 @@ int main() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
 		panic(SDL_GetError());
 	}
-	mn_defer(SDL_Quit());
+	defer(SDL_Quit());
 
 	auto sdl_window = SDL_CreateWindow(
 		WND_TITLE,
@@ -2261,7 +2260,7 @@ int main() {
 	if (!sdl_window) {
 		panic(SDL_GetError());
 	}
-	mn_defer(SDL_DestroyWindow(sdl_window));
+	defer(SDL_DestroyWindow(sdl_window));
 	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
 
 	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { panic(SDL_GetError()); }
@@ -2273,7 +2272,7 @@ int main() {
 	if (!gl_context) {
 		panic(SDL_GetError());
 	}
-	mn_defer(SDL_GL_DeleteContext(gl_context));
+	defer(SDL_GL_DeleteContext(gl_context));
 
 	// glad: load all OpenGL function pointers
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
@@ -2283,7 +2282,7 @@ int main() {
 	// setup audio
 	AudioDevice audio_device {};
 	audio_device_init(&audio_device);
-	mn_defer(audio_device_free(audio_device));
+	defer(audio_device_free(audio_device));
 
 	Sounds sounds{};
 	sounds_load(sounds);
@@ -2295,17 +2294,17 @@ int main() {
     if (ImGui::CreateContext() == nullptr) {
 		panic("failed to create imgui context");
 	}
-	mn_defer(ImGui::DestroyContext());
+	defer(ImGui::DestroyContext());
 	ImGui::StyleColorsDark();
 
 	if (!ImGui_ImplSDL2_InitForOpenGL(sdl_window, gl_context)) {
 		panic("failed to init imgui implementation for SDL2");
 	}
-	mn_defer(ImGui_ImplSDL2_Shutdown());
+	defer(ImGui_ImplSDL2_Shutdown());
     if (!ImGui_ImplOpenGL3_Init("#version 330")) {
 		panic("failed to init imgui implementation for OpenGL3");
 	}
-	mn_defer(ImGui_ImplOpenGL3_Shutdown());
+	defer(ImGui_ImplOpenGL3_Shutdown());
 
 	ImGui::GetIO().IniFilename = _imgui_ini_file_path.c_str();
 
@@ -2358,7 +2357,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(gpu_program_free(meshes_gpu_program));
+	defer(gpu_program_free(meshes_gpu_program));
 
 	// models
 	constexpr int NUM_MODELS = 1;
@@ -2367,7 +2366,7 @@ int main() {
 		model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
 		model_load_to_gpu(model);
 	}
-	mn_defer({
+	defer({
 		for (auto& model : models) {
 			model_unload_from_gpu(model);
 		}
@@ -2376,7 +2375,7 @@ int main() {
 	// field
 	auto field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
 	field_load_to_gpu(field);
-	mn_defer(field_unload_from_gpu(field));
+	defer(field_unload_from_gpu(field));
 
 	// start infos
 	auto start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
@@ -2426,7 +2425,7 @@ int main() {
 		GLfloat line_width = 5.0f;
 		bool on_top = true;
 	} axis_rendering {};
-	mn_defer({
+	defer({
 		glDeleteBuffers(1, &axis_rendering.vbo);
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &axis_rendering.vao);
@@ -2507,14 +2506,14 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(gpu_program_free(lines_gpu_program));
+	defer(gpu_program_free(lines_gpu_program));
 
 	struct {
 		GLuint vao, vbo;
 		size_t points_count;
 		GLfloat line_width = 1.0f;
 	} box_rendering;
-	mn_defer({
+	defer({
 		glDeleteBuffers(1, &box_rendering.vbo);
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &box_rendering.vao);
@@ -2620,7 +2619,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(gpu_program_free(picture2d_gpu_program));
+	defer(gpu_program_free(picture2d_gpu_program));
 
 	// https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
 	auto ground_gpu_program = gpu_program_new(
@@ -2677,13 +2676,13 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(gpu_program_free(ground_gpu_program));
+	defer(gpu_program_free(ground_gpu_program));
 
 	// opengl can't call shader without VAO even if shader doesn't take input
 	// dummy_vao lets you call shader without input (useful when coords is embedded in shader)
 	GLuint dummy_vao;
 	glGenVertexArrays(1, &dummy_vao);
-	mn_defer({
+	defer({
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &dummy_vao);
 	});
@@ -2693,11 +2692,11 @@ int main() {
 	if (groundtile == nullptr || groundtile->pixels == nullptr) {
 		panic("failed to load groundtile.png");
 	}
-	mn_defer(SDL_FreeSurface(groundtile));
+	defer(SDL_FreeSurface(groundtile));
 
 	GLuint groundtile_texture;
 	glGenTextures(1, &groundtile_texture);
-	mn_defer({
+	defer({
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glDeleteTextures(1, &groundtile_texture);
 	});
@@ -2748,18 +2747,18 @@ int main() {
 			}
 		)GLSL"
 	);
-	mn_defer(gpu_program_free(sprite_gpu_program));
+	defer(gpu_program_free(sprite_gpu_program));
 
 	// zl_sprite
 	SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
 	if (zl_sprite == nullptr || zl_sprite->pixels == nullptr) {
 		panic("failed to load rwlight.png");
 	}
-	mn_defer(SDL_FreeSurface(zl_sprite));
+	defer(SDL_FreeSurface(zl_sprite));
 
 	GLuint zl_sprite_texture;
 	glGenTextures(1, &zl_sprite_texture);
-	mn_defer({
+	defer({
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glDeleteTextures(1, &zl_sprite_texture);
 	});
