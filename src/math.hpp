@@ -1,8 +1,6 @@
 #pragma once
 
-#include "containers.hpp"
-
-#include "log.hpp"
+#include "utils.hpp"
 
 #include <glm/vec3.hpp> // glm::vec3
 #include <glm/vec4.hpp> // glm::vec4
@@ -170,7 +168,7 @@ void test_aabbs_intersection() {
 			.min={0.5f, 0.5f, 3.0f},
 			.max={3.0f, 3.0f, 4.0f},
 		};
-		mn_assert(aabbs_intersect(x, y));
+		my_assert(aabbs_intersect(x, y));
 	}
 
 	{
@@ -182,7 +180,7 @@ void test_aabbs_intersection() {
 			.min={0.5f, 0.5f, -3.0f},
 			.max={3.0f, 3.0f, -4.0f},
 		};
-		mn_assert(aabbs_intersect(x, y) == false);
+		my_assert(aabbs_intersect(x, y) == false);
 	}
 
 	{
@@ -194,7 +192,7 @@ void test_aabbs_intersection() {
 			.min={0.5f, 0.5f, -3.0f},
 			.max={3.0f, 3.0f, 4.0f},
 		};
-		mn_assert(aabbs_intersect(x, y));
+		my_assert(aabbs_intersect(x, y));
 	}
 
 	log_debug("test_aabbs_intersection: all passed");
@@ -471,7 +469,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
@@ -481,7 +479,7 @@ void test_polygons_to_triangles() {
 		glm::vec3 c {4,3,0};
 		glm::vec3 d {3,2,0};
 
-		mn_assert(lines_intersect(a, b, c, d) == false);
+		my_assert(lines_intersect(a, b, c, d) == false);
 	}
 
 	{
@@ -491,7 +489,7 @@ void test_polygons_to_triangles() {
 		glm::vec3 c {1.311345, -0.000053,  1.717336};
 		glm::vec3 d {1.311345,  0.512254,  2.414495};
 
-		mn_assert(lines_intersect(a, b, c, d) == false);
+		my_assert(lines_intersect(a, b, c, d) == false);
 	}
 
 	{
@@ -503,7 +501,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = Vec<uint32_t>({0,1,2,3});
 		const glm::vec3 center {4, 3, 0};
-		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
 	}
 
 	{
@@ -516,7 +514,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
@@ -529,7 +527,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {0.25, -0.742, 0.492};
-		mn_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
 	}
 
 	log_debug("test_polygons_to_triangles: all passed");

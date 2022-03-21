@@ -7,12 +7,9 @@
 
 #include <SDL.h>
 
-#include <mn/OS.h>
-#include "log.hpp"
-#include <mn/Str.h>
 #include <mn/Defer.h>
 
-#include "containers.hpp"
+#include "utils.hpp"
 
 // for stream at callback, bigger is slower, should be power of 2
 constexpr auto AUDIO_STREAM_SIZE = 512;
@@ -33,13 +30,13 @@ Audio audio_new(StrView filename) {
 	Audio self { .file_path = Str(filename) };
 	SDL_AudioSpec spec {};
 	if (SDL_LoadWAV(filename.data(), &spec, &self.buffer, &self.len) == nullptr) {
-        mn::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
+        panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
 
 	// convert
 	SDL_AudioCVT cvt;
 	if (SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, AUDIO_FORMAT, AUDIO_CHANNELS, AUDIO_FREQUENCY) < 0) {
-		mn::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
+		panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
 	}
 	if (cvt.needed) {
 		cvt.len = self.len;
@@ -47,7 +44,7 @@ Audio audio_new(StrView filename) {
 		SDL_memcpy(cvt.buf, self.buffer, cvt.len);
 
 		if (SDL_ConvertAudio(&cvt) < 0) {
-			mn::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
+			panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
 		}
 
 		SDL_FreeWAV(self.buffer);
@@ -81,7 +78,7 @@ constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
 }
 
 void memset_u16(void* dst, uint16_t val, size_t len) {
-	mn_assert(len % 2 == 0);
+	my_assert(len % 2 == 0);
 	uint16_t* dst_as_16 = (uint16_t*) dst;
 	const size_t len_as_16 = len / 2;
 	for (size_t i = 0; i < len_as_16; i++) {
@@ -104,7 +101,7 @@ void audio_device_init(AudioDevice* self) {
 
 			// one shot
 			for (auto& playback : dev->playbacks) {
-				mn_assert(playback.pos < playback.audio->len);
+				my_assert(playback.pos < playback.audio->len);
 
 				const uint32_t min_len = min_u32(stream_len, playback.audio->len - playback.pos);
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
@@ -113,7 +110,7 @@ void audio_device_init(AudioDevice* self) {
 				silence_pos = min_u32(silence_pos + min_len, stream_len);
 			}
 			for (int i = dev->playbacks.size()-1; i >= 0; i--) {
-				mn_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
+				my_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
 				if (dev->playbacks[i].pos == dev->playbacks[i].audio->len) {
 					vec_remove_unordered(dev->playbacks, i);
 				}
@@ -121,7 +118,7 @@ void audio_device_init(AudioDevice* self) {
 
 			// looped
 			for (auto& playback : dev->looped_playbacks) {
-				mn_assert(playback.pos < playback.audio->len);
+				my_assert(playback.pos < playback.audio->len);
 
 				uint32_t stream_pos = 0;
 				while (stream_pos < stream_len) {
@@ -145,7 +142,7 @@ void audio_device_init(AudioDevice* self) {
 
 	self->id = SDL_OpenAudioDevice(nullptr, false, &spec, nullptr, 0);
     if (self->id == 0) {
-        mn::panic("failed to open audio device: {}", SDL_GetError());
+        panic("failed to open audio device: {}", SDL_GetError());
     }
 
 	self->playbacks.reserve(32);

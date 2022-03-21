@@ -87,8 +87,8 @@ add_executable(open-ysf
 	src/gpu.hpp
 	src/imgui.hpp
 	src/audio.hpp
-	src/containers.hpp
-	src/log.hpp
+	src/utils.hpp
+	src/panic.cpp
 )
 
 target_link_libraries(open-ysf
@@ -101,6 +101,7 @@ target_link_libraries(open-ysf
 		_glad
 		_imgui
 		portable_file_dialogs
+		$<$<PLATFORM_ID:Windows>:dbghelp>
 )
 
 set_property(TARGET open-ysf
@@ -111,6 +112,15 @@ set_property(TARGET open-ysf
 )
 
 target_compile_definitions(open-ysf
-	PUBLIC
+	PRIVATE
 	ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+	$<$<PLATFORM_ID:Windows>:UNICODE;_UNICODE>
+	$<$<PLATFORM_ID:Windows>:OS_WINDOWS=1>
+	$<$<PLATFORM_ID:Linux>:OS_LINUX=1>
+	$<$<PLATFORM_ID:Darwin>:OS_MACOS=1>
+	$<$<CXX_COMPILER_ID:Clang>:COMPILER_CLANG=1>
+	$<$<CXX_COMPILER_ID:AppleClang>:COMPILER_CLANG=1>
+	$<$<CXX_COMPILER_ID:GNU>:COMPILER_GNU=1>
+	$<$<CXX_COMPILER_ID:MSVC>:COMPILER_MSVC=1>
+	$<$<CONFIG:DEBUG>:DEBUG>
 )

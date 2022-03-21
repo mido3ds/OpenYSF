@@ -9,9 +9,7 @@
 #undef near
 #undef far
 
-#include <mn/Log.h>
 #include <mn/Defer.h>
-#include <mn/OS.h>
 #include <mn/Thread.h>
 #include <mn/Path.h>
 
@@ -20,8 +18,7 @@
 #include "parser.hpp"
 #include "math.hpp"
 #include "audio.hpp"
-#include "containers.hpp"
-#include "log.hpp"
+#include "utils.hpp"
 
 static ILogger* log_global_logger = nullptr;
 
@@ -190,7 +187,7 @@ namespace fmt {
 
 			case AnimationClass::UNKNOWN: s = "UNKNOWN"; break;
 
-			default: mn_unreachable();
+			default: unreachable();
 			}
 			return format_to(ctx.out(), "AnimationClass::{}", s);
 		}
@@ -443,7 +440,7 @@ Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
 				start_info.throttle = parser_token_float(parser);
 				parser_expect(parser, '\n');
 				if (start_info.throttle > 1 || start_info.throttle < 0) {
-					mn::panic("throttle={} out of bounds [0,1]", start_info.throttle);
+					panic("throttle={} out of bounds [0,1]", start_info.throttle);
 				}
 			} else if (parser_accept(parser, "CTLLDGEA ")) {
 				start_info.landing_gear_is_out = _token_bool(parser);
@@ -588,7 +585,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		while (!parser_accept(parser, "E\n")) {
 			if (parser_accept(parser, "C ")) {
 				if (parsed_color) {
-					mn::panic("'{}': found more than one color", name);
+					panic("'{}': found more than one color", name);
 				}
 				parsed_color = true;
 				face.color.a = 1.0f;
@@ -617,13 +614,13 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 					face.color.r = packed_color.as_struct.r / 255.0f;
 					face.color.g = packed_color.as_struct.g / 255.0f;
 					face.color.b = packed_color.as_struct.b / 255.0f;
-					mn_assert(packed_color.as_struct.padding == 0);
+					my_assert(packed_color.as_struct.padding == 0);
 				}
 
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "N ")) {
 				if (parsed_normal) {
-					mn::panic("'{}': found more than one normal", name);
+					panic("'{}': found more than one normal", name);
 				}
 				parsed_normal = true;
 
@@ -646,7 +643,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 				while (parser_accept(parser, ' ')) {
 					auto id = parser_token_u64(parser);
 					if (id >= mesh.vertices.size()) {
-						mn::panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.size());
+						panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.size());
 					}
 					polygon_vertices_ids.push_back((uint32_t) id);
 				}
@@ -710,7 +707,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				mesh.gfs.push_back(id);
 			}
@@ -719,7 +716,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				parser_expect(parser, ' ');
 				mesh.faces[id].color.a = (255 - parser_token_u8(parser)) / 255.0f;
@@ -731,14 +728,14 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			zl_count++;
 			if (dnm_version == 1) {
 				if (zl_count > 1) {
-					mn::panic("'{}': found {} > 1 ZLs", name, zl_count);
+					panic("'{}': found {} > 1 ZLs", name, zl_count);
 				}
 			}
 
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				mesh.zls.push_back(id);
 			}
@@ -746,13 +743,13 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		} else if  (parser_accept(parser, "ZZ")) { // [ZZ< {u64}>+\n]
 			zz_count++;
 			if (zz_count > 1) {
-				mn::panic("'{}': found {} > 1 ZZs", name, zz_count);
+				panic("'{}': found {} > 1 ZZs", name, zz_count);
 			}
 
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					mn::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				mesh.zzs.push_back(id);
 			}
@@ -790,7 +787,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	parser_expect(parser, "DYNAMODEL\nDNMVER ");
 	const uint8_t dnm_version = parser_token_u8(parser);
 	if (dnm_version > 2) {
-		mn::panic("unsupported version {}", dnm_version);
+		panic("unsupported version {}", dnm_version);
 	}
 	parser_expect(parser, '\n');
 
@@ -819,7 +816,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	while (parser_accept(parser, "SRF ")) {
 		auto name = parser_token_str(parser);
 		if (!(str_prefix(name, "\"") && str_suffix(name, "\""))) {
-			mn::panic("name must be in \"\" found={}", name);
+			panic("name must be in \"\" found={}", name);
 		}
 		_str_unquote(name);
 		parser_expect(parser, '\n');
@@ -829,7 +826,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		parser_expect(parser, '\n');
 		auto surf = meshes.find(fil);
 		if (surf == meshes.end()) {
-			mn::panic("'{}': line referenced undeclared surf={}", name, fil);
+			panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
 		surf->second.name = name;
 
@@ -931,7 +928,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 					parser_expect(parser, "CLD ");
 					auto child_name = parser_token_str(parser);
 					if (!(str_prefix(child_name, "\"") && str_suffix(child_name, "\""))) {
-						mn::panic("'{}': child_name must be in \"\" found={}", name, child_name);
+						panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					_str_unquote(child_name);
 					surf->second.children.push_back(child_name);
@@ -1147,7 +1144,7 @@ void camera_update(Camera& self, float delta_time) {
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
 		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
 	} else {
-		mn_unreachable();
+		unreachable();
 	}
 }
 
@@ -1157,7 +1154,7 @@ glm::mat4 camera_calc_view(const Camera& self) {
 	} else if (self.kind == Camera::Kind::TRACKING) {
 		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.up);
 	} else {
-		mn_unreachable();
+		unreachable();
 	}
 }
 
@@ -1393,7 +1390,7 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 		}
 		break;
 	}
-	default: mn_unreachable();
+	default: unreachable();
 	}
 	self.gpu.array_count = vertices.size();
 
@@ -1467,7 +1464,7 @@ namespace fmt {
 			case AreaKind::NOAREA: return format_to(ctx.out(), "AreaKind::NOAREA");
 			case AreaKind::LAND:   return format_to(ctx.out(), "AreaKind::LAND");
 			case AreaKind::WATER:  return format_to(ctx.out(), "AreaKind::WATER");
-			default: mn_unreachable();
+			default: unreachable();
 			}
 			return format_to(ctx.out(), "????????");
 		}
@@ -2251,7 +2248,7 @@ int main() {
 
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-		mn::panic(SDL_GetError());
+		panic(SDL_GetError());
 	}
 	mn_defer(SDL_Quit());
 
@@ -2262,25 +2259,25 @@ int main() {
 		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | WND_FLAGS
 	);
 	if (!sdl_window) {
-		mn::panic(SDL_GetError());
+		panic(SDL_GetError());
 	}
 	mn_defer(SDL_DestroyWindow(sdl_window));
 	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
 
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { mn::panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR))  { mn::panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR))  { mn::panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER))           { mn::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR))  { panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR))  { panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER))           { panic(SDL_GetError()); }
 
 	auto gl_context = SDL_GL_CreateContext(sdl_window);
 	if (!gl_context) {
-		mn::panic(SDL_GetError());
+		panic(SDL_GetError());
 	}
 	mn_defer(SDL_GL_DeleteContext(gl_context));
 
 	// glad: load all OpenGL function pointers
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-		mn::panic("failed to load GLAD function pointers");
+		panic("failed to load GLAD function pointers");
 	}
 
 	// setup audio
@@ -2296,17 +2293,17 @@ int main() {
 
 	IMGUI_CHECKVERSION();
     if (ImGui::CreateContext() == nullptr) {
-		mn::panic("failed to create imgui context");
+		panic("failed to create imgui context");
 	}
 	mn_defer(ImGui::DestroyContext());
 	ImGui::StyleColorsDark();
 
 	if (!ImGui_ImplSDL2_InitForOpenGL(sdl_window, gl_context)) {
-		mn::panic("failed to init imgui implementation for SDL2");
+		panic("failed to init imgui implementation for SDL2");
 	}
 	mn_defer(ImGui_ImplSDL2_Shutdown());
     if (!ImGui_ImplOpenGL3_Init("#version 330")) {
-		mn::panic("failed to init imgui implementation for OpenGL3");
+		panic("failed to init imgui implementation for OpenGL3");
 	}
 	mn_defer(ImGui_ImplOpenGL3_Shutdown());
 
@@ -2694,7 +2691,7 @@ int main() {
 	// groundtile
 	SDL_Surface* groundtile = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
 	if (groundtile == nullptr || groundtile->pixels == nullptr) {
-		mn::panic("failed to load groundtile.png");
+		panic("failed to load groundtile.png");
 	}
 	mn_defer(SDL_FreeSurface(groundtile));
 
@@ -2756,7 +2753,7 @@ int main() {
 	// zl_sprite
 	SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
 	if (zl_sprite == nullptr || zl_sprite->pixels == nullptr) {
-		mn::panic("failed to load rwlight.png");
+		panic("failed to load rwlight.png");
 	}
 	mn_defer(SDL_FreeSurface(zl_sprite));
 
@@ -2838,11 +2835,11 @@ int main() {
 					wnd_size_changed = true;
 					if (fullscreen) {
 						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
-							mn::panic(SDL_GetError());
+							panic(SDL_GetError());
 						}
 					} else {
 						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL)) {
-							mn::panic(SDL_GetError());
+							panic(SDL_GetError());
 						}
 					}
 					break;
@@ -3475,7 +3472,7 @@ int main() {
 
 					ImGui::Checkbox("Rotate Around", &camera.enable_rotating_around);
 				} else {
-					mn_unreachable();
+					unreachable();
 				}
 
 				ImGui::SliderAngle("yaw", &camera.yaw);
@@ -3907,7 +3904,6 @@ TODO:
 - tu160.dnm direction of movement is wrong
 - remove mn
 	- replace filesystem api
-	- replace panic
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?

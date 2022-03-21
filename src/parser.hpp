@@ -1,9 +1,6 @@
 #pragma once
 
-#include "containers.hpp"
-
-#include "log.hpp"
-#include <mn/Assert.h>
+#include "utils.hpp"
 
 struct Parser {
 	Str str;
@@ -96,7 +93,7 @@ void parser_panic(const Parser& self, StrView err_msg, const Args& ... args) {
 	}
 	str_replace(summary, "\n", "\\n");
 
-	mn::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, str_tmpf(err_msg.data(), args...), summary, self.pos);
+	panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, str_tmpf(err_msg.data(), args...), summary, self.pos);
 }
 
 template<typename T>
@@ -237,44 +234,44 @@ void test_parser() {
 	Parser parser = parser_from_str("hello world \r\n m", memory::tmp());
 	auto orig = parser;
 
-	mn_assert(parser_peek(parser, "hello"));
-	mn_assert(parser_peek(parser, "ello") == false);
+	my_assert(parser_peek(parser, "hello"));
+	my_assert(parser_peek(parser, "ello") == false);
 
 	{
 		parser = orig;
-		mn_assert(parser_accept(parser, "hello"));
-		mn_assert(parser_accept(parser, ' '));
-		mn_assert(parser_finished(parser) == false);
-		mn_assert(parser.curr_line == 0);
-		mn_assert(parser_accept(parser, "world \n"));
-		mn_assert(parser.curr_line == 1);
-		mn_assert(parser_accept(parser, " m"));
-		mn_assert(parser_finished(parser));
+		my_assert(parser_accept(parser, "hello"));
+		my_assert(parser_accept(parser, ' '));
+		my_assert(parser_finished(parser) == false);
+		my_assert(parser.curr_line == 0);
+		my_assert(parser_accept(parser, "world \n"));
+		my_assert(parser.curr_line == 1);
+		my_assert(parser_accept(parser, " m"));
+		my_assert(parser_finished(parser));
 
 		parser = orig;
-		mn_assert(parser_accept(parser, "ello") == false);
+		my_assert(parser_accept(parser, "ello") == false);
 	}
 
 	{
 		parser = orig;
 		parser_expect(parser, "hello");
 		parser_expect(parser, ' ');
-		mn_assert(parser.curr_line == 0);
+		my_assert(parser.curr_line == 0);
 		parser_expect(parser, "world \n");
-		mn_assert(parser.curr_line == 1);
+		my_assert(parser.curr_line == 1);
 		parser_expect(parser, " m");
 	}
 
 	parser = parser_from_str("5\n-1.4\nhello 1%", memory::tmp());
-	mn_assert(parser_token_u64(parser) == 5);
+	my_assert(parser_token_u64(parser) == 5);
 	parser_expect(parser, '\n');
-	mn_assert(parser_token_float(parser) == -1.4f);
+	my_assert(parser_token_float(parser) == -1.4f);
 	parser_expect(parser, '\n');
-	mn_assert(parser_token_str(parser, memory::tmp()) == "hello");
+	my_assert(parser_token_str(parser, memory::tmp()) == "hello");
 	parser_expect(parser, ' ');
-	mn_assert(parser_token_u64(parser) == 1);
+	my_assert(parser_token_u64(parser) == 1);
 	parser_expect(parser, '%');
-	mn_assert(parser.curr_line == 2);
+	my_assert(parser.curr_line == 2);
 
 	log_debug("test_parser: all tests pass");
 }
