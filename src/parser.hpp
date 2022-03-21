@@ -19,11 +19,10 @@ Parser parser_from_str(StrView str, memory::Allocator* allocator = memory::defau
 }
 
 Parser parser_from_file(StrView file_path, memory::Allocator* allocator = memory::default_allocator()) {
-	auto str = mn::file_content_str(file_path.data(), mn::memory::tmp());
-	Str str_clone(str.ptr, allocator);
-	str_replace(str_clone, "\r\n", "\n");
+	auto str = file_content_str(file_path.data(), memory::tmp());
+	str_replace(str, "\r\n", "\n");
 	return Parser {
-		.str = str_clone,
+		.str = str,
 		.file_path = Str(file_path, allocator),
 	};
 }

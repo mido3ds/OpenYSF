@@ -15,9 +15,9 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include(CPM)
 CPMAddPackage(
-	NAME             mn
-	GIT_REPOSITORY   https://github.com/MoustaphaSaad/mn.git
-	GIT_TAG          v4.3.0
+	NAME             fmt
+	GIT_REPOSITORY   https://github.com/fmtlib/fmt.git
+	GIT_TAG          8.0.1
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
@@ -88,12 +88,12 @@ add_executable(open-ysf
 	src/imgui.hpp
 	src/audio.hpp
 	src/utils.hpp
-	src/panic.cpp
+	src/utils.cpp
 )
 
 target_link_libraries(open-ysf
 	PRIVATE
-		MoustaphaSaad::mn
+		fmt::fmt
 		SDL2::SDL2
 		SDL2::image
 		OpenGL::GL
@@ -113,14 +113,20 @@ set_property(TARGET open-ysf
 
 target_compile_definitions(open-ysf
 	PRIVATE
-	ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
-	$<$<PLATFORM_ID:Windows>:UNICODE;_UNICODE>
-	$<$<PLATFORM_ID:Windows>:OS_WINDOWS=1>
-	$<$<PLATFORM_ID:Linux>:OS_LINUX=1>
-	$<$<PLATFORM_ID:Darwin>:OS_MACOS=1>
-	$<$<CXX_COMPILER_ID:Clang>:COMPILER_CLANG=1>
-	$<$<CXX_COMPILER_ID:AppleClang>:COMPILER_CLANG=1>
-	$<$<CXX_COMPILER_ID:GNU>:COMPILER_GNU=1>
-	$<$<CXX_COMPILER_ID:MSVC>:COMPILER_MSVC=1>
-	$<$<CONFIG:DEBUG>:DEBUG>
+		ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+		$<$<PLATFORM_ID:Windows>:UNICODE;_UNICODE>
+		$<$<PLATFORM_ID:Windows>:OS_WINDOWS=1>
+		$<$<PLATFORM_ID:Linux>:OS_LINUX=1>
+		$<$<PLATFORM_ID:Darwin>:OS_MACOS=1>
+		$<$<CXX_COMPILER_ID:Clang>:COMPILER_CLANG=1>
+		$<$<CXX_COMPILER_ID:AppleClang>:COMPILER_CLANG=1>
+		$<$<CXX_COMPILER_ID:GNU>:COMPILER_GNU=1>
+		$<$<CXX_COMPILER_ID:MSVC>:COMPILER_MSVC=1>
+		$<$<CONFIG:DEBUG>:DEBUG>
+)
+
+target_compile_options(open-ysf
+	PRIVATE
+		$<$<CXX_COMPILER_ID:MSVC>:/W4 /NODEFAULTLIB:library>
+		$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Wno-nested-anon-types>
 )

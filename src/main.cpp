@@ -9,9 +9,6 @@
 #undef near
 #undef far
 
-#include <mn/Thread.h>
-#include <mn/Path.h>
-
 #include "imgui.hpp"
 #include "gpu.hpp"
 #include "parser.hpp"
@@ -1152,9 +1149,10 @@ glm::mat4 camera_calc_view(const Camera& self) {
 		return glm::lookAt(self.position, self.position + self.front, self.up);
 	} else if (self.kind == Camera::Kind::TRACKING) {
 		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.up);
-	} else {
-		unreachable();
 	}
+
+	unreachable();
+	return {};
 }
 
 struct Block {
@@ -2106,7 +2104,7 @@ Field field_from_fld_file(StrView fld_file_abs_path) {
 	auto field = _field_from_fld_str(parser);
 	field.file_abs_path = Str(fld_file_abs_path);
 	if (field.name.size() == 0) {
-		field.name = Str(mn::file_name(fld_file_abs_path.data(), mn::memory::tmp()).ptr);
+		field.name += file_get_base_name(fld_file_abs_path);
 	}
 
 	return field;
@@ -2288,7 +2286,7 @@ int main() {
 	sounds_load(sounds);
 
 	// setup imgui
-	auto _imgui_ini_file_path = str_format("{}/{}", mn::folder_config(mn::memory::tmp()), "open-ysf-imgui.ini");
+	auto _imgui_ini_file_path = str_format("{}/{}", folder_config(memory::tmp()), "open-ysf-imgui.ini");
 
 	IMGUI_CHECKVERSION();
     if (ImGui::CreateContext() == nullptr) {
@@ -2771,7 +2769,6 @@ int main() {
 
 	while (running) {
 		memory::reset_tmp();
-		mn::memory::tmp()->clear_all();
 
 		Vec<Str> overlay_text(memory::tmp());
 
@@ -2784,7 +2781,7 @@ int main() {
 				int millis_diff = (1000 / fps_limit) - delta_time_millis;
 				millis_till_render = clamp(millis_till_render - millis_diff, 0, 1000);
 				if (millis_till_render > 0) {
-					mn::thread_sleep(2);
+					SDL_Delay(2);
 					continue;
 				} else {
 					millis_till_render = 1000 / fps_limit;
@@ -3114,7 +3111,7 @@ int main() {
 		// render models
 		for (int i = 0; i < NUM_MODELS; i++) {
 			Model& model = models[i];
-			overlay_text.emplace_back(str_tmpf("models[{}]: '{}'", i, mn::file_name(model.file_abs_path.c_str(), mn::memory::tmp()).ptr));
+			overlay_text.emplace_back(str_tmpf("models[{}]: '{}'", i, file_get_base_name(model.file_abs_path)));
 
 			model.anti_coll_lights.time_left_secs -= delta_time;
 			if (model.anti_coll_lights.time_left_secs < 0) {
@@ -3566,7 +3563,7 @@ int main() {
 					ImGui::EndDisabled();
 
 					ImGui::SameLine();
-					ImGui::Text(mn::file_name(sound.file_path.c_str(), mn::memory::tmp()).ptr);
+					ImGui::Text(Str(file_get_base_name(sound.file_path), memory::tmp()).c_str());
 
 					ImGui::PopID();
 				}
@@ -3901,8 +3898,6 @@ TODO:
 - f10 has one beacon on right but not on left
 - uh60.dnm/tu160.dnm rotors/wings are messed up
 - tu160.dnm direction of movement is wrong
-- remove mn
-	- replace filesystem api
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?

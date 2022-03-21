@@ -201,7 +201,7 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 		}
 	}
 
-	log_warning("didn't find audio '{}' to stop", mn::file_name(audio.file_path.c_str(), mn::memory::tmp()));
+	log_warning("didn't find audio '{}' to stop", file_get_base_name(audio.file_path));
 }
 
 /*
