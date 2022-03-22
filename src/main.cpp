@@ -469,6 +469,8 @@ struct Model {
 		bool visible = true;
 		double time_left_secs = ANTI_COLL_LIGHT_PERIOD;
 	} anti_coll_lights;
+
+	Audio* engine_sound;
 };
 
 void model_load_to_gpu(Model& self) {
@@ -2142,47 +2144,50 @@ struct ZLPoint {
 };
 
 struct Sounds {
-	union {
-		struct {
-			Audio bang, blast, blast2, bombsaway, burner, damage; // 6
-			Audio extendldg, gearhorn, gun, hit, missile, notice; // 6
-			Audio retractldg, rocket, stallhorn, touchdwn, warning, engine; // 6
-			Audio engines[10], props[10]; // 20
-		};
-		Audio as_array[38];
-	};
+	Audio bang, blast, blast2, bombsaway, burner, damage;
+	Audio extendldg, gearhorn, gun, hit, missile, notice;
+	Audio retractldg, rocket, stallhorn, touchdwn, warning, engine;
+	Arr<Audio, 10> engines, props;
+
+	Vec<Audio*> as_array;
 
 	~Sounds() {
-		for (int i = 0; i < COUNT_OF(this->as_array); i++) {
-			audio_free(this->as_array[i]);
+		for (int i = 0; i < as_array.size(); i++) {
+			audio_free(*as_array[i]);
 		}
 	}
 };
 
+inline static void
+_sounds_load(Sounds& self, Audio& audio, StrView path) {
+	audio = audio_new(path);
+	self.as_array.emplace_back(&audio);
+}
+
 void sounds_load(Sounds& self) {
-	self.bang = audio_new(ASSETS_DIR "/sound/bang.wav");
-	self.blast = audio_new(ASSETS_DIR "/sound/blast.wav");
-	self.blast2 = audio_new(ASSETS_DIR "/sound/blast2.wav");
-	self.bombsaway = audio_new(ASSETS_DIR "/sound/bombsaway.wav");
-	self.burner = audio_new(ASSETS_DIR "/sound/burner.wav");
-	self.damage = audio_new(ASSETS_DIR "/sound/damage.wav");
-	self.extendldg = audio_new(ASSETS_DIR "/sound/extendldg.wav");
-	self.gearhorn = audio_new(ASSETS_DIR "/sound/gearhorn.wav");
-	self.gun = audio_new(ASSETS_DIR "/sound/gun.wav");
-	self.hit = audio_new(ASSETS_DIR "/sound/hit.wav");
-	self.missile = audio_new(ASSETS_DIR "/sound/missile.wav");
-	self.notice = audio_new(ASSETS_DIR "/sound/notice.wav");
-	self.retractldg = audio_new(ASSETS_DIR "/sound/retractldg.wav");
-	self.rocket = audio_new(ASSETS_DIR "/sound/rocket.wav");
-	self.stallhorn = audio_new(ASSETS_DIR "/sound/stallhorn.wav");
-	self.touchdwn = audio_new(ASSETS_DIR "/sound/touchdwn.wav");
-	self.warning = audio_new(ASSETS_DIR "/sound/warning.wav");
-	self.engine = audio_new(ASSETS_DIR "/sound/engine.wav");
-	for (int i = 0; i < COUNT_OF(self.engines); i++) {
-		self.engines[i] = audio_new(str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i));
+	_sounds_load(self, self.bang,       ASSETS_DIR "/sound/bang.wav");
+	_sounds_load(self, self.blast,      ASSETS_DIR "/sound/blast.wav");
+	_sounds_load(self, self.blast2,     ASSETS_DIR "/sound/blast2.wav");
+	_sounds_load(self, self.bombsaway,  ASSETS_DIR "/sound/bombsaway.wav");
+	_sounds_load(self, self.burner,     ASSETS_DIR "/sound/burner.wav");
+	_sounds_load(self, self.damage,     ASSETS_DIR "/sound/damage.wav");
+	_sounds_load(self, self.extendldg,  ASSETS_DIR "/sound/extendldg.wav");
+	_sounds_load(self, self.gearhorn,   ASSETS_DIR "/sound/gearhorn.wav");
+	_sounds_load(self, self.gun,        ASSETS_DIR "/sound/gun.wav");
+	_sounds_load(self, self.hit,        ASSETS_DIR "/sound/hit.wav");
+	_sounds_load(self, self.missile,    ASSETS_DIR "/sound/missile.wav");
+	_sounds_load(self, self.notice,     ASSETS_DIR "/sound/notice.wav");
+	_sounds_load(self, self.retractldg, ASSETS_DIR "/sound/retractldg.wav");
+	_sounds_load(self, self.rocket,     ASSETS_DIR "/sound/rocket.wav");
+	_sounds_load(self, self.stallhorn,  ASSETS_DIR "/sound/stallhorn.wav");
+	_sounds_load(self, self.touchdwn,   ASSETS_DIR "/sound/touchdwn.wav");
+	_sounds_load(self, self.warning,    ASSETS_DIR "/sound/warning.wav");
+	_sounds_load(self, self.engine,     ASSETS_DIR "/sound/engine.wav");
+	for (int i = 0; i < self.engines.size(); i++) {
+		_sounds_load(self, self.engines[i], str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i));
 	}
-	for (int i = 0; i < COUNT_OF(self.engines); i++) {
-		self.props[i] = audio_new(str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
+	for (int i = 0; i < self.engines.size(); i++) {
+		_sounds_load(self, self.props[i], str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
 	}
 }
 
@@ -2342,8 +2347,7 @@ int main() {
 	defer(gpu_program_free(meshes_gpu_program));
 
 	// models
-	constexpr int NUM_MODELS = 1;
-	Model models[NUM_MODELS];
+	Arr<Model, 1> models;
 	for (auto& model : models) {
 		model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
 		model_load_to_gpu(model);
@@ -2365,7 +2369,7 @@ int main() {
 		.name="-NULL-"
 	});
 
-	for (int i = 0; i < NUM_MODELS; i++) {
+	for (int i = 0; i < models.size(); i++) {
 		model_set_start(models[i], start_infos[mod(i, start_infos.size())]);
 	}
 
@@ -2869,7 +2873,7 @@ int main() {
 			field = new_field;
 		}
 
-		for (int i = 0; i < NUM_MODELS; i++) {
+		for (int i = 0; i < models.size(); i++) {
 			if (models[i].should_select_file) {
 				models[i].should_select_file = false;
 
@@ -2896,7 +2900,7 @@ int main() {
 		// test intersection
 		struct Box { glm::vec3 translation, scale, color; };
 		Vec<Box> box_instances(memory::tmp());
-		for (int i = 0; i < NUM_MODELS-1; i++) {
+		for (int i = 0; i < models.size()-1; i++) {
 			if (models[i].current_state.visible == false) {
 				overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", i));
 				continue;
@@ -2904,7 +2908,7 @@ int main() {
 
 			glm::vec3 i_color {0, 0, 1};
 
-			for (int j = i+1; j < NUM_MODELS; j++) {
+			for (int j = i+1; j < models.size(); j++) {
 				if (models[j].current_state.visible == false) {
 					overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", j));
 					continue;
@@ -3093,7 +3097,7 @@ int main() {
 		Vec<ZLPoint> zlpoints(memory::tmp());
 
 		// render models
-		for (int i = 0; i < NUM_MODELS; i++) {
+		for (int i = 0; i < models.size(); i++) {
 			Model& model = models[i];
 			overlay_text.emplace_back(str_tmpf("models[{}]: '{}'", i, file_get_base_name(model.file_abs_path)));
 
@@ -3148,6 +3152,18 @@ int main() {
 				model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
 				if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 					model.control.afterburner_reheat_enabled = false;
+				}
+
+				{
+					int audio_index = model.control.throttle * (sounds.props.size()-1);
+					Audio* audio = &sounds.props[audio_index];
+					if (model.engine_sound != audio) {
+						if (model.engine_sound) {
+							audio_device_stop(audio_device, *model.engine_sound);
+						}
+						model.engine_sound = audio;
+						audio_device_play_looped(audio_device, *model.engine_sound);
+					}
 				}
 
 				model.current_state.translation += ((float)delta_time * model.current_state.speed) * model.current_state.front;
@@ -3432,14 +3448,14 @@ int main() {
 					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
 				} else if (camera.kind == Camera::Kind::TRACKING) {
 					int tracked_model_index = 0;
-					for (int i = 0; i < NUM_MODELS; i++) {
+					for (int i = 0; i < models.size(); i++) {
 						if (camera.model == &models[i]) {
 							tracked_model_index = i;
 							break;
 						}
 					}
 					if (ImGui::BeginCombo("Tracked Model", str_tmpf("Model[{}]", tracked_model_index).c_str())) {
-						for (size_t j = 0; j < NUM_MODELS; j++) {
+						for (size_t j = 0; j < models.size(); j++) {
 							if (ImGui::Selectable(str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
 								camera.model = &models[j];
 							}
@@ -3525,10 +3541,10 @@ int main() {
 			}
 
 			if (ImGui::TreeNode("Audio")) {
-				for (int i = 0; i < COUNT_OF(sounds.as_array); i++) {
+				for (int i = 0; i < sounds.as_array.size(); i++) {
 					ImGui::PushID(i);
 
-					const Audio& sound = sounds.as_array[i];
+					const Audio& sound = *sounds.as_array[i];
 
 					if (ImGui::Button("Play")) {
 						audio_device_play(audio_device, sound);
@@ -3555,7 +3571,7 @@ int main() {
 				ImGui::TreePop();
 			}
 
-			for (int i = 0; i < NUM_MODELS; i++) {
+			for (int i = 0; i < models.size(); i++) {
 				Model& model = models[i];
 				if (ImGui::TreeNode(str_tmpf("Model {}", i).c_str())) {
 					models[i].should_select_file = ImGui::Button("Load DNM");
@@ -3876,12 +3892,12 @@ int main() {
 }
 /*
 TODO:
+- detect if aircraft has propoller or engine
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
 - f10 has one beacon on right but not on left
 - uh60.dnm/tu160.dnm rotors/wings are messed up
-- tu160.dnm direction of movement is wrong
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
