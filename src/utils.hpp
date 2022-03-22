@@ -304,7 +304,7 @@ inline static StrView
 file_get_base_name(StrView path) {
 	int i = path.size()-1;
 	while (i >= 0) {
-		if (i == '/' || i == '\\') {
+		if (path[i] == '/' || path[i] == '\\') {
 			break;
 		}
 		i--;

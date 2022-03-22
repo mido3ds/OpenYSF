@@ -471,6 +471,8 @@ struct Model {
 	} anti_coll_lights;
 
 	Audio* engine_sound;
+	bool has_propellers;
+	bool has_afterburner;
 };
 
 void model_load_to_gpu(Model& self) {
@@ -765,6 +767,13 @@ _str_unquote(Str& s) {
 
 Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	auto parser = parser_from_file(dnm_file_abs_path, memory::tmp());
+	Model model {
+		.file_abs_path = Str(dnm_file_abs_path),
+		.initial_aabb = AABB {
+			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
+			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
+		},
+	};
 
 	parser_expect(parser, "DYNAMODEL\nDNMVER ");
 	const uint8_t dnm_version = parser_token_u8(parser);
@@ -815,6 +824,11 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		parser_expect(parser, "CLA ");
 		auto animation_type = parser_token_u8(parser);
 		surf->second.animation_type = (AnimationClass) animation_type;
+		if (surf->second.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+			model.has_propellers = true;
+		} else if (surf->second.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
+			model.has_afterburner = true;
+		}
 		parser_expect(parser, '\n');
 
 		parser_expect(parser, "NST ");
@@ -957,14 +971,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		}
 	}
 
-	auto model = Model {
-		.file_abs_path = Str(dnm_file_abs_path),
-		.meshes = meshes,
-		.initial_aabb = AABB {
-			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
-			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
-		},
-	};
+	model.meshes = meshes;
 
 	// top level nodes = nodes without parents
 	Set<StrView> surfs_with_parents(memory::tmp());
@@ -2889,6 +2896,9 @@ int main() {
 				auto model = model_from_dnm_file(models[i].file_abs_path);
 				model_load_to_gpu(model);
 
+				if (models[i].engine_sound) {
+					audio_device_stop(audio_device, *models[i].engine_sound);
+				}
 				model_unload_from_gpu(models[i]);
 				models[i] = model;
 
@@ -3156,7 +3166,16 @@ int main() {
 
 				{
 					int audio_index = model.control.throttle * (sounds.props.size()-1);
-					Audio* audio = &sounds.props[audio_index];
+
+					Audio* audio;
+					if (model.has_propellers) {
+						audio = &sounds.props[audio_index];
+					} else if (model.control.afterburner_reheat_enabled && model.has_afterburner) {
+						audio = &sounds.burner;
+					} else {
+						audio = &sounds.engines[audio_index];
+					}
+
 					if (model.engine_sound != audio) {
 						if (model.engine_sound) {
 							audio_device_stop(audio_device, *model.engine_sound);
@@ -3892,7 +3911,6 @@ int main() {
 }
 /*
 TODO:
-- detect if aircraft has propoller or engine
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
