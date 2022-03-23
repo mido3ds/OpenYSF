@@ -3274,7 +3274,7 @@ int main() {
 						mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
 						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
 						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
+						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
 
 						if (mesh->render_pos_axis) {
 							axis_instances.push_back(mesh->transformation);
@@ -3914,8 +3914,8 @@ TODO:
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
-- f10 has one beacon on right but not on left
-- uh60.dnm/tu160.dnm rotors/wings are messed up
+- f1(?) has one beacon on right but not on left
+- concorde.dnm crashes on loading
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
