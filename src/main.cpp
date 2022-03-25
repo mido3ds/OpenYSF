@@ -680,7 +680,6 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		mesh.faces.push_back(face);
 	}
 
-	size_t zl_count = 0;
 	size_t zz_count = 0;
 	while (true) {
 		if (parser_accept(parser, '\n')) {
@@ -709,13 +708,6 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			}
 			parser_expect(parser, '\n');
 		} else if (parser_accept(parser, "ZL")) { // [ZL< {u64}>+\n]
-			zl_count++;
-			if (dnm_version == 1) {
-				if (zl_count > 1) {
-					panic("'{}': found {} > 1 ZLs", name, zl_count);
-				}
-			}
-
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
@@ -3915,7 +3907,8 @@ TODO:
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r propoller doesn't rotate
 - f1(?) has one beacon on right but not on left
-- concorde.dnm crashes on loading
+- concorde.dnm loading is slow
+- concorde.dnm has flickering triangles
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
