@@ -455,10 +455,9 @@ struct Model {
 
 	struct {
 		glm::vec3 translation;
-		glm::vec3 rotation; // roll, pitch, yaw
+		LocalEulerAngles angles;
 		bool visible = true;
 		float speed;
-		glm::vec3 up {0, -1, 0}, front {0, 0, 1};
 	} current_state;
 
 	struct {
@@ -492,41 +491,10 @@ void model_unload_from_gpu(Model& self) {
 
 void model_set_start(Model& self, StartInfo& start_info) {
 	self.current_state.translation = start_info.position;
-	self.current_state.rotation = start_info.attitude;
+	self.current_state.angles = LocalEulerAngles::from_attitude(start_info.attitude);
 	self.control.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.control.throttle = start_info.throttle;
 	self.current_state.speed = start_info.speed;
-}
-
-void model_rotate(Model& self, glm::vec3 delta_rotation) {
-	auto right = glm::cross(self.current_state.up, self.current_state.front);
-
-	const glm::mat3 yaw = glm::rotate(delta_rotation.z, self.current_state.up);
-	right = yaw * right;
-	const glm::mat3 pitch = glm::rotate(delta_rotation.y, right);
-	self.current_state.front = pitch * yaw * self.current_state.front;
-	const glm::mat3 roll = glm::rotate(delta_rotation.x, self.current_state.front);
-	right = roll * right;
-	self.current_state.up = glm::cross(self.current_state.front, right);
-
-	self.current_state.front = glm::normalize(self.current_state.front);
-	self.current_state.up = glm::normalize(self.current_state.up);
-
-	self.current_state.rotation += delta_rotation;
-}
-
-glm::mat4 model_calc_trans(const Model& self) {
-	const auto right = glm::cross(self.current_state.up, self.current_state.front);
-	const auto& up = self.current_state.up;
-	const auto& front = self.current_state.front;
-	const auto& pos = self.current_state.translation;
-
-	return glm::mat4(
-		-right.x, -right.y, -right.z, 0.0f,
-		-up.x,    -up.y,    -up.z,    0.0f,
-		+front.x, +front.y, +front.z, 0.0f,
-		pos.x,     pos.y,    pos.z,   1.0f
-	);
 }
 
 Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
@@ -1124,7 +1092,7 @@ void camera_update(Camera& self, float delta_time) {
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
 		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
 
-		auto model_transformation = model_calc_trans(*self.model);
+		auto model_transformation = self.model->current_state.angles.matrix(self.model->current_state.translation);
 
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
@@ -1138,7 +1106,7 @@ glm::mat4 camera_calc_view(const Camera& self) {
 	if (self.kind == Camera::Kind::FLY) {
 		return glm::lookAt(self.position, self.position + self.front, self.up);
 	} else if (self.kind == Camera::Kind::TRACKING) {
-		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.up);
+		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.angles.up);
 	}
 
 	unreachable();
@@ -2374,7 +2342,7 @@ int main() {
 	});
 
 	for (int i = 0; i < models.size(); i++) {
-		model_set_start(models[i], start_infos[mod(i, start_infos.size())]);
+		model_set_start(models[i], start_infos[mod(i+1, start_infos.size())]);
 	}
 
 	Camera camera {
@@ -3116,30 +3084,30 @@ int main() {
 
 			if (model.current_state.visible) {
 				// apply model transformation
-				const auto model_transformation = model_calc_trans(model);
+				const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
 
-				glm::vec3 delta_rotation {};
+				float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 				const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
 				constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
 				if (key_pressed[SDL_SCANCODE_DOWN]) {
-					delta_rotation.y -= ROTATE_SPEED * delta_time;
+					delta_pitch -= ROTATE_SPEED * delta_time;
 				}
 				if (key_pressed[SDL_SCANCODE_UP]) {
-					delta_rotation.y += ROTATE_SPEED * delta_time;
+					delta_pitch += ROTATE_SPEED * delta_time;
 				}
 				if (key_pressed[SDL_SCANCODE_LEFT]) {
-					delta_rotation.x -= ROTATE_SPEED * delta_time;
+					delta_roll -= ROTATE_SPEED * delta_time;
 				}
 				if (key_pressed[SDL_SCANCODE_RIGHT]) {
-					delta_rotation.x += ROTATE_SPEED * delta_time;
+					delta_roll += ROTATE_SPEED * delta_time;
 				}
 				if (key_pressed[SDL_SCANCODE_C]) {
-					delta_rotation.z -= ROTATE_SPEED * delta_time;
+					delta_yaw -= ROTATE_SPEED * delta_time;
 				}
 				if (key_pressed[SDL_SCANCODE_Z]) {
-					delta_rotation.z += ROTATE_SPEED * delta_time;
+					delta_yaw += ROTATE_SPEED * delta_time;
 				}
-				model_rotate(model, delta_rotation);
+				model.current_state.angles.rotate(delta_yaw, delta_pitch, delta_roll);
 
 				if (pressed_tab) {
 					model.control.afterburner_reheat_enabled = ! model.control.afterburner_reheat_enabled;
@@ -3182,7 +3150,7 @@ int main() {
 					}
 				}
 
-				model.current_state.translation += ((float)delta_time * model.current_state.speed) * model.current_state.front;
+				model.current_state.translation += ((float)delta_time * model.current_state.speed) * model.current_state.angles.front;
 
 				// transform AABB (estimate new AABB after rotation)
 				{
@@ -3621,16 +3589,24 @@ int main() {
 					ImGui::Checkbox("visible", &model.current_state.visible);
 					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
 
-					auto now_rotation = model.current_state.rotation;
+					glm::vec3 now_rotation {
+						model.current_state.angles.roll,
+						model.current_state.angles.pitch,
+						model.current_state.angles.yaw,
+					};
 					if (MyImGui::SliderAngle3("rotation", &now_rotation, current_angle_max)) {
-						model_rotate(model, now_rotation - model.current_state.rotation);
+						model.current_state.angles.rotate(
+							now_rotation.z - model.current_state.angles.yaw,
+							now_rotation.y - model.current_state.angles.pitch,
+							now_rotation.x - model.current_state.angles.roll
+						);
 					}
 
 					ImGui::BeginDisabled();
-					auto x = glm::cross(model.current_state.up, model.current_state.front);
+					auto x = glm::cross(model.current_state.angles.up, model.current_state.angles.front);
 					ImGui::DragFloat3("right", glm::value_ptr(x));
-					ImGui::DragFloat3("up", glm::value_ptr(model.current_state.up));
-					ImGui::DragFloat3("front", glm::value_ptr(model.current_state.front));
+					ImGui::DragFloat3("up", glm::value_ptr(model.current_state.angles.up));
+					ImGui::DragFloat3("front", glm::value_ptr(model.current_state.angles.front));
 					ImGui::EndDisabled();
 
 					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
