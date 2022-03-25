@@ -78,6 +78,7 @@ enum class AnimationClass {
 	AIRCRAFT_TURRET_OBJECTS = 21,
 	AIRCRAFT_ROTATING_WHEELS = 22,
 	AIRCRAFT_STEERING = 23,
+	AIRCRAFT_SPINNER_PROPELLER_Z = 24, // rotates around Z instead of X (cessna172r.dnm)
 	AIRCRAFT_NAV_LIGHTS = 30,
 	AIRCRAFT_ANTI_COLLISION_LIGHTS = 31,
 	AIRCRAFT_STROBE_LIGHTS = 32,
@@ -153,6 +154,7 @@ namespace fmt {
 			case AnimationClass::AIRCRAFT_HIGH_THROTTLE: s = "AIRCRAFT_HIGH_THROTTLE"; break;
 			case AnimationClass::AIRCRAFT_TURRET_OBJECTS: s = "AIRCRAFT_TURRET_OBJECTS"; break;
 			case AnimationClass::AIRCRAFT_ROTATING_WHEELS: s = "AIRCRAFT_ROTATING_WHEELS"; break;
+			case AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z: s = "AIRCRAFT_SPINNER_PROPELLER_Z"; break;
 			case AnimationClass::AIRCRAFT_STEERING: s = "AIRCRAFT_STEERING"; break;
 			case AnimationClass::AIRCRAFT_NAV_LIGHTS: s = "AIRCRAFT_NAV_LIGHTS"; break;
 			case AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS: s = "AIRCRAFT_ANTI_COLLISION_LIGHTS"; break;
@@ -165,9 +167,9 @@ namespace fmt {
 			case AnimationClass::PLAYER_GROUND_REAR_DOOR: s = "PLAYER_GROUND_REAR_DOOR"; break;
 			case AnimationClass::PLAYER_GROUND_CARGO_DOOR: s = "PLAYER_GROUND_CARGO_DOOR"; break;
 
-			case AnimationClass::UNKNOWN: s = "UNKNOWN"; break;
-
-			default: unreachable();
+			case AnimationClass::UNKNOWN:
+			default:
+				s = str_tmpf("UNKNOWN({})", (int)c); break;
 			}
 			return format_to(ctx.out(), "AnimationClass::{}", s);
 		}
@@ -473,6 +475,7 @@ struct Model {
 	Audio* engine_sound;
 	bool has_propellers;
 	bool has_afterburner;
+	bool has_high_throttle_mesh;
 };
 
 void model_load_to_gpu(Model& self) {
@@ -816,10 +819,12 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		parser_expect(parser, "CLA ");
 		auto animation_type = parser_token_u8(parser);
 		surf->second.animation_type = (AnimationClass) animation_type;
-		if (surf->second.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+		if (surf->second.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER || surf->second.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
 			model.has_propellers = true;
 		} else if (surf->second.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
 			model.has_afterburner = true;
+		} else if (surf->second.animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE) {
+			model.has_high_throttle_mesh = true;
 		}
 		parser_expect(parser, '\n');
 
@@ -3225,6 +3230,9 @@ int main() {
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
 						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
 					}
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
+						mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
+					}
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
 						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
@@ -3243,7 +3251,7 @@ int main() {
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
 						continue;
 					}
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle) {
+					if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && model.has_high_throttle_mesh) {
 						continue;
 					}
 
@@ -3482,8 +3490,8 @@ int main() {
 					unreachable();
 				}
 
-				ImGui::SliderAngle("yaw", &camera.yaw);
-				ImGui::SliderAngle("pitch", &camera.pitch, -89, 89);
+				ImGui::SliderAngle("yaw", &camera.yaw, -89, 89);
+				ImGui::SliderAngle("pitch", &camera.pitch, -179, 179);
 
 				ImGui::DragFloat3("position", glm::value_ptr(camera.position), 1, -100, 100);
 
@@ -3903,9 +3911,22 @@ int main() {
 }
 /*
 TODO:
+- render text
+- render aircraft vectors:
+	- weight
+	- air lift
+	- prop/engine power dir
+	- total power
+	- velocity
+	- render names of each line
+- drop down menu of aircrafts
+- struct Model -> struct Aircraft
+- parse list of aircrafts
+- parse .dat files
+- calculate camera distance based on model size
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
-- cessna172r propoller doesn't rotate
+- cessna172r has a hidden beacon
 - f1(?) has one beacon on right but not on left
 - concorde.dnm loading is slow
 - concorde.dnm has flickering triangles
