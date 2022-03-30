@@ -263,9 +263,6 @@ struct Mesh {
 	Vec<Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
 	Vec<MeshState> animation_states; // STA
 
-	// POS
-	MeshState initial_state; // should be kepts const after init
-
 	struct {
 		GLuint vao, vbo;
 		size_t array_count;
@@ -273,7 +270,12 @@ struct Mesh {
 
 	// physics
 	glm::mat4 transformation;
-	MeshState current_state;
+	struct {
+		glm::vec3 translation;
+		LocalEulerAngles angles;
+		bool visible = true;
+	} current_state, initial_state;
+	// initial_state is POS, should be kepts const after init
 
 	bool render_pos_axis;
 	bool render_cnt_axis;
@@ -844,11 +846,13 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 				parser_expect(parser, ' ');
 
 				// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-				surf->second.initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				glm::vec3 attitude {};
+				attitude.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 				parser_expect(parser, ' ');
-				surf->second.initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				attitude.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 				parser_expect(parser, ' ');
-				surf->second.initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				attitude.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf->second.initial_state.angles = LocalEulerAngles::from_attitude(attitude);
 
 				// aircraft/cessna172r.dnm is the only file with no visibility
 				if (parser_accept(parser, ' ')) {
@@ -966,10 +970,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 			v -= mesh->cnt;
 
 			// apply mesh transformation to get model space vertex
-			mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
+			mesh->transformation *= mesh->current_state.angles.matrix(mesh->current_state.translation);
 			const auto model_v = mesh->transformation * glm::vec4(v, 1.0);
 
 			// update AABB
@@ -2032,13 +2033,14 @@ Field _field_from_fld_str(Parser& parser) {
 			mesh->initial_state.translation.z = parser_token_float(parser);
 			parser_expect(parser, ' ');
 
-			mesh->initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			glm::vec3 attitude {};
+			attitude.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, ' ');
-			mesh->initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			attitude.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, ' ');
-			mesh->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			attitude.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, '\n');
-			mesh->initial_state.visible = true;
+			mesh->initial_state.angles = LocalEulerAngles::from_attitude(attitude);
 			mesh->current_state = mesh->initial_state;
 
 			parser_expect(parser, "ID ");
@@ -2961,11 +2963,7 @@ int main() {
 				}
 
 				// apply mesh transformation
-				mesh.transformation = fld->transformation;
-				mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+				mesh.transformation = fld->transformation * mesh.current_state.angles.matrix(mesh.current_state.translation);
 
 				if (mesh.render_pos_axis) {
 					axis_instances.push_back(mesh.transformation);
@@ -3196,10 +3194,10 @@ int main() {
 					meshes_stack.pop_back();
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
+						mesh->current_state.angles.rotate(model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED, 0, 0);
 					}
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-						mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
+						mesh->current_state.angles.rotate(0, 0, model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED);
 					}
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
@@ -3209,7 +3207,7 @@ int main() {
 						const auto& alpha = model.control.landing_gear_alpha;
 
 						mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
-						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
+						// mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
 
 						float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
 						mesh->current_state.visible = visibilty > 0.05;;
@@ -3239,10 +3237,7 @@ int main() {
 						}
 
 						// apply mesh transformation
-						mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
+						mesh->transformation *= mesh->current_state.angles.matrix(mesh->current_state.translation);
 
 						if (mesh->render_pos_axis) {
 							axis_instances.push_back(mesh->transformation);
@@ -3656,7 +3651,19 @@ int main() {
 							ImGui::EndDisabled();
 
 							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
-							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, current_angle_max);
+
+							glm::vec3 now_rotation {
+								mesh.current_state.angles.roll,
+								mesh.current_state.angles.pitch,
+								mesh.current_state.angles.yaw,
+							};
+							if (MyImGui::SliderAngle3("rotation", &now_rotation, current_angle_max)) {
+								mesh.current_state.angles.rotate(
+									now_rotation.z - mesh.current_state.angles.yaw,
+									now_rotation.y - mesh.current_state.angles.pitch,
+									now_rotation.x - mesh.current_state.angles.roll
+								);
+							}
 
 							ImGui::Text(str_tmpf("{}", mesh.animation_type).c_str());
 
