@@ -80,7 +80,7 @@ namespace memory {
 
 template<class T>
 inline static void
-vec_remove_unordered(typename Vec<T>& v, int i) {
+vec_remove_unordered(Vec<T>& v, int i) {
     auto last = v.rbegin();
     if (i != v.size()-1) {
         v[i] = std::move(*last);

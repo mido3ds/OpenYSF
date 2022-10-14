@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
-project(OpenYSF VERSION 0.1.0 LANGUAGES CXX)
+project(OpenYSF VERSION 0.1.0 LANGUAGES CXX C)
+
+option(OPENYSF_PEDANTIC_BUILD "Enable pedantic warnings during build" OFF)
+
+if (CMAKE_BUILD_TYPE STREQUAL "")
+	set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+if (CPM_SOURCE_CACHE STREQUAL "")
+	message(WARNING "CPM_SOURCE_CACHE is empty, this will download locally all packages")
+endif()
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
@@ -17,24 +27,25 @@ include(CPM)
 CPMAddPackage(
 	NAME             fmt
 	GIT_REPOSITORY   https://github.com/fmtlib/fmt.git
-	GIT_TAG          8.0.1
+	GIT_TAG          8.1.1
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
 	NAME             SDL2
 	GIT_REPOSITORY   https://github.com/libsdl-org/SDL.git
-	GIT_TAG          release-2.0.16
+	GIT_TAG          release-2.24.1
 	GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
 	NAME             SDL_image
 	GIT_REPOSITORY   https://github.com/libsdl-org/SDL_image.git
-	GIT_TAG          fc370dc71d7726023c063618c7b04c1ed30637e2
+	GIT_TAG          release-2.6.2
 	GIT_SHALLOW      TRUE
 	OPTIONS
 		"SUPPORT_PNG ON"
 		"SUPPORT_JPG OFF"
 		"SUPPORT_WEBP OFF"
+		"SDL2IMAGE_INSTALL OFF"
 )
 CPMAddPackage(
 	NAME             glm
@@ -95,13 +106,14 @@ target_link_libraries(open-ysf
 	PRIVATE
 		fmt::fmt
 		SDL2::SDL2
-		SDL2::image
+		SDL2_image::SDL2_image
 		OpenGL::GL
 		glm
 		_glad
 		_imgui
 		portable_file_dialogs
 		$<$<PLATFORM_ID:Windows>:dbghelp>
+		${CMAKE_DL_LIBS}
 )
 
 set_property(TARGET open-ysf
@@ -125,8 +137,10 @@ target_compile_definitions(open-ysf
 		$<$<CONFIG:DEBUG>:DEBUG>
 )
 
-target_compile_options(open-ysf
-	PRIVATE
-		$<$<CXX_COMPILER_ID:MSVC>:/W4 /NODEFAULTLIB:library>
-		$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Wno-nested-anon-types>
-)
+if (${OPENYSF_PEDANTIC_BUILD})
+	target_compile_options(open-ysf
+		PRIVATE
+			$<$<CXX_COMPILER_ID:MSVC>:/W4 /NODEFAULTLIB:library>
+			$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Wno-nested-anon-types>
+	)
+endif()
