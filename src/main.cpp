@@ -28,8 +28,10 @@ constexpr int  GL_CONTEXT_MAJOR = 3;
 constexpr int  GL_CONTEXT_MINOR = 3;
 constexpr auto GL_DOUBLE_BUFFER = SDL_TRUE;
 
-constexpr float PROPOLLER_MAX_ANGLE_SPEED = 5.0f / DEGREES_MAX * RADIANS_MAX;
+constexpr float PROPOLLER_MAX_ANGLE_SPEED = 10 * RADIANS_MAX;
 constexpr float AFTERBURNER_THROTTLE_THRESHOLD = 0.80f;
+
+constexpr float THROTTLE_SPEED = 0.4f;
 
 constexpr float MIN_SPEED = 0.0f;
 constexpr float MAX_SPEED = 50.0f;
@@ -3117,10 +3119,10 @@ int main() {
 				}
 
 				if (key_pressed[SDL_SCANCODE_Q]) {
-					model.control.throttle += 0.1f * delta_time;
+					model.control.throttle += THROTTLE_SPEED * delta_time;
 				}
 				if (key_pressed[SDL_SCANCODE_A]) {
-					model.control.throttle -= 0.1f * delta_time;
+					model.control.throttle -= THROTTLE_SPEED * delta_time;
 				}
 
 				model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
@@ -3196,10 +3198,10 @@ int main() {
 					meshes_stack.pop_back();
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
+						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * delta_time;
 					}
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-						mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED;
+						mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * delta_time;
 					}
 
 					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
@@ -3887,8 +3889,6 @@ int main() {
 }
 /*
 TODO:
-- bug: slow propollers
-- bug: slow increment in throttling
 - render text
 - render aircraft vectors:
 	- weight
