@@ -35,6 +35,8 @@ CPMAddPackage(
 	GIT_REPOSITORY   https://github.com/libsdl-org/SDL.git
 	GIT_TAG          release-2.24.1
 	GIT_SHALLOW      TRUE
+	OPTIONS
+		"SDL_WAYLAND OFF"
 )
 CPMAddPackage(
 	NAME             SDL_image

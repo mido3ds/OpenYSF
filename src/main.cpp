@@ -3887,6 +3887,8 @@ int main() {
 }
 /*
 TODO:
+- bug: slow propollers
+- bug: slow increment in throttling
 - render text
 - render aircraft vectors:
 	- weight

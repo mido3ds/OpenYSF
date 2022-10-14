@@ -13,6 +13,8 @@ OpenYSF uses assets from the original game.
 # Build Dependencies
 - cmake 3.21.0
 - C/C++ compiler (MSVC/Clang/GCC)
+- OpenGL
+- (Linux) Zenity
 
 ```sh
 cmake -S. -Bbuild
