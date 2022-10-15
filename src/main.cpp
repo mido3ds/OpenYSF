@@ -2358,10 +2358,11 @@ int main() {
 	defer(gpu_program_free(meshes_gpu_program));
 
 	// models
-	Arr<Model, 1> models;
-	for (auto& model : models) {
-		model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
+	Vec<Model> models;
+	{
+		auto model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
 		model_load_to_gpu(model);
+		models.push_back(model);
 	}
 	defer({
 		for (auto& model : models) {
@@ -3591,6 +3592,28 @@ int main() {
 			ImGui::Separator();
 			ImGui::Text(str_tmpf("Aircrafts {}:", models.size()).c_str());
 
+			{
+				const bool should_add_aircraft = ImGui::Button("Add");
+				static size_t aircraft_to_add = 0;
+				ImGui::SameLine();
+				if (ImGui::BeginCombo("##new_aircraft", aircrafts[aircraft_to_add].short_name.c_str())) {
+					for (size_t j = 0; j < aircrafts.size(); j++) {
+						if (ImGui::Selectable(aircrafts[j].short_name.c_str(), j == aircraft_to_add)) {
+							aircraft_to_add = j;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				if (should_add_aircraft) {
+					models.push_back(Model { 
+						.file_abs_path = aircrafts[aircraft_to_add].dnm, 
+						.should_load_file = true, 
+					});
+				}
+			}
+
 			for (int i = 0; i < models.size(); i++) {
 				Model& model = models[i];
 
@@ -3950,7 +3973,9 @@ TODO:
 	- total power
 	- velocity
 	- render names of each line
-- add aircrafts while running
+- remove aircraft while running
+- bug: camera changes to weird angle when add a new aircraft
+- only control the tracked aircraft
 - struct Model -> struct Aircraft
 - parse .dat files
 - calculate camera distance based on model size
