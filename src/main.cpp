@@ -445,7 +445,6 @@ Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	Str file_abs_path;
-	bool should_select_file;
 	bool should_load_file;
 
 	Map<Str, Mesh> meshes;
@@ -2206,6 +2205,44 @@ int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
+	struct AircraftFiles {
+		Str short_name; // a4.dat -> a4
+		Str dat, dnm, collision, cockpit;
+		Str coarse; // optional
+	};
+	Vec<AircraftFiles> aircrafts {};
+	{
+		auto parser = parser_from_file(ASSETS_DIR "/aircraft/aircraft.lst");
+
+		while (!parser_finished(parser)) {
+			AircraftFiles aircraft {};
+
+			aircraft.dat = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			parser_expect(parser, ' ');
+
+			aircraft.dnm = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			parser_expect(parser, ' ');
+
+			aircraft.collision = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			parser_expect(parser, ' ');
+
+			aircraft.cockpit = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+
+			if (parser_accept(parser, ' ')) {
+				aircraft.coarse = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			}
+			parser_expect(parser, '\n');
+
+			while (parser_accept(parser, '\n')) { }
+
+			auto i = aircraft.dat.find_last_of('/') + 1;
+			auto j = aircraft.dat.size() - 4;
+			aircraft.short_name = aircraft.dat.substr(i, j-i);
+
+			aircrafts.push_back(aircraft);
+		}
+	}
+
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
 		panic(SDL_GetError());
@@ -2848,17 +2885,6 @@ int main() {
 		}
 
 		for (int i = 0; i < models.size(); i++) {
-			if (models[i].should_select_file) {
-				models[i].should_select_file = false;
-
-				auto result = pfd::open_file("Select DNM", "", {"DNM Files", "*.dnm", "All Files", "*"}).result();
-				if (result.size() == 1) {
-					models[i].file_abs_path = result[0];
-					log_debug("loading '{}'", models[i].file_abs_path);
-					models[i].should_load_file = true;
-				}
-			}
-
 			if (models[i].should_load_file) {
 				auto model = model_from_dnm_file(models[i].file_abs_path);
 				model_load_to_gpu(model);
@@ -2867,6 +2893,9 @@ int main() {
 					audio_device_stop(audio_device, *models[i].engine_sound);
 				}
 				model_unload_from_gpu(models[i]);
+
+				model.control = models[i].control;
+				model.current_state = models[i].current_state;
 				models[i] = model;
 
 				log_debug("loaded '{}'", models[i].file_abs_path);
@@ -3076,7 +3105,6 @@ int main() {
 		// render models
 		for (int i = 0; i < models.size(); i++) {
 			Model& model = models[i];
-			overlay_text.emplace_back(str_tmpf("models[{}]: '{}'", i, file_get_base_name(model.file_abs_path)));
 
 			model.anti_coll_lights.time_left_secs -= delta_time;
 			if (model.anti_coll_lights.time_left_secs < 0) {
@@ -3560,11 +3588,34 @@ int main() {
 				ImGui::TreePop();
 			}
 
+			ImGui::Separator();
+			ImGui::Text(str_tmpf("Aircrafts {}:", models.size()).c_str());
+
 			for (int i = 0; i < models.size(); i++) {
 				Model& model = models[i];
-				if (ImGui::TreeNode(str_tmpf("Model {}", i).c_str())) {
-					models[i].should_select_file = ImGui::Button("Load DNM");
+
+				AircraftFiles* aircraft = nullptr;
+				for (auto& a : aircrafts) {
+					if (a.dnm == model.file_abs_path) {
+						aircraft = &a;
+						break;
+					}
+				}
+				my_assert(aircraft);
+
+				if (ImGui::TreeNode(str_tmpf("[{}] {}", i, aircraft->short_name).c_str())) {
 					models[i].should_load_file = ImGui::Button("Reload");
+					ImGui::SameLine();
+					if (ImGui::BeginCombo("DNM", Str(file_get_base_name(models[i].file_abs_path), memory::tmp()).c_str())) {
+						for (size_t j = 0; j < aircrafts.size(); j++) {
+							if (ImGui::Selectable(aircrafts[j].short_name.c_str(), aircrafts[j].dnm == models[i].file_abs_path)) {
+								models[i].file_abs_path = aircrafts[j].dnm;
+								models[i].should_load_file = true;
+							}
+						}
+
+						ImGui::EndCombo();
+					}
 
 					if (ImGui::Button("Reset State")) {
 						model.current_state = {};
@@ -3703,6 +3754,8 @@ int main() {
 					ImGui::TreePop();
 				}
 			}
+
+			ImGui::Separator();
 
 			std::function<void(Field&,bool)> render_field_imgui;
 			render_field_imgui = [&render_field_imgui, &current_angle_max](Field& field, bool is_root) {
@@ -3897,9 +3950,8 @@ TODO:
 	- total power
 	- velocity
 	- render names of each line
-- drop down menu of aircrafts
+- add aircrafts while running
 - struct Model -> struct Aircraft
-- parse list of aircrafts
 - parse .dat files
 - calculate camera distance based on model size
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
