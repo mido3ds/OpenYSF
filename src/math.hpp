@@ -24,7 +24,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const glm::uvec2 &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "glm::uvec2{{{}, {}}}", v.x, v.y);
+			return fmt::format_to(ctx.out(), "glm::uvec2{{{}, {}}}", v.x, v.y);
 		}
 	};
 }
@@ -37,7 +37,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const glm::vec2 &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "glm::vec2{{{}, {}}}", v.x, v.y);
+			return fmt::format_to(ctx.out(), "glm::vec2{{{}, {}}}", v.x, v.y);
 		}
 	};
 }
@@ -50,7 +50,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const glm::vec3 &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "glm::vec3{{{}, {}, {}}}", v.x, v.y, v.z);
+			return fmt::format_to(ctx.out(), "glm::vec3{{{}, {}, {}}}", v.x, v.y, v.z);
 		}
 	};
 }
@@ -63,7 +63,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const glm::vec4 &v, FormatContext &ctx) {
-			return format_to(ctx.out(), "glm::vec4{{{}, {}, {}, {}}}", v.x, v.y, v.z, v.w);
+			return fmt::format_to(ctx.out(), "glm::vec4{{{}, {}, {}, {}}}", v.x, v.y, v.z, v.w);
 		}
 	};
 }
@@ -76,7 +76,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const glm::mat3 &m, FormatContext &ctx) {
-			return format_to(
+			return fmt::format_to(
 				ctx.out(),
 				"glm::mat3{{\n"
 				" {} {} {}\n"
@@ -99,7 +99,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const glm::mat4 &m, FormatContext &ctx) {
-			return format_to(
+			return fmt::format_to(
 				ctx.out(),
 				"glm::mat4{{\n"
 				" {} {} {} {}\n"
@@ -147,7 +147,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const AABB &s, FormatContext &ctx) {
-			return format_to(ctx.out(), "AABB{{max: {}, min: {}}}", s.min, s.max);
+			return fmt::format_to(ctx.out(), "AABB{{max: {}, min: {}}}", s.min, s.max);
 		}
 	};
 }

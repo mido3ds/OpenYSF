@@ -156,11 +156,11 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const Vec<T> &self, FormatContext &ctx) {
-			format_to(ctx.out(), "Vec[{}]{{", self.size());
+			fmt::format_to(ctx.out(), "Vec[{}]{{", self.size());
 			for (int i = 0; i < self.size(); i++) {
-				format_to(ctx.out(), "[{}]={}{}", i, self[i], (i == self.size()-1? "":", "));
+				fmt::format_to(ctx.out(), "[{}]={}{}", i, self[i], (i == self.size()-1? "":", "));
 			}
-			return format_to(ctx.out(), "}}");
+			return fmt::format_to(ctx.out(), "}}");
 		}
 	};
 }

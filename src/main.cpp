@@ -173,7 +173,7 @@ namespace fmt {
 			default:
 				s = str_tmpf("UNKNOWN({})", (int)c); break;
 			}
-			return format_to(ctx.out(), "AnimationClass::{}", s);
+			return fmt::format_to(ctx.out(), "AnimationClass::{}", s);
 		}
 	};
 }
@@ -217,17 +217,17 @@ namespace fmt {
 		template <typename FormatContext>
 		auto format(const FieldID &v, FormatContext &ctx) {
 			switch (v) {
-			case FieldID::NONE:                    return format_to(ctx.out(), "FieldID::NONE");
-			case FieldID::RUNWAY:                  return format_to(ctx.out(), "FieldID::RUNWAY");
-			case FieldID::TAXIWAY:                 return format_to(ctx.out(), "FieldID::TAXIWAY");
-			case FieldID::AIRPORT_AREA:            return format_to(ctx.out(), "FieldID::AIRPORT_AREA");
-			case FieldID::ENEMY_TANK_GENERATOR:    return format_to(ctx.out(), "FieldID::ENEMY_TANK_GENERATOR");
-			case FieldID::FRIENDLY_TANK_GENERATOR: return format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
-			case FieldID::TOWER:                   return format_to(ctx.out(), "FieldID::TOWER");
-			case FieldID::VIEW_POINT:              return format_to(ctx.out(), "FieldID::VIEW_POINT");
+			case FieldID::NONE:                    return fmt::format_to(ctx.out(), "FieldID::NONE");
+			case FieldID::RUNWAY:                  return fmt::format_to(ctx.out(), "FieldID::RUNWAY");
+			case FieldID::TAXIWAY:                 return fmt::format_to(ctx.out(), "FieldID::TAXIWAY");
+			case FieldID::AIRPORT_AREA:            return fmt::format_to(ctx.out(), "FieldID::AIRPORT_AREA");
+			case FieldID::ENEMY_TANK_GENERATOR:    return fmt::format_to(ctx.out(), "FieldID::ENEMY_TANK_GENERATOR");
+			case FieldID::FRIENDLY_TANK_GENERATOR: return fmt::format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
+			case FieldID::TOWER:                   return fmt::format_to(ctx.out(), "FieldID::TOWER");
+			case FieldID::VIEW_POINT:              return fmt::format_to(ctx.out(), "FieldID::VIEW_POINT");
 			default: log_error("found unknown ID = {}", (int) v);
 			}
-			return format_to(ctx.out(), "FieldID::????");
+			return fmt::format_to(ctx.out(), "FieldID::????");
 		}
 	};
 }
@@ -1417,12 +1417,12 @@ namespace fmt {
 		template <typename FormatContext>
 		auto format(const AreaKind &v, FormatContext &ctx) {
 			switch (v) {
-			case AreaKind::NOAREA: return format_to(ctx.out(), "AreaKind::NOAREA");
-			case AreaKind::LAND:   return format_to(ctx.out(), "AreaKind::LAND");
-			case AreaKind::WATER:  return format_to(ctx.out(), "AreaKind::WATER");
+			case AreaKind::NOAREA: return fmt::format_to(ctx.out(), "AreaKind::NOAREA");
+			case AreaKind::LAND:   return fmt::format_to(ctx.out(), "AreaKind::LAND");
+			case AreaKind::WATER:  return fmt::format_to(ctx.out(), "AreaKind::WATER");
 			default: unreachable();
 			}
-			return format_to(ctx.out(), "????????");
+			return fmt::format_to(ctx.out(), "????????");
 		}
 	};
 }
