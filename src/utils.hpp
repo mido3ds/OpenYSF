@@ -284,6 +284,7 @@ log_error(StrView fmt, TArgs&&... args) {
 template <typename F>
 struct Deferrer_ {
 	F f;
+	inline Deferrer_(F f): f(f) {}
 	inline ~Deferrer_() { f(); }
 };
 
@@ -291,7 +292,7 @@ struct Deferrer_ {
 #define CONCAT_MACRO_(x, y) CONCAT_MACRO_2(x, y)
 
 // defers the given code/block of code to the end of the current scopre
-#define defer(code)   const Deferrer_ CONCAT_MACRO_(_defer_, __LINE__) {[&]{code;}}
+#define defer(code)   const Deferrer_ CONCAT_MACRO_(_defer_, __LINE__) ([&]{code;})
 
 Str folder_config(memory::Allocator* allocator = memory::default_allocator());
 
