@@ -445,7 +445,7 @@ Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	Str file_abs_path;
-	bool should_load_file;
+	bool should_load_file, should_be_removed;
 
 	Map<Str, Mesh> meshes;
 	Vec<Str> root_meshes_names;
@@ -1005,10 +1005,6 @@ struct PerspectiveProjection {
 };
 
 struct Camera {
-	enum class Kind {
-		TRACKING, FLY,
-	} kind = Kind::TRACKING;
-
 	Model* model;
 	float distance_from_model = 50;
 
@@ -1030,7 +1026,36 @@ struct Camera {
 };
 
 void camera_update(Camera& self, float delta_time) {
-	if (self.kind == Camera::Kind::FLY) {
+	if (self.model) {
+		const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
+		const float velocity = 0.40f * delta_time;
+		if (key_pressed[SDL_SCANCODE_U]) {
+			self.yaw += velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_M]) {
+			self.yaw -= velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_K]) {
+			self.pitch += velocity;
+		}
+		if (key_pressed[SDL_SCANCODE_H]) {
+			self.pitch -= velocity;
+		}
+
+		if (self.enable_rotating_around) {
+			self.pitch += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
+		}
+
+		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
+		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
+
+		auto model_transformation = self.model->current_state.angles.matrix(self.model->current_state.translation);
+
+		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
+		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
+		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
+		
+	} else {
 		// move with keyboard
 		const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
 		const float velocity = self.movement_speed * delta_time;
@@ -1070,48 +1095,15 @@ void camera_update(Camera& self, float delta_time) {
 		// normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
 		self.right = glm::normalize(glm::cross(self.front, self.world_up));
 		self.up    = glm::normalize(glm::cross(self.right, self.front));
-	} else if (self.kind == Camera::Kind::TRACKING) {
-		const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
-		const float velocity = 0.40f * delta_time;
-		if (key_pressed[SDL_SCANCODE_U]) {
-			self.yaw += velocity;
-		}
-		if (key_pressed[SDL_SCANCODE_M]) {
-			self.yaw -= velocity;
-		}
-		if (key_pressed[SDL_SCANCODE_K]) {
-			self.pitch += velocity;
-		}
-		if (key_pressed[SDL_SCANCODE_H]) {
-			self.pitch -= velocity;
-		}
-
-		if (self.enable_rotating_around) {
-			self.pitch += (7 * delta_time) / DEGREES_MAX * RADIANS_MAX;
-		}
-
-		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
-		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
-
-		auto model_transformation = self.model->current_state.angles.matrix(self.model->current_state.translation);
-
-		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
-		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
-		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
-	} else {
-		unreachable();
 	}
 }
 
 glm::mat4 camera_calc_view(const Camera& self) {
-	if (self.kind == Camera::Kind::FLY) {
-		return glm::lookAt(self.position, self.position + self.front, self.up);
-	} else if (self.kind == Camera::Kind::TRACKING) {
+	if (self.model) {
 		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.angles.up);
 	}
 
-	unreachable();
-	return {};
+	return glm::lookAt(self.position, self.position + self.front, self.up);
 }
 
 struct Block {
@@ -2902,51 +2894,73 @@ int main() {
 				log_debug("loaded '{}'", models[i].file_abs_path);
 				models[i].should_load_file = false;
 			}
+
+			if (models[i].should_be_removed) {
+				int tracked_model_index = -1;
+				for (int i = 0; i < models.size(); i++) {
+					if (camera.model == &models[i]) {
+						tracked_model_index = i;
+						break;
+					}
+				}
+
+				models.erase(models.begin()+i);
+
+				if (tracked_model_index > 0 && tracked_model_index >= i) {
+					camera.model = &models[tracked_model_index-1];
+				} else if (tracked_model_index == 0 && i == 0) {
+					camera.model = models.empty()? nullptr : &models[0];
+				}
+
+				i--;
+			}
 		}
 
 		// test intersection
 		struct Box { glm::vec3 translation, scale, color; };
 		Vec<Box> box_instances(memory::tmp());
-		for (int i = 0; i < models.size()-1; i++) {
-			if (models[i].current_state.visible == false) {
-				overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", i));
-				continue;
-			}
-
-			glm::vec3 i_color {0, 0, 1};
-
-			for (int j = i+1; j < models.size(); j++) {
-				if (models[j].current_state.visible == false) {
-					overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", j));
+		if (models.size() > 0) {
+			for (int i = 0; i < models.size()-1; i++) {
+				if (models[i].current_state.visible == false) {
+					overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", i));
 					continue;
 				}
 
-				glm::vec3 j_color {0, 0, 1};
+				glm::vec3 i_color {0, 0, 1};
 
-				if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
-					overlay_text.emplace_back(str_tmpf("model[{}] intersects model[{}]", i, j));
-					j_color = i_color = {1, 0, 0};
-				} else {
-					overlay_text.emplace_back(str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+				for (int j = i+1; j < models.size(); j++) {
+					if (models[j].current_state.visible == false) {
+						overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", j));
+						continue;
+					}
+
+					glm::vec3 j_color {0, 0, 1};
+
+					if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
+						overlay_text.emplace_back(str_tmpf("model[{}] intersects model[{}]", i, j));
+						j_color = i_color = {1, 0, 0};
+					} else {
+						overlay_text.emplace_back(str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+					}
+
+					if (models[j].render_aabb) {
+						auto aabb = models[j].current_aabb;
+						box_instances.push_back(Box {
+							.translation = aabb.min,
+							.scale = aabb.max - aabb.min,
+							.color = j_color,
+						});
+					}
 				}
 
-				if (models[j].render_aabb) {
-					auto aabb = models[j].current_aabb;
+				if (models[i].render_aabb) {
+					auto aabb = models[i].current_aabb;
 					box_instances.push_back(Box {
 						.translation = aabb.min,
 						.scale = aabb.max - aabb.min,
-						.color = j_color,
+						.color = i_color,
 					});
 				}
-			}
-
-			if (models[i].render_aabb) {
-				auto aabb = models[i].current_aabb;
-				box_instances.push_back(Box {
-					.translation = aabb.min,
-					.scale = aabb.max - aabb.min,
-					.color = i_color,
-				});
 			}
 		}
 
@@ -3442,31 +3456,7 @@ int main() {
 					camera = { .model=camera.model };
 				}
 
-				MyImGui::EnumsCombo("Type", &camera.kind, {
-					{Camera::Kind::TRACKING, "TRACKING"},
-					{Camera::Kind::FLY, "FLY"},
-				});
-
-				if (camera.kind == Camera::Kind::FLY) {
-					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.c_str())) {
-						for (size_t j = 0; j < start_infos.size(); j++) {
-							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
-								start_info_index = j;
-								camera.position = start_infos[j].position;
-							}
-						}
-
-						ImGui::EndCombo();
-					}
-
-					ImGui::DragFloat("movement_speed", &camera.movement_speed, 5, 50, 1000);
-					ImGui::DragFloat("mouse_sensitivity", &camera.mouse_sensitivity, 1, 0.5, 10);
-					ImGui::DragFloat3("world_up", glm::value_ptr(camera.world_up), 1, -100, 100);
-					ImGui::DragFloat3("front", glm::value_ptr(camera.front), 0.1, -1, 1);
-					ImGui::DragFloat3("right", glm::value_ptr(camera.right), 1, -100, 100);
-					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
-				} else if (camera.kind == Camera::Kind::TRACKING) {
+				if (camera.model) {
 					int tracked_model_index = 0;
 					for (int i = 0; i < models.size(); i++) {
 						if (camera.model == &models[i]) {
@@ -3488,7 +3478,25 @@ int main() {
 
 					ImGui::Checkbox("Rotate Around", &camera.enable_rotating_around);
 				} else {
-					unreachable();
+					static size_t start_info_index = 0;
+					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.c_str())) {
+						for (size_t j = 0; j < start_infos.size(); j++) {
+							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
+								start_info_index = j;
+								camera.position = start_infos[j].position;
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+
+					ImGui::DragFloat("movement_speed", &camera.movement_speed, 5, 50, 1000);
+					ImGui::DragFloat("mouse_sensitivity", &camera.mouse_sensitivity, 1, 0.5, 10);
+					ImGui::DragFloat3("world_up", glm::value_ptr(camera.world_up), 1, -100, 100);
+					ImGui::DragFloat3("front", glm::value_ptr(camera.front), 0.1, -1, 1);
+					ImGui::DragFloat3("right", glm::value_ptr(camera.right), 1, -100, 100);
+					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
+
 				}
 
 				ImGui::SliderAngle("yaw", &camera.yaw, -89, 89);
@@ -3653,6 +3661,8 @@ int main() {
 
 						ImGui::EndCombo();
 					}
+
+					models[i].should_be_removed = ImGui::Button("Remove");
 
 					if (ImGui::Button("Reset State")) {
 						model.current_state = {};
@@ -3987,7 +3997,6 @@ TODO:
 	- total power
 	- velocity
 	- render names of each line
-- remove aircraft while running
 - struct Model -> struct Aircraft
 - parse .dat files
 - calculate camera distance based on model size
