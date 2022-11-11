@@ -3607,10 +3607,22 @@ int main() {
 				}
 
 				if (should_add_aircraft) {
+					int tracked_model_index = -1;
+					for (int i = 0; i < models.size(); i++) {
+						if (camera.model == &models[i]) {
+							tracked_model_index = i;
+							break;
+						}
+					}
+					
 					models.push_back(Model { 
 						.file_abs_path = aircrafts[aircraft_to_add].dnm, 
 						.should_load_file = true, 
 					});
+
+					if (tracked_model_index != -1) {
+						camera.model = &models[tracked_model_index];
+					}
 				}
 			}
 
@@ -3974,7 +3986,6 @@ TODO:
 	- velocity
 	- render names of each line
 - remove aircraft while running
-- bug: camera changes to weird angle when add a new aircraft
 - only control the tracked aircraft
 - struct Model -> struct Aircraft
 - parse .dat files
