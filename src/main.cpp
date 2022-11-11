@@ -3117,41 +3117,43 @@ int main() {
 				// apply model transformation
 				const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
 
-				float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
-				const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
-				constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
-				if (key_pressed[SDL_SCANCODE_DOWN]) {
-					delta_pitch -= ROTATE_SPEED * delta_time;
-				}
-				if (key_pressed[SDL_SCANCODE_UP]) {
-					delta_pitch += ROTATE_SPEED * delta_time;
-				}
-				if (key_pressed[SDL_SCANCODE_LEFT]) {
-					delta_roll -= ROTATE_SPEED * delta_time;
-				}
-				if (key_pressed[SDL_SCANCODE_RIGHT]) {
-					delta_roll += ROTATE_SPEED * delta_time;
-				}
-				if (key_pressed[SDL_SCANCODE_C]) {
-					delta_yaw -= ROTATE_SPEED * delta_time;
-				}
-				if (key_pressed[SDL_SCANCODE_Z]) {
-					delta_yaw += ROTATE_SPEED * delta_time;
-				}
-				model.current_state.angles.rotate(delta_yaw, delta_pitch, delta_roll);
+				if (&model == camera.model) {
+					float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
+					const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
+					constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
+					if (key_pressed[SDL_SCANCODE_DOWN]) {
+						delta_pitch -= ROTATE_SPEED * delta_time;
+					}
+					if (key_pressed[SDL_SCANCODE_UP]) {
+						delta_pitch += ROTATE_SPEED * delta_time;
+					}
+					if (key_pressed[SDL_SCANCODE_LEFT]) {
+						delta_roll -= ROTATE_SPEED * delta_time;
+					}
+					if (key_pressed[SDL_SCANCODE_RIGHT]) {
+						delta_roll += ROTATE_SPEED * delta_time;
+					}
+					if (key_pressed[SDL_SCANCODE_C]) {
+						delta_yaw -= ROTATE_SPEED * delta_time;
+					}
+					if (key_pressed[SDL_SCANCODE_Z]) {
+						delta_yaw += ROTATE_SPEED * delta_time;
+					}
+					model.current_state.angles.rotate(delta_yaw, delta_pitch, delta_roll);
 
-				if (pressed_tab) {
-					model.control.afterburner_reheat_enabled = ! model.control.afterburner_reheat_enabled;
-				}
-				if (model.control.afterburner_reheat_enabled && model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-					model.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
-				}
+					if (pressed_tab) {
+						model.control.afterburner_reheat_enabled = ! model.control.afterburner_reheat_enabled;
+					}
+					if (model.control.afterburner_reheat_enabled && model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+						model.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
+					}
 
-				if (key_pressed[SDL_SCANCODE_Q]) {
-					model.control.throttle += THROTTLE_SPEED * delta_time;
-				}
-				if (key_pressed[SDL_SCANCODE_A]) {
-					model.control.throttle -= THROTTLE_SPEED * delta_time;
+					if (key_pressed[SDL_SCANCODE_Q]) {
+						model.control.throttle += THROTTLE_SPEED * delta_time;
+					}
+					if (key_pressed[SDL_SCANCODE_A]) {
+						model.control.throttle -= THROTTLE_SPEED * delta_time;
+					}
 				}
 
 				model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
@@ -3986,7 +3988,6 @@ TODO:
 	- velocity
 	- render names of each line
 - remove aircraft while running
-- only control the tracked aircraft
 - struct Model -> struct Aircraft
 - parse .dat files
 - calculate camera distance based on model size
