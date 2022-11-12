@@ -1443,7 +1443,7 @@ struct Field {
 	Vec<Mesh> meshes;
 
 	Str file_abs_path;
-	bool should_select_file, should_load_file;
+	bool should_select_file, should_load_file, should_transform = true;
 
 	glm::mat4 transformation;
 
@@ -2791,20 +2791,6 @@ int main() {
 
 		camera_update(camera, delta_time);
 
-		// view+projec matrices
-		const auto view_mat = camera_calc_view(camera);
-		const auto projection_mat = glm::perspective(
-			perspective_projection.fovy,
-			perspective_projection.aspect,
-			perspective_projection.near,
-			perspective_projection.far
-		);
-
-		const auto view_inverse_mat = glm::inverse(view_mat);
-		const auto projection_inverse_mat = glm::inverse(projection_mat);
-		const auto projection_view_mat = projection_mat * view_mat;
-		const auto proj_inv_view_inv_mat = view_inverse_mat * projection_inverse_mat;
-
 		SDL_Event event;
 		bool pressed_tab = false;
 		while (SDL_PollEvent(&event)) {
@@ -2916,6 +2902,215 @@ int main() {
 			}
 		}
 
+		// control currently tracked model
+		if (camera.model) {
+			float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
+			const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
+			constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
+			if (key_pressed[SDL_SCANCODE_DOWN]) {
+				delta_pitch -= ROTATE_SPEED * delta_time;
+			}
+			if (key_pressed[SDL_SCANCODE_UP]) {
+				delta_pitch += ROTATE_SPEED * delta_time;
+			}
+			if (key_pressed[SDL_SCANCODE_LEFT]) {
+				delta_roll -= ROTATE_SPEED * delta_time;
+			}
+			if (key_pressed[SDL_SCANCODE_RIGHT]) {
+				delta_roll += ROTATE_SPEED * delta_time;
+			}
+			if (key_pressed[SDL_SCANCODE_C]) {
+				delta_yaw -= ROTATE_SPEED * delta_time;
+			}
+			if (key_pressed[SDL_SCANCODE_Z]) {
+				delta_yaw += ROTATE_SPEED * delta_time;
+			}
+			camera.model->current_state.angles.rotate(delta_yaw, delta_pitch, delta_roll);
+
+			if (pressed_tab) {
+				camera.model->control.afterburner_reheat_enabled = ! camera.model->control.afterburner_reheat_enabled;
+			}
+			if (camera.model->control.afterburner_reheat_enabled && camera.model->control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+				camera.model->control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
+			}
+
+			if (key_pressed[SDL_SCANCODE_Q]) {
+				camera.model->control.throttle += THROTTLE_SPEED * delta_time;
+			}
+			if (key_pressed[SDL_SCANCODE_A]) {
+				camera.model->control.throttle -= THROTTLE_SPEED * delta_time;
+			}
+
+			// only currently controlled model has audio
+			int audio_index = camera.model->control.throttle * (sounds.props.size()-1);
+
+			Audio* audio;
+			if (camera.model->has_propellers) {
+				audio = &sounds.props[audio_index];
+			} else if (camera.model->control.afterburner_reheat_enabled && camera.model->has_afterburner) {
+				audio = &sounds.burner;
+			} else {
+				audio = &sounds.engines[audio_index];
+			}
+
+			if (camera.model->engine_sound != audio) {
+				if (camera.model->engine_sound) {
+					audio_device_stop(audio_device, *camera.model->engine_sound);
+				}
+				camera.model->engine_sound = audio;
+				audio_device_play_looped(audio_device, *camera.model->engine_sound);
+			}
+		}
+
+		// update models
+		for (int i = 0; i < models.size(); i++) {
+			Model& model = models[i];
+
+			if (!model.current_state.visible) {
+				continue;
+			}
+
+			model.anti_coll_lights.time_left_secs -= delta_time;
+			if (model.anti_coll_lights.time_left_secs < 0) {
+				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
+				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
+			}
+
+			// apply model transformation
+			const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
+
+			model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
+			model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
+			if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+				model.control.afterburner_reheat_enabled = false;
+			}
+
+			model.current_state.translation += ((float)delta_time * model.current_state.speed) * model.current_state.angles.front;
+
+			// transform AABB (estimate new AABB after rotation)
+			{
+				// translate AABB
+				model.current_aabb.min = model.current_aabb.max = model.current_state.translation;
+
+				// new rotated AABB (no translation)
+				const auto model_rotation = glm::mat3(model_transformation);
+				const auto rotated_min = model_rotation * model.initial_aabb.min;
+				const auto rotated_max = model_rotation * model.initial_aabb.max;
+				const AABB rotated_aabb {
+					.min = glm::min(rotated_min, rotated_max),
+					.max = glm::max(rotated_min, rotated_max),
+				};
+
+				// for all three axes
+				for (int i = 0; i < 3; i++) {
+					// form extent by summing smaller and larger terms respectively
+					for (int j = 0; j < 3; j++) {
+						const float e = model_rotation[j][i] * rotated_aabb.min[j];
+						const float f = model_rotation[j][i] * rotated_aabb.max[j];
+						if (e < f) {
+							model.current_aabb.min[i] += e;
+							model.current_aabb.max[i] += f;
+						} else {
+							model.current_aabb.min[i] += f;
+							model.current_aabb.max[i] += e;
+						}
+					}
+				}
+			}
+
+			// start with root meshes
+			Vec<Mesh*> meshes_stack(memory::tmp());
+			for (const auto& name : model.root_meshes_names) {
+				auto& mesh = model.meshes.at(name);
+				mesh.transformation = model_transformation;
+				meshes_stack.push_back(&mesh);
+			}
+
+			while (meshes_stack.empty() == false) {
+				Mesh* mesh = *meshes_stack.rbegin();
+				meshes_stack.pop_back();
+
+				if (mesh->current_state.visible == false) {
+					continue;
+				}
+
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+					mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * delta_time;
+				}
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
+					mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * delta_time;
+				}
+
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
+					// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
+					const MeshState& state_up   = mesh->animation_states[0];
+					const MeshState& state_down = mesh->animation_states[1];
+					const auto& alpha = model.control.landing_gear_alpha;
+
+					mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
+					mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
+
+					float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
+					mesh->current_state.visible = visibilty > 0.05;;
+				}
+
+				// apply mesh transformation
+				mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
+
+				// push children
+				for (const Str& child_name : mesh->children) {
+					auto& child_mesh = model.meshes.at(child_name);
+					child_mesh.transformation = mesh->transformation;
+					meshes_stack.push_back(&child_mesh);
+				}
+			}
+		}
+
+		Vec<glm::mat4> axis_instances(memory::tmp());
+
+		// update fields
+		const auto all_fields = field_list_recursively(field, memory::tmp());
+		if (field.should_transform) {
+			field.should_transform = false;
+
+			// transform fields
+			field.transformation = glm::identity<glm::mat4>();
+			for (Field* fld : all_fields) {
+				if (fld->current_state.visible == false) {
+					continue;
+				}
+
+				fld->transformation = glm::translate(fld->transformation, fld->current_state.translation);
+				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[2], glm::vec3{0, 0, 1});
+				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[1], glm::vec3{1, 0, 0});
+				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[0], glm::vec3{0, 1, 0});
+
+				for (auto& subfield : fld->subfields) {
+					subfield.transformation = fld->transformation;
+				}
+
+				for (auto& mesh : fld->meshes) {
+					if (mesh.render_cnt_axis) {
+						axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
+					}
+
+					// apply mesh transformation
+					mesh.transformation = fld->transformation;
+					mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+
+					if (mesh.render_pos_axis) {
+						axis_instances.push_back(mesh.transformation);
+					}
+				}
+			}
+		}
+
 		// test intersection
 		struct Box { glm::vec3 translation, scale, color; };
 		Vec<Box> box_instances(memory::tmp());
@@ -2964,7 +3159,19 @@ int main() {
 			}
 		}
 
-		Vec<glm::mat4> axis_instances(memory::tmp());
+		// view+projec matrices
+		const auto view_mat = camera_calc_view(camera);
+		const auto projection_mat = glm::perspective(
+			perspective_projection.fovy,
+			perspective_projection.aspect,
+			perspective_projection.near,
+			perspective_projection.far
+		);
+
+		const auto view_inverse_mat = glm::inverse(view_mat);
+		const auto projection_inverse_mat = glm::inverse(projection_mat);
+		const auto projection_view_mat = projection_mat * view_mat;
+		const auto proj_inv_view_inv_mat = view_inverse_mat * projection_inverse_mat;
 
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
@@ -2982,42 +3189,6 @@ int main() {
 		}
 		glPointSize(rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
-
-		const auto all_fields = field_list_recursively(field, memory::tmp());
-
-		// transform fields
-		field.transformation = glm::identity<glm::mat4>();
-		for (Field* fld : all_fields) {
-			if (fld->current_state.visible == false) {
-				continue;
-			}
-
-			fld->transformation = glm::translate(fld->transformation, fld->current_state.translation);
-			fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[2], glm::vec3{0, 0, 1});
-			fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[1], glm::vec3{1, 0, 0});
-			fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[0], glm::vec3{0, 1, 0});
-
-			for (auto& subfield : fld->subfields) {
-				subfield.transformation = fld->transformation;
-			}
-
-			for (auto& mesh : fld->meshes) {
-				if (mesh.render_cnt_axis) {
-					axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
-				}
-
-				// apply mesh transformation
-				mesh.transformation = fld->transformation;
-				mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-				mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-
-				if (mesh.render_pos_axis) {
-					axis_instances.push_back(mesh.transformation);
-				}
-			}
-		}
 
 		// render last ground
 		glDisable(GL_DEPTH_TEST);
@@ -3121,205 +3292,74 @@ int main() {
 		for (int i = 0; i < models.size(); i++) {
 			Model& model = models[i];
 
-			model.anti_coll_lights.time_left_secs -= delta_time;
-			if (model.anti_coll_lights.time_left_secs < 0) {
-				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
-				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
+			if (!model.current_state.visible) {
+				continue;
 			}
 
-			if (model.current_state.visible) {
-				// apply model transformation
-				const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
+			const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
 
-				if (&model == camera.model) {
-					float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
-					const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
-					constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
-					if (key_pressed[SDL_SCANCODE_DOWN]) {
-						delta_pitch -= ROTATE_SPEED * delta_time;
-					}
-					if (key_pressed[SDL_SCANCODE_UP]) {
-						delta_pitch += ROTATE_SPEED * delta_time;
-					}
-					if (key_pressed[SDL_SCANCODE_LEFT]) {
-						delta_roll -= ROTATE_SPEED * delta_time;
-					}
-					if (key_pressed[SDL_SCANCODE_RIGHT]) {
-						delta_roll += ROTATE_SPEED * delta_time;
-					}
-					if (key_pressed[SDL_SCANCODE_C]) {
-						delta_yaw -= ROTATE_SPEED * delta_time;
-					}
-					if (key_pressed[SDL_SCANCODE_Z]) {
-						delta_yaw += ROTATE_SPEED * delta_time;
-					}
-					model.current_state.angles.rotate(delta_yaw, delta_pitch, delta_roll);
+			// start with root meshes
+			Vec<Mesh*> meshes_stack(memory::tmp());
+			for (const auto& name : model.root_meshes_names) {
+				meshes_stack.push_back(&model.meshes.at(name));
+			}
 
-					if (pressed_tab) {
-						model.control.afterburner_reheat_enabled = ! model.control.afterburner_reheat_enabled;
-					}
-					if (model.control.afterburner_reheat_enabled && model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-						model.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
-					}
+			while (meshes_stack.empty() == false) {
+				Mesh* mesh = *meshes_stack.rbegin();
+				meshes_stack.pop_back();
 
-					if (key_pressed[SDL_SCANCODE_Q]) {
-						model.control.throttle += THROTTLE_SPEED * delta_time;
-					}
-					if (key_pressed[SDL_SCANCODE_A]) {
-						model.control.throttle -= THROTTLE_SPEED * delta_time;
-					}
+				const bool enable_high_throttle = almost_equal(model.control.throttle, 1.0f);
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
+					continue;
+				}
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && model.has_high_throttle_mesh) {
+					continue;
 				}
 
-				model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
-				model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
-				if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-					model.control.afterburner_reheat_enabled = false;
-				}
-
-				{
-					int audio_index = model.control.throttle * (sounds.props.size()-1);
-
-					Audio* audio;
-					if (model.has_propellers) {
-						audio = &sounds.props[audio_index];
-					} else if (model.control.afterburner_reheat_enabled && model.has_afterburner) {
-						audio = &sounds.burner;
-					} else {
-						audio = &sounds.engines[audio_index];
-					}
-
-					if (model.engine_sound != audio) {
-						if (model.engine_sound) {
-							audio_device_stop(audio_device, *model.engine_sound);
-						}
-						model.engine_sound = audio;
-						audio_device_play_looped(audio_device, *model.engine_sound);
-					}
-				}
-
-				model.current_state.translation += ((float)delta_time * model.current_state.speed) * model.current_state.angles.front;
-
-				// transform AABB (estimate new AABB after rotation)
-				{
-					// translate AABB
-					model.current_aabb.min = model.current_aabb.max = model.current_state.translation;
-
-					// new rotated AABB (no translation)
-					const auto model_rotation = glm::mat3(model_transformation);
-					const auto rotated_min = model_rotation * model.initial_aabb.min;
-					const auto rotated_max = model_rotation * model.initial_aabb.max;
-					const AABB rotated_aabb {
-						.min = glm::min(rotated_min, rotated_max),
-						.max = glm::max(rotated_min, rotated_max),
-					};
-
-					// for all three axes
-					for (int i = 0; i < 3; i++) {
-						// form extent by summing smaller and larger terms respectively
-						for (int j = 0; j < 3; j++) {
-							const float e = model_rotation[j][i] * rotated_aabb.min[j];
-							const float f = model_rotation[j][i] * rotated_aabb.max[j];
-							if (e < f) {
-								model.current_aabb.min[i] += e;
-								model.current_aabb.max[i] += f;
-							} else {
-								model.current_aabb.min[i] += f;
-								model.current_aabb.max[i] += e;
-							}
-						}
-					}
-				}
-
-				// start with root meshes
-				Vec<Mesh*> meshes_stack(memory::tmp());
-				for (const auto& name : model.root_meshes_names) {
-					auto& mesh = model.meshes.at(name);
-					mesh.transformation = model_transformation;
-					meshes_stack.push_back(&mesh);
-				}
-
-				while (meshes_stack.empty() == false) {
-					Mesh* mesh = *meshes_stack.rbegin();
-					meshes_stack.pop_back();
-
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-						mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * delta_time;
-					}
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-						mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * delta_time;
-					}
-
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
-						// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
-						const MeshState& state_up   = mesh->animation_states[0];
-						const MeshState& state_down = mesh->animation_states[1];
-						const auto& alpha = model.control.landing_gear_alpha;
-
-						mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
-						mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
-
-						float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
-						mesh->current_state.visible = visibilty > 0.05;;
-					}
-
-					const bool enable_high_throttle = almost_equal(model.control.throttle, 1.0f);
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
-						continue;
-					}
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && model.has_high_throttle_mesh) {
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
+					if (model.control.afterburner_reheat_enabled == false) {
 						continue;
 					}
 
-					if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-						if (model.control.afterburner_reheat_enabled == false) {
-							continue;
-						}
-
-						if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-							continue;
-						}
+					if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+						continue;
 					}
+				}
 
-					if (mesh->current_state.visible) {
-						if (mesh->render_cnt_axis) {
-							axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
-						}
+				if (!mesh->current_state.visible) {
+					continue;
+				}
 
-						// apply mesh transformation
-						mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-						mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
+				if (mesh->render_cnt_axis) {
+					axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
+				}
 
-						if (mesh->render_pos_axis) {
-							axis_instances.push_back(mesh->transformation);
-						}
+				if (mesh->render_pos_axis) {
+					axis_instances.push_back(mesh->transformation);
+				}
 
-						// upload transofmation model
-						glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * mesh->transformation));
+				// upload transofmation model
+				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * mesh->transformation));
 
-						glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
+				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
 
-						glBindVertexArray(mesh->gpu.vao);
-						glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+				glBindVertexArray(mesh->gpu.vao);
+				glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
 
-						for (const Str& child_name : mesh->children) {
-							auto& child_mesh = model.meshes.at(child_name);
-							child_mesh.transformation = mesh->transformation;
-							meshes_stack.push_back(&child_mesh);
-						}
-
-						// ZL
-						if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
-							for (size_t zlid : mesh->zls) {
-								Face& face = mesh->faces[zlid];
-								zlpoints.push_back(ZLPoint {
-									.center = model_transformation * glm::vec4(face.center, 1.0f),
-									.color = face.color
-								});
-							}
-						}
+				// ZL
+				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
+					for (size_t zlid : mesh->zls) {
+						Face& face = mesh->faces[zlid];
+						zlpoints.push_back(ZLPoint {
+							.center = model_transformation * glm::vec4(face.center, 1.0f),
+							.color = face.color
+						});
 					}
+				}
+
+				// push children
+				for (const Str& child_name : mesh->children) {
+					meshes_stack.push_back(&model.meshes.at(child_name));
 				}
 			}
 		}
@@ -3998,6 +4038,8 @@ TODO:
 	- velocity
 	- render names of each line
 - struct Model -> struct Aircraft
+- when switch tracking of aircraft, turn off the audio for current aircraft
+- hear nearby models' sounds
 - parse .dat files
 - calculate camera distance based on model size
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
@@ -4009,7 +4051,6 @@ TODO:
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
-- separate (updating meshes) from (rendering them)
 - put lines coords in shader
 - put box coords in shader
 - Scenery files
