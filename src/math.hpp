@@ -533,7 +533,8 @@ void test_polygons_to_triangles() {
 	log_debug("test_polygons_to_triangles: all passed");
 }
 
-auto clamp(auto x, auto lower_limit, auto upper_limit) {
+template<typename T>
+T clamp(T x, T lower_limit, T upper_limit) {
 	if (x > upper_limit) {
 		return upper_limit;
 	}
