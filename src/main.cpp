@@ -1054,7 +1054,6 @@ void camera_update(Camera& self, float delta_time) {
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
 		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
-		
 	} else {
 		// move with keyboard
 		const Uint8 * key_pressed = SDL_GetKeyboardState(nullptr);
@@ -3182,7 +3181,9 @@ int main() {
 
 		if (rendering.smooth_lines) {
 			glEnable(GL_LINE_SMOOTH);
+            #ifndef OS_MACOS
 			glLineWidth(rendering.line_width);
+            #endif
 		} else {
 			glDisable(GL_LINE_SMOOTH);
 		}
@@ -3390,7 +3391,9 @@ int main() {
 			}
 
 			glEnable(GL_LINE_SMOOTH);
+            #ifndef OS_MACOS
 			glLineWidth(axis_rendering.line_width);
+            #endif
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
@@ -3405,7 +3408,9 @@ int main() {
 			glDisable(GL_DEPTH_TEST);
 
 			glEnable(GL_LINE_SMOOTH);
+            #ifndef OS_MACOS
 			glLineWidth(axis_rendering.line_width);
+            #endif
 
 			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
 			glBindVertexArray(axis_rendering.vao);
@@ -3424,7 +3429,9 @@ int main() {
 		if (box_instances.empty() == false) {
 			glUseProgram(lines_gpu_program);
 			glEnable(GL_LINE_SMOOTH);
+            #ifndef OS_MACOS
 			glLineWidth(box_rendering.line_width);
+            #endif
 			glBindVertexArray(box_rendering.vao);
 
 			for (const auto& box : box_instances) {
@@ -3578,9 +3585,11 @@ int main() {
 				});
 
 				ImGui::Checkbox("Smooth Lines", &rendering.smooth_lines);
+                #ifndef OS_MACOS
 				ImGui::BeginDisabled(!rendering.smooth_lines);
 					ImGui::DragFloat("Line Width", &rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
 				ImGui::EndDisabled();
+                #endif
 
 				ImGui::DragFloat("Point Size", &rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
 
@@ -3589,7 +3598,9 @@ int main() {
 
 			if (ImGui::TreeNode("Axis Rendering")) {
 				ImGui::Checkbox("On Top", &axis_rendering.on_top);
+                #ifndef OS_MACOS
 				ImGui::DragFloat("Line Width", &axis_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+                #endif
 
 				ImGui::BulletText("World Axis:");
 				if (ImGui::Button("Reset")) {
@@ -3603,7 +3614,9 @@ int main() {
 			}
 
 			if (ImGui::TreeNode("AABB Rendering")) {
+                #ifndef OS_MACOS
 				ImGui::DragFloat("Line Width", &box_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+                #endif
 				ImGui::TreePop();
 			}
 
@@ -3663,10 +3676,10 @@ int main() {
 							break;
 						}
 					}
-					
-					models.push_back(Model { 
-						.file_abs_path = aircrafts[aircraft_to_add].dnm, 
-						.should_load_file = true, 
+
+					models.push_back(Model {
+						.file_abs_path = aircrafts[aircraft_to_add].dnm,
+						.should_load_file = true,
 					});
 
 					if (tracked_model_index != -1) {
@@ -4028,6 +4041,7 @@ int main() {
 }
 /*
 TODO:
+- mac: fix change line width
 - render text
 - render aircraft vectors:
 	- weight
