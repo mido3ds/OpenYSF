@@ -2165,27 +2165,26 @@ struct ImGuiWindowLogger : public ILogger {
 	float last_scrolled_line = 0;
 
 	virtual void log_debug(StrView str) override {
-		const auto formatted = str_format(&_arena, "> {}\n", str);
-		logs.emplace_back(formatted);
+		logs.emplace_back(str_format(&_arena, "> {}\n", str));
 		fmt::print("[debug] {}\n", str);
 	}
 
 	virtual void log_info(StrView str) override {
-		const auto formatted = str_format(&_arena, "[info] {}\n", str);
-		logs.emplace_back(formatted);
+		auto formatted = str_format(&_arena, "[info] {}\n", str);
 		fmt::print(formatted);
+		logs.emplace_back(std::move(formatted));
 	}
 
 	virtual void log_warning(StrView str) override {
-		const auto formatted = str_format(&_arena, "[warning] {}\n", str);
-		logs.emplace_back(formatted);
+		auto formatted = str_format(&_arena, "[warning] {}\n", str);
 		fmt::print(formatted);
+		logs.emplace_back(std::move(formatted));
 	}
 
 	virtual void log_error(StrView str) override {
-		const auto formatted = str_format(&_arena, "[error] {}\n", str);
-		logs.emplace_back(formatted);
+		auto formatted = str_format(&_arena, "[error] {}\n", str);
 		fmt::print(formatted);
+		logs.emplace_back(std::move(formatted));
 	}
 };
 
