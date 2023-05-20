@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(OpenYSF VERSION 0.1.0 LANGUAGES CXX C)
 
+if(APPLE)
+    enable_language(OBJC)
+endif()
+
 option(OPENYSF_PEDANTIC_BUILD "Enable pedantic warnings during build" OFF)
 
 if (CMAKE_BUILD_TYPE STREQUAL "")
@@ -134,6 +138,7 @@ target_compile_definitions(open-ysf
 		$<$<PLATFORM_ID:Darwin>:OS_MACOS=1>
 		$<$<CXX_COMPILER_ID:Clang>:COMPILER_CLANG=1>
 		$<$<CXX_COMPILER_ID:AppleClang>:COMPILER_CLANG=1>
+		$<$<CXX_COMPILER_ID:AppleClang>:COMPILER_APPLE_CLANG=1>
 		$<$<CXX_COMPILER_ID:GNU>:COMPILER_GNU=1>
 		$<$<CXX_COMPILER_ID:MSVC>:COMPILER_MSVC=1>
 		$<$<CONFIG:DEBUG>:DEBUG>

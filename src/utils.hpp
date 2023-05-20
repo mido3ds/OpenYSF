@@ -1,6 +1,11 @@
 #pragma once
 
+#ifdef COMPILER_APPLE_CLANG
+#include <experimental/memory_resource>
+namespace std { namespace pmr = experimental::pmr; }
+#else
 #include <memory_resource>
+#endif
 
 #include <vector>
 #include <array>
@@ -27,36 +32,67 @@ box_new(Types&&... _Args) {
 template<typename T, size_t N>
 using Arr = std::array<T, N>;
 
-using Str = std::pmr::string;
+using Str = std::basic_string<char, std::char_traits<char>, std::pmr::polymorphic_allocator<char>>;
 using StrView = std::string_view;
 
 template<typename T>
-using Vec = std::pmr::vector<T>;
+using Vec = std::vector<T, std::pmr::polymorphic_allocator<T>>;
 
 template<typename K, typename V>
-using Map = std::pmr::unordered_map<K, V>;
+using Map = std::unordered_map<
+    K, V,
+    std::hash<K>,
+    std::equal_to<K>,
+    std::pmr::polymorphic_allocator< std::pair<const K, V> >
+>;
 
-template<typename T>
-using Set = std::pmr::unordered_set<T>;
+template<typename K>
+using Set = std::unordered_set<
+    K,
+    std::hash<K>,
+    std::equal_to<K>,
+    std::pmr::polymorphic_allocator<K>
+>;
 
 /////////////////////////////////////////////////////////////////////////////////
 
 namespace memory {
-	using Allocator = std::pmr::memory_resource;
+    using Allocator = std::pmr::memory_resource;
 
 	class Arena : public Allocator {
-		Box<std::pmr::monotonic_buffer_resource> _mbr = box_new<std::pmr::monotonic_buffer_resource>();
-
-		virtual void* do_allocate(std::size_t bytes, std::size_t alignment) override {
-			return _mbr->allocate(bytes, alignment);
+        static constexpr size_t BLOCK_SIZE = 4096;
+    public:
+        virtual ~Arena() noexcept override;
+    protected:
+		virtual void* do_allocate(std::size_t size, std::size_t alignment) override;
+		virtual void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override { }
+		virtual bool do_is_equal(const Allocator& other) const noexcept override {
+			return this == &other;
 		}
 
-		virtual void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override { }
+        struct Node {
+			void* mem_ptr;
+            size_t mem_size;
+			uint8_t* alloc_head;
+			Node* next;
+		};
+
+		Node* head = nullptr;
+	};
+
+    class LibcAllocator : public Allocator {
+        virtual void* do_allocate(std::size_t bytes, std::size_t _alignment) override {
+            return ::malloc(bytes);
+		}
+
+		virtual void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override {
+            ::free(p);
+        }
 
 		virtual bool do_is_equal(const Allocator& other) const noexcept override {
 			return this == &other;
 		}
-	};
+    };
 
 	Allocator* tmp();
 

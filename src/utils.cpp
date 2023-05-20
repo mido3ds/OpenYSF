@@ -85,30 +85,7 @@ void _callstack_print_to([[maybe_unused]] void** frames, [[maybe_unused]] size_t
 	}
 	#endif
 }
-
-Str folder_config(memory::Allocator* allocator) {
-	PWSTR wstr = nullptr;
-	if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &wstr) != S_OK) {
-		panic("No local config directory");
-	}
-	defer(CoTaskMemFree((LPVOID)wstr));
-
-	const int len = wcslen(wstr);
-
-	const int size_needed = WideCharToMultiByte(CP_UTF8, NULL, (LPWSTR)wstr, len, NULL, 0, NULL, NULL);
-	Str str(size_needed, 0, allocator);
-	WideCharToMultiByte(CP_UTF8, NULL, (LPWSTR)wstr, len, str.data(), str.length(), NULL, NULL);
-
-	path_normalize(str);
-
-	return std::move(str);
-}
 #elif OS_LINUX
-Str folder_config(memory::Allocator* allocator) {
-	// TODO: implement for mac
-	return  str_format(allocator, "{}/.config", getenv("HOME"));
-}
-
 #include <cxxabi.h>
 #include <execinfo.h>
 
@@ -137,7 +114,7 @@ void _callstack_print_to([[maybe_unused]] void** frames, [[maybe_unused]] size_t
 
                 ++name_it;
             }
-            
+
             size_t mangled_name_size = name_end - name_begin;
             // function maybe inlined
             if (mangled_name_size == 0) {
@@ -165,8 +142,82 @@ void _callstack_print_to([[maybe_unused]] void** frames, [[maybe_unused]] size_t
     }
     #endif
 }
+#elif OS_MACOS
+#include <cxxabi.h>
+#include <execinfo.h>
+
+#include <stdlib.h>
+
+size_t
+_callstack_capture([[maybe_unused]] void** frames, [[maybe_unused]] size_t frames_count) {
+    ::memset(frames, 0, frames_count * sizeof(frames));
+    return backtrace(frames, frames_count);
+}
+
+void
+_callstack_print_to([[maybe_unused]] void** frames, [[maybe_unused]] size_t frames_count) {
+    #ifdef DEBUG
+    char** symbols = backtrace_symbols(frames, frames_count);
+    if (symbols) {
+        for(size_t i = 0; i < frames_count; i++) {
+            // example output
+            // 0   <module_name>     0x0000000000000000 function_name + 00
+            char function_name[1024] = {};
+            char address[48] = {};
+            char module_name[1024] = {};
+            int offset = 0;
+
+            ::sscanf(symbols[i], "%*s %s %s %s %*s %d", module_name, address, function_name, &offset);
+
+            int status = 0;
+            char* demangled_name = abi::__cxa_demangle(function_name, NULL, 0, &status);
+
+            if (status == 0) {
+                fmt::print("[{}]: {}\n", frames_count - i - 1, demangled_name);
+            } else {
+                fmt::print("[{}]: {}\n", frames_count - i - 1, function_name);
+            }
+
+            ::free(demangled_name);
+        }
+        ::free(symbols);
+    }
+    #endif
+}
+#endif
+
+#ifdef OS_WINDOWS
+Str folder_config(memory::Allocator* allocator) {
+	PWSTR wstr = nullptr;
+	if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &wstr) != S_OK) {
+		panic("No local config directory");
+	}
+	defer(CoTaskMemFree((LPVOID)wstr));
+
+	const int len = wcslen(wstr);
+
+	const int size_needed = WideCharToMultiByte(CP_UTF8, NULL, (LPWSTR)wstr, len, NULL, 0, NULL, NULL);
+	Str str(size_needed, 0, allocator);
+	WideCharToMultiByte(CP_UTF8, NULL, (LPWSTR)wstr, len, str.data(), str.length(), NULL, NULL);
+
+	path_normalize(str);
+
+	return std::move(str);
+}
 #else
-// TODO implement for mac
+Str folder_config(memory::Allocator* allocator) {
+    char* s = getenv("XDG_CONFIG_HOME");
+    if (s && ::strlen(s) > 0) {
+        return Str(s, allocator);
+    }
+
+    s = getenv("HOME");
+    if (s && ::strlen(s) > 0) {
+        return str_format(allocator, "{}/.config", s);
+    }
+
+	return Str("~/.config", allocator);
+}
 #endif
 
 ILogger* log_global_logger = nullptr;
@@ -181,4 +232,69 @@ namespace memory {
 	void reset_tmp() {
 		_tmp_allocator = {};
 	}
+
+    Arena::~Arena() noexcept {
+        while (this->head) {
+			Node* next = this->head->next;
+			::free(this->head);
+			this->head = next;
+		}
+    }
+
+    void*
+    Arena::do_allocate(std::size_t size, std::size_t alignment) {
+        if (size == 0) {
+			return {};
+        }
+
+        bool need_to_grow = true;
+
+		if (this->head != nullptr) {
+			size_t node_used_mem = this->head->alloc_head - (uint8_t*)this->head->mem_ptr;
+			size_t node_free_mem = this->head->mem_size - node_used_mem;
+			if (node_free_mem >= size) {
+				need_to_grow = false;
+            }
+		}
+
+        if (need_to_grow) {
+            size_t request_size = size > BLOCK_SIZE ? size : BLOCK_SIZE;
+            request_size += sizeof(Node);
+
+            Node* new_node = (Node*) ::malloc(request_size);
+
+            new_node->mem_ptr = &new_node[1];
+            new_node->mem_size = request_size - sizeof(Node);
+            new_node->alloc_head = (uint8_t*)new_node->mem_ptr;
+            new_node->next = this->head;
+            this->head = new_node;
+        }
+
+		uint8_t* ptr = this->head->alloc_head;
+		this->head->alloc_head += size;
+
+		return ptr;
+    }
 }
+
+#ifdef COMPILER_APPLE_CLANG
+namespace std { namespace experimental { inline namespace fundamentals_v1 { namespace pmr {
+    static memory::LibcAllocator _c_allocator;
+    static thread_local memory_resource* _global_default_resource = nullptr;
+
+    memory_resource*
+    get_default_resource() noexcept {
+        if (_global_default_resource == nullptr) {
+            _global_default_resource = &_c_allocator;
+        }
+		return _global_default_resource;
+    }
+
+    memory_resource*
+    set_default_resource(memory_resource* res) noexcept {
+        auto x = get_default_resource();
+		_global_default_resource = res;
+		return x;
+    }
+} } } }
+#endif
