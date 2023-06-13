@@ -161,27 +161,27 @@ str_suffix(StrView self, StrView search) {
 template<typename ... Args>
 inline static void
 str_push(Str& self, StrView format_str, const Args& ... args) {
-	fmt::format_to(std::back_inserter(self), format_str, args...);
+	fmt::vformat_to(std::back_inserter(self), format_str, fmt::make_format_args(args...));
 }
 
 template<typename ... Args>
 inline static Str
 str_format(memory::Allocator* allocator, StrView format_str, const Args& ... args) {
 	Str self(allocator);
-	fmt::format_to(std::back_inserter(self), format_str, args...);
-	return std::move(self);
+	str_push(self, format_str, args...);
+	return self;
 }
 
 template<typename ... Args>
 inline static Str
 str_format(StrView format_str, const Args& ... args) {
-	return std::move(str_format(memory::default_allocator(), format_str, args...));
+	return str_format(memory::default_allocator(), format_str, args...);
 }
 
 template<typename ... Args>
 inline static Str
 str_tmpf(StrView format_str, const Args& ... args) {
-	return std::move(str_format(memory::tmp(), format_str, args...));
+	return str_format(memory::tmp(), format_str, args...);
 }
 
 namespace fmt {

@@ -2170,19 +2170,19 @@ struct ImGuiWindowLogger : public ILogger {
 
 	virtual void log_info(StrView str) override {
 		auto formatted = str_format(&_arena, "[info] {}\n", str);
-		fmt::print(formatted);
+		fmt::vprint(stdout, formatted, {});
 		logs.emplace_back(std::move(formatted));
 	}
 
 	virtual void log_warning(StrView str) override {
 		auto formatted = str_format(&_arena, "[warning] {}\n", str);
-		fmt::print(formatted);
+		fmt::vprint(stdout, formatted, {});
 		logs.emplace_back(std::move(formatted));
 	}
 
 	virtual void log_error(StrView str) override {
 		auto formatted = str_format(&_arena, "[error] {}\n", str);
-		fmt::print(formatted);
+		fmt::vprint(stderr, formatted, {});
 		logs.emplace_back(std::move(formatted));
 	}
 };
