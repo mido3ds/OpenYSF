@@ -3,27 +3,27 @@
 #include <mu/utils.h>
 
 struct Parser {
-	Str str;
-	Str file_path;
+	mu::Str str;
+	mu::Str file_path;
 	size_t pos; // index in string
 	size_t curr_line; // 0 is first line
 };
 
-Parser parser_from_str(StrView str, memory::Allocator* allocator = memory::default_allocator()) {
-	Str str_clone(str, allocator);
-	str_replace(str_clone, "\r\n", "\n");
+Parser parser_from_str(mu::StrView str, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	mu::Str str_clone(str, allocator);
+	mu::str_replace(str_clone, "\r\n", "\n");
 	return Parser {
 		.str = str_clone,
-		.file_path = Str("%memory%", allocator),
+		.file_path = mu::Str("%memory%", allocator),
 	};
 }
 
-Parser parser_from_file(StrView file_path, memory::Allocator* allocator = memory::default_allocator()) {
-	auto str = file_content_str(file_path.data(), memory::tmp());
-	str_replace(str, "\r\n", "\n");
+Parser parser_from_file(mu::StrView file_path, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	auto str = mu::file_content_str(file_path.data(), mu::memory::tmp());
+	mu::str_replace(str, "\r\n", "\n");
 	return Parser {
 		.str = str,
-		.file_path = Str(file_path, allocator),
+		.file_path = mu::Str(file_path, allocator),
 	};
 }
 
@@ -39,7 +39,7 @@ bool parser_peek(const Parser& self, char c) {
 	return true;
 }
 
-bool parser_peek(const Parser& self, StrView s) {
+bool parser_peek(const Parser& self, mu::StrView s) {
 	if ((self.pos + s.size()) > self.str.size()) {
 		return false;
 	}
@@ -63,7 +63,7 @@ bool parser_accept(Parser& self, char c) {
 	return false;
 }
 
-bool parser_accept(Parser& self, StrView s) {
+bool parser_accept(Parser& self, mu::StrView s) {
 	if ((self.pos + s.size()) > self.str.size()) {
 		return false;
 	}
@@ -84,15 +84,15 @@ bool parser_accept(Parser& self, StrView s) {
 }
 
 template<typename ... Args>
-void parser_panic(const Parser& self, StrView err_msg, const Args& ... args) {
-	Str summary(self.str, memory::tmp());
+void parser_panic(const Parser& self, mu::StrView err_msg, const Args& ... args) {
+	mu::Str summary(self.str, mu::memory::tmp());
 	if (summary.size() > 90) {
 		summary.resize(90);
 		summary += "....";
 	}
-	str_replace(summary, "\n", "\\n");
+	mu::str_replace(summary, "\n", "\\n");
 
-	panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, str_tmpf(err_msg.data(), args...), summary, self.pos);
+	mu::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, mu::str_tmpf(err_msg.data(), args...), summary, self.pos);
 }
 
 template<typename T>
@@ -116,9 +116,9 @@ void parser_skip_after(Parser& self, char c) {
 	}
 }
 
-void parser_skip_after(Parser& self, StrView s) {
+void parser_skip_after(Parser& self, mu::StrView s) {
 	const size_t index = self.str.find(s, self.pos);
-	if (index == Str::npos) {
+	if (index == mu::Str::npos) {
 		parser_panic(self, "failed to find '{}'", s);
 	}
 
@@ -195,12 +195,12 @@ int64_t parser_token_i64(Parser& self) {
 	return d;
 }
 
-Str parser_token_str(Parser& self, memory::Allocator* allocator = memory::default_allocator()) {
+mu::Str parser_token_str(Parser& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	auto a = &self.str[self.pos];
 	while (self.pos < self.str.size() && self.str[self.pos] != ' ' && self.str[self.pos] != '\n') {
 		self.pos++;
 	}
-	return Str(a, &self.str[self.pos], allocator);
+	return mu::Str(a, &self.str[self.pos], allocator);
 }
 
 bool parser_finished(Parser& self) {
@@ -230,7 +230,7 @@ Parser parser_fork(Parser& self, size_t lines) {
 }
 
 void test_parser() {
-	Parser parser = parser_from_str("hello world \r\n m", memory::tmp());
+	Parser parser = parser_from_str("hello world \r\n m", mu::memory::tmp());
 	auto orig = parser;
 
 	my_assert(parser_peek(parser, "hello"));
@@ -261,18 +261,18 @@ void test_parser() {
 		parser_expect(parser, " m");
 	}
 
-	parser = parser_from_str("5\n-1.4\nhello 1%", memory::tmp());
+	parser = parser_from_str("5\n-1.4\nhello 1%", mu::memory::tmp());
 	my_assert(parser_token_u64(parser) == 5);
 	parser_expect(parser, '\n');
 	my_assert(parser_token_float(parser) == -1.4f);
 	parser_expect(parser, '\n');
-	my_assert(parser_token_str(parser, memory::tmp()) == "hello");
+	my_assert(parser_token_str(parser, mu::memory::tmp()) == "hello");
 	parser_expect(parser, ' ');
 	my_assert(parser_token_u64(parser) == 1);
 	parser_expect(parser, '%');
 	my_assert(parser.curr_line == 2);
 
-	log_debug("test_parser: all tests pass");
+	mu::log_debug("test_parser: all tests pass");
 }
 
 /*

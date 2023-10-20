@@ -19,22 +19,22 @@ constexpr uint8_t AUDIO_CHANNELS = 2;
 constexpr uint16_t AUDIO_SILENCE_VALUE = 0x7FFF;
 
 struct Audio {
-	Str file_path;
+	mu::Str file_path;
 	uint8_t* buffer;
 	uint32_t len;
 };
 
-Audio audio_new(StrView filename) {
-	Audio self { .file_path = Str(filename) };
+Audio audio_new(mu::StrView filename) {
+	Audio self { .file_path = mu::Str(filename) };
 	SDL_AudioSpec spec {};
 	if (SDL_LoadWAV(filename.data(), &spec, &self.buffer, &self.len) == nullptr) {
-        panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
+        mu::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
 
 	// convert
 	SDL_AudioCVT cvt;
 	if (SDL_BuildAudioCVT(&cvt, spec.format, spec.channels, spec.freq, AUDIO_FORMAT, AUDIO_CHANNELS, AUDIO_FREQUENCY) < 0) {
-		panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
+		mu::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
 	}
 	if (cvt.needed) {
 		cvt.len = self.len;
@@ -42,7 +42,7 @@ Audio audio_new(StrView filename) {
 		SDL_memcpy(cvt.buf, self.buffer, cvt.len);
 
 		if (SDL_ConvertAudio(&cvt) < 0) {
-			panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
+			mu::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
 		}
 
 		SDL_FreeWAV(self.buffer);
@@ -68,7 +68,7 @@ struct AudioPlayback {
 
 struct AudioDevice {
     SDL_AudioDeviceID id;
-	Vec<AudioPlayback> playbacks, looped_playbacks;
+	mu::Vec<AudioPlayback> playbacks, looped_playbacks;
 };
 
 constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
@@ -110,7 +110,7 @@ void audio_device_init(AudioDevice* self) {
 			for (int i = dev->playbacks.size()-1; i >= 0; i--) {
 				my_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
 				if (dev->playbacks[i].pos == dev->playbacks[i].audio->len) {
-					vec_remove_unordered(dev->playbacks, i);
+					mu::vec_remove_unordered(dev->playbacks, i);
 				}
 			}
 
@@ -140,7 +140,7 @@ void audio_device_init(AudioDevice* self) {
 
 	self->id = SDL_OpenAudioDevice(nullptr, false, &spec, nullptr, 0);
     if (self->id == 0) {
-        panic("failed to open audio device: {}", SDL_GetError());
+        mu::panic("failed to open audio device: {}", SDL_GetError());
     }
 
 	self->playbacks.reserve(32);
@@ -201,7 +201,7 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 		}
 	}
 
-	log_warning("didn't find audio '{}' to stop", file_get_base_name(audio.file_path));
+	mu::log_warning("didn't find audio '{}' to stop", mu::file_get_base_name(audio.file_path));
 }
 
 /*

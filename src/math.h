@@ -195,7 +195,7 @@ void test_aabbs_intersection() {
 		my_assert(aabbs_intersect(x, y));
 	}
 
-	log_debug("test_aabbs_intersection: all passed");
+	mu::log_debug("test_aabbs_intersection: all passed");
 }
 
 // margin of error
@@ -286,17 +286,17 @@ bool lines2d_intersect(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2
 	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
-Vec<uint32_t>
-polygons_to_triangles(const Vec<glm::vec3>& vertices, const Vec<uint32_t>& orig_indices, const glm::vec3& center) {
+mu::Vec<uint32_t>
+polygons_to_triangles(const mu::Vec<glm::vec3>& vertices, const mu::Vec<uint32_t>& orig_indices, const glm::vec3& center) {
 	// dbl_indices -> orig_indices -> vertices
 	// vertex = vertices[orig_indices[dbl_indices[i]]]
 	// indices to indices to vertices
 	// sort dbl_indices from farthest from center to nearst
-	Vec<size_t> dbl_indices(memory::tmp());
+	mu::Vec<size_t> dbl_indices(mu::memory::tmp());
 	for (size_t i = 0; i < orig_indices.size(); i++) {
 		dbl_indices.push_back(i);
 	}
-	Vec<double> dist_from_center(memory::tmp());
+	mu::Vec<double> dist_from_center(mu::memory::tmp());
 	for (const auto& v : vertices) {
 		dist_from_center.push_back(glm::distance(center, v));
 	}
@@ -304,7 +304,7 @@ polygons_to_triangles(const Vec<glm::vec3>& vertices, const Vec<uint32_t>& orig_
 		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
 	});
 
-	Vec<uint32_t> out{};
+	mu::Vec<uint32_t> out{};
 	auto indices = orig_indices;
 
 	// limit no of iterations to avoid inf loop
@@ -360,21 +360,21 @@ polygons_to_triangles(const Vec<glm::vec3>& vertices, const Vec<uint32_t>& orig_
 	}
 
 	if (indices.size() != 3) {
-		log_error("failed to tesselate");
+		mu::log_error("failed to tesselate");
 	}
 	std::copy(indices.begin(), indices.end(), std::back_inserter(out));
 	return out;
 }
 
-Vec<uint32_t>
-polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* allocator = memory::default_allocator()) {
+mu::Vec<uint32_t>
+polygons2d_to_triangles(const mu::Vec<glm::vec2>& vertices, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	glm::vec2 center {};
 	for (const auto& vertex : vertices) {
 		center += vertex;
 	}
 	center /= vertices.size();
 
-	Vec<uint32_t> orig_indices(memory::tmp());
+	mu::Vec<uint32_t> orig_indices(mu::memory::tmp());
 	orig_indices.reserve(vertices.size());
 	for (int i = 0; i < vertices.size(); i++) {
 		orig_indices.push_back(i);
@@ -384,11 +384,11 @@ polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* alloc
 	// vertex = vertices[orig_indices[dbl_indices[i]]]
 	// indices to indices to vertices
 	// sort dbl_indices from farthest from center to nearst
-	Vec<size_t> dbl_indices(memory::tmp());
+	mu::Vec<size_t> dbl_indices(mu::memory::tmp());
 	for (size_t i = 0; i < orig_indices.size(); i++) {
 		dbl_indices.push_back(i);
 	}
-	Vec<double> dist_from_center(memory::tmp());
+	mu::Vec<double> dist_from_center(mu::memory::tmp());
 	for (const auto& v : vertices) {
 		dist_from_center.push_back(glm::distance(center, v));
 	}
@@ -396,7 +396,7 @@ polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* alloc
 		return dist_from_center[orig_indices[a]] > dist_from_center[orig_indices[b]];
 	});
 
-	Vec<uint32_t> out(allocator);
+	mu::Vec<uint32_t> out(allocator);
 	auto indices = orig_indices;
 
 	// limit no of iterations to avoid inf loop
@@ -452,7 +452,7 @@ polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* alloc
 	}
 
 	if (indices.size() != 3) {
-		log_error("failed to tesselate");
+		mu::log_error("failed to tesselate");
 	}
 	std::copy(indices.begin(), indices.end(), std::back_inserter(out));
 	return out;
@@ -460,16 +460,16 @@ polygons2d_to_triangles(const Vec<glm::vec2>& vertices, memory::Allocator* alloc
 
 void test_polygons_to_triangles() {
 	{
-		const Vec<glm::vec3> vertices {
+		const mu::Vec<glm::vec3> vertices {
 			{2,4,0},
 			{2,2,0},
 			{3,2,0},
 			{4,3,0},
 			{4,4,0},
 		};
-		const auto indices = Vec<uint32_t>({0,1,2,3,4});
+		const auto indices = mu::Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
@@ -493,44 +493,44 @@ void test_polygons_to_triangles() {
 	}
 
 	{
-		const Vec<glm::vec3> vertices{
+		const mu::Vec<glm::vec3> vertices{
 			{4,4,0},
 			{5,3,0},
 			{4,2,0},
 			{3,3,0},
 		};
-		const auto indices = Vec<uint32_t>({0,1,2,3});
+		const auto indices = mu::Vec<uint32_t>({0,1,2,3});
 		const glm::vec3 center {4, 3, 0};
-		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
 	}
 
 	{
-		const Vec<glm::vec3> vertices{
+		const mu::Vec<glm::vec3> vertices{
 			{2,4,0},
 			{2,2,0},
 			{3,2,0},
 			{4,3,0},
 			{4,4,0},
 		};
-		const auto indices = Vec<uint32_t>({0,1,2,3,4});
+		const auto indices = mu::Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
-		const Vec<glm::vec3> vertices{
+		const mu::Vec<glm::vec3> vertices{
 			{0.19, -0.77, 0.82},
 			{0.23, -0.75, 0.68},
 			{0.20, -0.75, 0.00},
 			{0.32, -0.71, 0.00},
 			{0.31, -0.73, 0.96},
 		};
-		const auto indices = Vec<uint32_t>({0,1,2,3,4});
+		const auto indices = mu::Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {0.25, -0.742, 0.492};
-		my_assert(polygons_to_triangles(vertices, indices, center) == Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
+		my_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
 	}
 
-	log_debug("test_polygons_to_triangles: all passed");
+	mu::log_debug("test_polygons_to_triangles: all passed");
 }
 
 template<typename T>

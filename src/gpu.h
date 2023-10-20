@@ -17,11 +17,11 @@ void gpu_check_errors() {
 			case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
 			case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
 			}
-			log_error("GL::{}", error);
+			mu::log_error("GL::{}", error);
 			errors++;
 		}
 		if (errors > 0) {
-			panic("found {} opengl error(s)", errors);
+			mu::panic("found {} opengl error(s)", errors);
 		}
 	#endif
 }
@@ -45,7 +45,7 @@ GPU_Program gpu_program_new(const char* vertex_shader_src, const char* fragment_
     if (!vertex_shader_success) {
     	char info_log[512];
         glGetShaderInfoLog(vertex_shader, 512, NULL, info_log);
-        panic("failed to compile vertex shader, err: {}", info_log);
+        mu::panic("failed to compile vertex shader, err: {}", info_log);
     }
 
     // fragment shader
@@ -58,7 +58,7 @@ GPU_Program gpu_program_new(const char* vertex_shader_src, const char* fragment_
     if (!fragment_shader_success) {
     	char info_log[512];
         glGetShaderInfoLog(fragment_shader, 512, NULL, info_log);
-        panic("failed to compile fragment shader, err: {}", info_log);
+        mu::panic("failed to compile fragment shader, err: {}", info_log);
     }
 
     // link shaders
@@ -72,7 +72,7 @@ GPU_Program gpu_program_new(const char* vertex_shader_src, const char* fragment_
     if (!shader_program_success) {
     	char info_log[512];
         glGetProgramInfoLog(gpu_program, 512, NULL, info_log);
-        panic("failed to link vertex and fragment shaders, err: {}", info_log);
+        mu::panic("failed to link vertex and fragment shaders, err: {}", info_log);
     }
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);

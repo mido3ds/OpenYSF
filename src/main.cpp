@@ -42,7 +42,7 @@ constexpr float ZL_SCALE = 0.151f;
 constexpr double ANTI_COLL_LIGHT_PERIOD = 4;
 
 struct Face {
-	Vec<uint32_t> vertices_ids;
+	mu::Vec<uint32_t> vertices_ids;
 	glm::vec4 color;
 	glm::vec3 center, normal;
 };
@@ -113,7 +113,7 @@ namespace fmt {
 
 		template <typename FormatContext>
 		auto format(const AnimationClass &c, FormatContext &ctx) {
-			StrView s {};
+			mu::StrView s {};
 			switch (c) {
 			case AnimationClass::AIRCRAFT_LANDING_GEAR /*| AnimationClass::GROUND_DEFAULT*/:
 				s = "(AIRCRAFT_LANDING_GEAR||GROUND_DEFAULT)";
@@ -171,7 +171,7 @@ namespace fmt {
 
 			case AnimationClass::UNKNOWN:
 			default:
-				s = str_tmpf("UNKNOWN({})", (int)c); break;
+				s = mu::str_tmpf("UNKNOWN({})", (int)c); break;
 			}
 			return fmt::format_to(ctx.out(), "AnimationClass::{}", s);
 		}
@@ -225,7 +225,7 @@ namespace fmt {
 			case FieldID::FRIENDLY_TANK_GENERATOR: return fmt::format_to(ctx.out(), "FieldID::FRIENDLY_TANK_GENERATOR");
 			case FieldID::TOWER:                   return fmt::format_to(ctx.out(), "FieldID::TOWER");
 			case FieldID::VIEW_POINT:              return fmt::format_to(ctx.out(), "FieldID::VIEW_POINT");
-			default: log_error("found unknown ID = {}", (int) v);
+			default: mu::log_error("found unknown ID = {}", (int) v);
 			}
 			return fmt::format_to(ctx.out(), "FieldID::????");
 		}
@@ -255,15 +255,15 @@ struct Mesh {
 	// Flaps and ailerons and the like are also easily made (in the wing) and they move much better.
 	glm::vec3 cnt;
 
-	Str name; // name in SRF not FIL
-	Vec<glm::vec3> vertices;
-	Vec<bool> vertices_has_smooth_shading; // ???
-	Vec<Face> faces;
-	Vec<uint64_t> gfs; // ???
-	Vec<uint64_t> zls; // ids of faces to create a light sprite at the center of them
-	Vec<uint64_t> zzs; // ???
-	Vec<Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
-	Vec<MeshState> animation_states; // STA
+	mu::Str name; // name in SRF not FIL
+	mu::Vec<glm::vec3> vertices;
+	mu::Vec<bool> vertices_has_smooth_shading; // ???
+	mu::Vec<Face> faces;
+	mu::Vec<uint64_t> gfs; // ???
+	mu::Vec<uint64_t> zls; // ids of faces to create a light sprite at the center of them
+	mu::Vec<uint64_t> zzs; // ???
+	mu::Vec<mu::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
+	mu::Vec<MeshState> animation_states; // STA
 
 	// POS
 	MeshState initial_state; // should be kepts const after init
@@ -287,7 +287,7 @@ void mesh_load_to_gpu(Mesh& self) {
 		glm::vec4 color;
 		glm::vec3 normal;
 	};
-	Vec<Stride> buffer(memory::tmp());
+	mu::Vec<Stride> buffer(mu::memory::tmp());
 	for (const auto& face : self.faces) {
 		for (size_t i = 0; i < face.vertices_ids.size(); i++) {
 			buffer.push_back(Stride {
@@ -352,7 +352,7 @@ void mesh_unload_from_gpu(Mesh& self) {
 }
 
 struct StartInfo {
-	Str name;
+	mu::Str name;
 	glm::vec3 position;
 	glm::vec3 attitude;
 	float speed;
@@ -380,7 +380,7 @@ float _token_angle(Parser& parser) {
 }
 
 bool _token_bool(Parser& parser) {
-	const auto x = parser_token_str(parser, memory::tmp());
+	const auto x = parser_token_str(parser, mu::memory::tmp());
 	if (x == "TRUE") {
 		return true;
 	} else if (x == "FALSE") {
@@ -390,10 +390,10 @@ bool _token_bool(Parser& parser) {
 	return false;
 }
 
-Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
-	auto parser = parser_from_file(stp_file_abs_path, memory::tmp());
+mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
+	auto parser = parser_from_file(stp_file_abs_path, mu::memory::tmp());
 
-	Vec<StartInfo> start_infos;
+	mu::Vec<StartInfo> start_infos;
 
 	while (parser_finished(parser) == false) {
 		StartInfo start_info {};
@@ -424,7 +424,7 @@ Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
 				start_info.throttle = parser_token_float(parser);
 				parser_expect(parser, '\n');
 				if (start_info.throttle > 1 || start_info.throttle < 0) {
-					panic("throttle={} out of bounds [0,1]", start_info.throttle);
+					mu::panic("throttle={} out of bounds [0,1]", start_info.throttle);
 				}
 			} else if (parser_accept(parser, "CTLLDGEA ")) {
 				start_info.landing_gear_is_out = _token_bool(parser);
@@ -444,11 +444,11 @@ Vec<StartInfo> start_info_from_stp_file(StrView stp_file_abs_path) {
 
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
-	Str file_abs_path;
+	mu::Str file_abs_path;
 	bool should_load_file, should_be_removed;
 
-	Map<Str, Mesh> meshes;
-	Vec<Str> root_meshes_names;
+	mu::Map<mu::Str, Mesh> meshes;
+	mu::Vec<mu::Str> root_meshes_names;
 
 	AABB initial_aabb;
 	AABB current_aabb;
@@ -498,13 +498,13 @@ void model_set_start(Model& self, StartInfo& start_info) {
 	self.current_state.speed = start_info.speed;
 }
 
-Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
+Mesh mesh_from_srf_str(Parser& parser, mu::StrView name, size_t dnm_version = 1) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
 	if (parser_accept(parser, "SURF\n") == false) {
 		parser_expect(parser, "Surf\n");
 	}
 
-	Mesh mesh { .name = Str(name) };
+	Mesh mesh { .name = mu::Str(name) };
 
 	// V {x} {y} {z}[ R]\n
 	while (parser_accept(parser, "V ")) {
@@ -526,11 +526,11 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		mesh.vertices_has_smooth_shading.push_back(smooth_shading);
 	}
 	if (mesh.vertices.size() == 0) {
-		log_error("'{}': doesn't have any vertices!", name);
+		mu::log_error("'{}': doesn't have any vertices!", name);
 	}
 
 	// <Face>+
-	Vec<bool> faces_unshaded_light_source(memory::tmp());
+	mu::Vec<bool> faces_unshaded_light_source(mu::memory::tmp());
 	while (parser_accept(parser, "F\n")) {
 		Face face {};
 		bool parsed_color = false,
@@ -541,7 +541,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		while (!parser_accept(parser, "E\n")) {
 			if (parser_accept(parser, "C ")) {
 				if (parsed_color) {
-					panic("'{}': found more than one color", name);
+					mu::panic("'{}': found more than one color", name);
 				}
 				parsed_color = true;
 				face.color.a = 1.0f;
@@ -576,7 +576,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "N ")) {
 				if (parsed_normal) {
-					panic("'{}': found more than one normal", name);
+					mu::panic("'{}': found more than one normal", name);
 				}
 				parsed_normal = true;
 
@@ -595,42 +595,42 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, 'V')) {
 				// V {x}...
-				Vec<uint32_t> polygon_vertices_ids(memory::tmp());
+				mu::Vec<uint32_t> polygon_vertices_ids(mu::memory::tmp());
 				while (parser_accept(parser, ' ')) {
 					auto id = parser_token_u64(parser);
 					if (id >= mesh.vertices.size()) {
-						panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.size());
+						mu::panic("'{}': id={} out of bounds={}", name, id, mesh.vertices.size());
 					}
 					polygon_vertices_ids.push_back((uint32_t) id);
 				}
 				parser_expect(parser, '\n');
 
 				if (parsed_vertices) {
-					log_error("'{}': found more than one vertices line, ignore others", name);
+					mu::log_error("'{}': found more than one vertices line, ignore others", name);
 				} else {
 					parsed_vertices = true;
 
 					if (polygon_vertices_ids.size() < 3) {
-						log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.size());
+						mu::log_error("'{}': face has count of ids={}, it should be >= 3", name, polygon_vertices_ids.size());
 					}
 
 					face.vertices_ids = polygons_to_triangles(mesh.vertices, polygon_vertices_ids, face.center);
 					if (face.vertices_ids.size() % 3 != 0) {
-						Vec<glm::vec3> orig_vertices(memory::tmp());
+						mu::Vec<glm::vec3> orig_vertices(mu::memory::tmp());
 						for (auto id : polygon_vertices_ids) {
 							orig_vertices.push_back(mesh.vertices[id]);
 						}
-						Vec<glm::vec3> new_vertices(memory::tmp());
+						mu::Vec<glm::vec3> new_vertices(mu::memory::tmp());
 						for (auto id : face.vertices_ids) {
 							new_vertices.push_back(mesh.vertices[id]);
 						}
-						log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, parser.curr_line+1,
+						mu::log_error("{}:{}: num of vertices_ids must have been divisble by 3 to be triangles, but found {}, original vertices={}, new vertices={}", name, parser.curr_line+1,
 							face.vertices_ids.size(), orig_vertices, new_vertices);
 					}
 				}
 			} else if (parser_accept(parser, "B\n")) {
 				if (is_light_source) {
-					log_error("'{}': found more than 1 B for same face", name);
+					mu::log_error("'{}': found more than 1 B for same face", name);
 				}
 				is_light_source = true;
 			} else {
@@ -639,13 +639,13 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		}
 
 		if (!parsed_color) {
-			log_error("'{}': face has no color", name);
+			mu::log_error("'{}': face has no color", name);
 		}
 		if (!parsed_normal) {
-			log_error("'{}': face has no normal", name);
+			mu::log_error("'{}': face has no normal", name);
 		}
 		if (!parsed_vertices) {
-			log_error("'{}': face has no vertices", name);
+			mu::log_error("'{}': face has no vertices", name);
 		}
 
 		faces_unshaded_light_source.push_back(is_light_source);
@@ -662,7 +662,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					mu::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				mesh.gfs.push_back(id);
 			}
@@ -671,7 +671,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					mu::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				parser_expect(parser, ' ');
 				mesh.faces[id].color.a = (255 - parser_token_u8(parser)) / 255.0f;
@@ -683,7 +683,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					mu::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				mesh.zls.push_back(id);
 			}
@@ -691,13 +691,13 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 		} else if  (parser_accept(parser, "ZZ")) { // [ZZ< {u64}>+\n]
 			zz_count++;
 			if (zz_count > 1) {
-				panic("'{}': found {} > 1 ZZs", name, zz_count);
+				mu::panic("'{}': found {} > 1 ZZs", name, zz_count);
 			}
 
 			while (parser_accept(parser, ' ')) {
 				auto id = parser_token_u64(parser);
 				if (id >= mesh.faces.size()) {
-					panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
+					mu::panic("'{}': out of range faceid={}, range={}", name, id, mesh.faces.size());
 				}
 				mesh.zzs.push_back(id);
 			}
@@ -719,7 +719,7 @@ Mesh mesh_from_srf_str(Parser& parser, StrView name, size_t dnm_version = 1) {
 }
 
 inline static void
-_str_unquote(Str& s) {
+_str_unquote(mu::Str& s) {
 	if (s.size() < 2) {
 		return;
 	}
@@ -729,10 +729,10 @@ _str_unquote(Str& s) {
 	}
 }
 
-Model model_from_dnm_file(StrView dnm_file_abs_path) {
-	auto parser = parser_from_file(dnm_file_abs_path, memory::tmp());
+Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
+	auto parser = parser_from_file(dnm_file_abs_path, mu::memory::tmp());
 	Model model {
-		.file_abs_path = Str(dnm_file_abs_path),
+		.file_abs_path = mu::Str(dnm_file_abs_path),
 		.initial_aabb = AABB {
 			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
 			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
@@ -742,13 +742,13 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	parser_expect(parser, "DYNAMODEL\nDNMVER ");
 	const uint8_t dnm_version = parser_token_u8(parser);
 	if (dnm_version > 2) {
-		panic("unsupported version {}", dnm_version);
+		mu::panic("unsupported version {}", dnm_version);
 	}
 	parser_expect(parser, '\n');
 
-	Map<Str, Mesh> meshes {};
+	mu::Map<mu::Str, Mesh> meshes {};
 	while (parser_accept(parser, "PCK ")) {
-		auto name = parser_token_str(parser, memory::tmp());
+		auto name = parser_token_str(parser, mu::memory::tmp());
 		parser_expect(parser, ' ');
 		const auto pck_expected_no_lines = parser_token_u64(parser);
 		parser_expect(parser, '\n');
@@ -762,7 +762,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		const auto current_lineno = parser.curr_line;
 		const auto pck_found_linenos = current_lineno - pck_first_lineno - 1;
 		if (pck_found_linenos != pck_expected_no_lines) {
-			log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
+			mu::log_error("'{}':{} expected {} lines in PCK, found {}", name, current_lineno, pck_expected_no_lines, pck_found_linenos);
 		}
 
 		meshes[name] = mesh;
@@ -770,18 +770,18 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 
 	while (parser_accept(parser, "SRF ")) {
 		auto name = parser_token_str(parser);
-		if (!(str_prefix(name, "\"") && str_suffix(name, "\""))) {
-			panic("name must be in \"\" found={}", name);
+		if (!(mu::str_prefix(name, "\"") && mu::str_suffix(name, "\""))) {
+			mu::panic("name must be in \"\" found={}", name);
 		}
 		_str_unquote(name);
 		parser_expect(parser, '\n');
 
 		parser_expect(parser, "FIL ");
-		auto fil = parser_token_str(parser, memory::tmp());
+		auto fil = parser_token_str(parser, mu::memory::tmp());
 		parser_expect(parser, '\n');
 		auto surf = meshes.find(fil);
 		if (surf == meshes.end()) {
-			panic("'{}': line referenced undeclared surf={}", name, fil);
+			mu::panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
 		surf->second.name = name;
 
@@ -825,7 +825,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 			if (visible == 1 || visible == 0) {
 				sta.visible = (visible == 1);
 			} else {
-				log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
+				mu::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 			}
 			parser_expect(parser, '\n');
 
@@ -857,7 +857,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 					if (visible == 1 || visible == 0) {
 						surf->second.initial_state.visible = (visible == 1);
 					} else {
-						log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
+						mu::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 					}
 				} else {
 					surf->second.initial_state.visible = true;
@@ -889,8 +889,8 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 				for (size_t i = 0; i < num_children; i++) {
 					parser_expect(parser, "CLD ");
 					auto child_name = parser_token_str(parser);
-					if (!(str_prefix(child_name, "\"") && str_suffix(child_name, "\""))) {
-						panic("'{}': child_name must be in \"\" found={}", name, child_name);
+					if (!(mu::str_prefix(child_name, "\"") && mu::str_suffix(child_name, "\""))) {
+						mu::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					_str_unquote(child_name);
 					surf->second.children.push_back(child_name);
@@ -909,7 +909,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 		}
 		if (read_rel_dep == false) {
 			// aircraft/cessna172r.dnm doesn't have REL DEP
-			log_error("'{}':{} failed to find REL DEP", name, parser.curr_line+1);
+			mu::log_error("'{}':{} failed to find REL DEP", name, parser.curr_line+1);
 		}
 		if (read_nch == false) {
 			parser_panic(parser, "failed to find NCH");
@@ -932,7 +932,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	for (const auto [_, srf] : meshes) {
 		for (const auto child : srf.children) {
 			if (meshes.at(child).name == srf.name) {
-				log_warning("SURF {} references itself", child);
+				mu::log_warning("SURF {} references itself", child);
 			}
 		}
 	}
@@ -940,7 +940,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	model.meshes = meshes;
 
 	// top level nodes = nodes without parents
-	Set<StrView> surfs_with_parents(memory::tmp());
+	mu::Set<mu::StrView> surfs_with_parents(mu::memory::tmp());
 	for (const auto& [_, surf] : meshes) {
 		for (const auto& child : surf.children) {
 			surfs_with_parents.insert(child);
@@ -953,7 +953,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 	}
 
 	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
-	Vec<Mesh*> meshes_stack(memory::tmp());
+	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 	for (const auto& name : model.root_meshes_names) {
 		Mesh& mesh = model.meshes.at(name);
 		mesh.transformation = glm::identity<glm::mat4>();
@@ -984,7 +984,7 @@ Model model_from_dnm_file(StrView dnm_file_abs_path) {
 			}
 		}
 
-		for (const Str& child_name : mesh->children) {
+		for (const mu::Str& child_name : mesh->children) {
 			auto& child_mesh = model.meshes.at(child_name);
 			child_mesh.cnt += mesh->cnt;
 			meshes_stack.push_back(&child_mesh);
@@ -1111,15 +1111,15 @@ struct Block {
 };
 
 struct TerrMesh {
-	Str name, tag;
+	mu::Str name, tag;
 	FieldID id;
 
 	// x,z
 	glm::vec2 scale = {1,1};
 
 	// [z][x] where (z=0,x=0) is bot-left most
-	Vec<Vec<float>> nodes_height;
-	Vec<Vec<Block>> blocks;
+	mu::Vec<mu::Vec<float>> nodes_height;
+	mu::Vec<mu::Vec<Block>> blocks;
 
 	struct {
 		bool enabled;
@@ -1146,7 +1146,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		glm::vec3 vertex;
 		glm::vec4 color;
 	};
-	Vec<Stride> buffer(memory::tmp());
+	mu::Vec<Stride> buffer(mu::memory::tmp());
 
 	// main triangles
 	for (size_t z = 0; z < self.blocks.size(); z++) {
@@ -1275,7 +1275,7 @@ struct Primitive2D {
 	glm::vec3 color2; // only for kind=GRADATION_QUAD_STRIPS
 
 	// (X,Z), y=0
-	Vec<glm::vec2> vertices;
+	mu::Vec<glm::vec2> vertices;
 
 	struct {
 		GLuint vao, vbo;
@@ -1285,7 +1285,7 @@ struct Primitive2D {
 };
 
 void primitive2d_load_to_gpu(Primitive2D& self) {
-	Vec<glm::vec2> vertices(memory::tmp());
+	mu::Vec<glm::vec2> vertices(mu::memory::tmp());
 	switch (self.kind) {
 	case Primitive2D::Kind::POINTS:
 		self.gpu.primitive_type = GL_POINTS;
@@ -1331,7 +1331,7 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 	case Primitive2D::Kind::POLYGON:
 	{
 		self.gpu.primitive_type = GL_TRIANGLES;
-		auto indices = polygons2d_to_triangles(self.vertices, memory::tmp());
+		auto indices = polygons2d_to_triangles(self.vertices, mu::memory::tmp());
 		for (auto& index : indices) {
 			vertices.push_back(self.vertices[index]);
 		}
@@ -1370,10 +1370,10 @@ void prmitive2d_unload_from_gpu(Primitive2D& self) {
 }
 
 struct Picture2D {
-	Str name;
+	mu::Str name;
 	FieldID id;
 
-	Vec<Primitive2D> primitives;
+	mu::Vec<Primitive2D> primitives;
 	struct {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
@@ -1424,24 +1424,24 @@ struct FieldRegion {
 	glm::vec2 min, max;
 	glm::mat4 transformation;
 	FieldID id;
-	Str tag;
+	mu::Str tag;
 };
 
 struct Field {
-	Str name;
+	mu::Str name;
 	FieldID id;
 
 	AreaKind default_area;
 	glm::vec3 ground_color, sky_color;
 	bool ground_specular; // ????
 
-	Vec<TerrMesh> terr_meshes;
-	Vec<Picture2D> pictures;
-	Vec<FieldRegion> regions;
-	Vec<Field> subfields;
-	Vec<Mesh> meshes;
+	mu::Vec<TerrMesh> terr_meshes;
+	mu::Vec<Picture2D> pictures;
+	mu::Vec<FieldRegion> regions;
+	mu::Vec<Field> subfields;
+	mu::Vec<Mesh> meshes;
 
-	Str file_abs_path;
+	mu::Str file_abs_path;
 	bool should_select_file, should_load_file, should_transform = true;
 
 	glm::mat4 transformation;
@@ -1461,14 +1461,14 @@ Field _field_from_fld_str(Parser& parser) {
 	while (true) {
 		if (parser_accept(parser, "FLDVERSION ")) {
 			// TODO
-			log_warning("{}: found FLDVERSION, doesn't support it, skip for now", parser.curr_line+1);
+			mu::log_warning("{}: found FLDVERSION, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, '\n');
 		} else if (parser_accept(parser, "FLDNAME ")) {
-			log_warning("{}: found FLDNAME, doesn't support it, skip for now", parser.curr_line+1);
+			mu::log_warning("{}: found FLDNAME, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, '\n');
 		} else if (parser_accept(parser, "TEXMAN")) {
 			// TODO
-			log_warning("{}: found TEXMAN, doesn't support it, skip for now", parser.curr_line+1);
+			mu::log_warning("{}: found TEXMAN, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "TEXMAN ENDTEXTURE\n");
 		} else {
 			break;
@@ -1498,7 +1498,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 	field.default_area = AreaKind::NOAREA;
 	if (parser_accept(parser, "DEFAREA ")) {
-		const auto default_area_str = parser_token_str(parser, memory::tmp());
+		const auto default_area_str = parser_token_str(parser, mu::memory::tmp());
 		parser_expect(parser, '\n');
 		if (default_area_str == "NOAREA") {
 			field.default_area = AreaKind::NOAREA;
@@ -1513,24 +1513,24 @@ Field _field_from_fld_str(Parser& parser) {
 
 	if (parser_accept(parser, "BASEELV ")) {
 		// TODO
-		log_warning("{}: found BASEELV, doesn't understand it, skip for now", parser.curr_line+1);
+		mu::log_warning("{}: found BASEELV, doesn't understand it, skip for now", parser.curr_line+1);
 		parser_skip_after(parser, '\n');
 	}
 
 	if (parser_accept(parser, "MAGVAR ")) {
 		// TODO
-		log_warning("{}: found MAGVAR, doesn't understand it, skip for now", parser.curr_line+1);
+		mu::log_warning("{}: found MAGVAR, doesn't understand it, skip for now", parser.curr_line+1);
 		parser_skip_after(parser, '\n');
 	}
 
 	if (parser_accept(parser, "CANRESUME TRUE\n") || parser_accept(parser, "CANRESUME FALSE\n")) {
 		// TODO
-		log_warning("{}: found CANRESUME, doesn't understand it, skip for now", parser.curr_line+1);
+		mu::log_warning("{}: found CANRESUME, doesn't understand it, skip for now", parser.curr_line+1);
 	}
 
 	while (parser_accept(parser, "AIRROUTE\n")) {
 		// TODO
-		log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", parser.curr_line+1);
+		mu::log_warning("{}: found AIRROUTE, doesn't understand it, skip for now", parser.curr_line+1);
 		parser_skip_after(parser, "ENDAIRROUTE\n");
 	}
 
@@ -1554,12 +1554,12 @@ Field _field_from_fld_str(Parser& parser) {
 
 			if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 				// TODO
-				log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
+				mu::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
 			if (parser_accept(parser, "TEX MAIN")) {
 				// TODO
-				log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", parser.curr_line+1);
+				mu::log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", parser.curr_line+1);
 				parser_skip_after(parser, "\n");
 			}
 
@@ -1700,7 +1700,7 @@ Field _field_from_fld_str(Parser& parser) {
 			while (parser_accept(parser, "ENDPICT\n") == false) {
 				Primitive2D permitive {};
 
-				auto kind_str = parser_token_str(parser, memory::tmp());
+				auto kind_str = parser_token_str(parser, mu::memory::tmp());
 				parser_expect(parser, '\n');
 
 				if (kind_str == "LSQ") {
@@ -1720,14 +1720,14 @@ Field _field_from_fld_str(Parser& parser) {
 				} else if (kind_str == "TRI") {
 					permitive.kind = Primitive2D::Kind::TRIANGLES;
 				} else {
-					log_warning("{}: invalid pict2 kind={}, skip for now", parser.curr_line+1, kind_str);
+					mu::log_warning("{}: invalid pict2 kind={}, skip for now", parser.curr_line+1, kind_str);
 					parser_skip_after(parser, "ENDO\n");
 					continue;
 				}
 
 				if (parser_accept(parser, "DST ")) {
 					// TODO
-					log_warning("{}: found DST, doesn't understand it, skip for now", parser.curr_line+1);
+					mu::log_warning("{}: found DST, doesn't understand it, skip for now", parser.curr_line+1);
 					parser_skip_after(parser, '\n');
 				}
 
@@ -1752,13 +1752,13 @@ Field _field_from_fld_str(Parser& parser) {
 				while (parser_accept(parser, "ENDO\n") == false) {
 					if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 						// TODO
-						log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
+						mu::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 						continue;
 					}
 
 					if (parser_accept(parser, "TXL")) {
 						// TODO
-						log_warning("{}: found TXL, doesn't understand it, skip for now", parser.curr_line+1);
+						mu::log_warning("{}: found TXL, doesn't understand it, skip for now", parser.curr_line+1);
 						parser_skip_after(parser, '\n');
 						while (parser_accept(parser, "TXC")) {
 							parser_skip_after(parser, '\n');
@@ -1781,7 +1781,7 @@ Field _field_from_fld_str(Parser& parser) {
 				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.size() % 3 != 0) {
 					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, permitive.vertices.size());
 				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.size() % 2 != 0) {
-					log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.size());
+					mu::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.size());
 					permitive.vertices.pop_back();
 				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.size() == 1) {
 					parser_panic(parser, "{}: kind is line but has one point", parser.curr_line+1);
@@ -1800,13 +1800,13 @@ Field _field_from_fld_str(Parser& parser) {
 			auto mesh = mesh_from_srf_str(subparser, name);
 			field.meshes.push_back(mesh);
 		} else {
-			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, memory::tmp()));
+			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, mu::memory::tmp()));
 		}
 
 		const size_t last_line_no = parser.curr_line+1;
 		const size_t curr_lines_count = last_line_no - first_line_no;
 		if (curr_lines_count != total_lines_count) {
-			log_error("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
+			mu::log_error("{}: expected {} lines, found {}", last_line_no, total_lines_count, curr_lines_count);
 		}
 
 		parser_expect(parser, "\n\n");
@@ -1818,7 +1818,7 @@ Field _field_from_fld_str(Parser& parser) {
 	while (parser_finished(parser) == false) {
 		if (parser_accept(parser, "FLD\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, memory::tmp());
+			auto name = parser_token_str(parser, mu::memory::tmp());
 			_str_unquote(name);
 			parser_expect(parser, '\n');
 
@@ -1854,7 +1854,7 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, "\nEND\n");
 		} else if (parser_accept(parser, "TER\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, memory::tmp());
+			auto name = parser_token_str(parser, mu::memory::tmp());
 			_str_unquote(name);
 			parser_expect(parser, '\n');
 
@@ -1898,7 +1898,7 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, "END\n");
 		} else if (parser_accept(parser, "PC2\n") || parser_accept(parser, "PLT\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, memory::tmp());
+			auto name = parser_token_str(parser, mu::memory::tmp());
 			_str_unquote(name);
 			parser_expect(parser, '\n');
 
@@ -1948,7 +1948,7 @@ Field _field_from_fld_str(Parser& parser) {
 
 			if (parser_accept(parser, "SUB DEADLOCKFREEAP\n")) {
 				// TODO
-				log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", parser.curr_line+1);
+				mu::log_warning("{}: found SUB DEADLOCKFREEAP, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
 			parser_expect(parser, "POS ");
@@ -1989,19 +1989,19 @@ Field _field_from_fld_str(Parser& parser) {
 			field.regions.push_back(region);
 		} else if (parser_accept(parser, "PST\n")) {
 			// TODO
-			log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
+			mu::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "GOB\n")) {
 			// TODO
-			log_warning("{}: found GOB, doesn't understand it, skip for now", parser.curr_line+1);
+			mu::log_warning("{}: found GOB, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "AOB\n")) {
 			// TODO
-			log_warning("{}: found AOB, doesn't understand it, skip for now", parser.curr_line+1);
+			mu::log_warning("{}: found AOB, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "SRF\n")) {
 			parser_expect(parser, "FIL ");
-			auto name = parser_token_str(parser, memory::tmp());
+			auto name = parser_token_str(parser, mu::memory::tmp());
 			_str_unquote(name);
 			parser_expect(parser, '\n');
 
@@ -2041,20 +2041,20 @@ Field _field_from_fld_str(Parser& parser) {
 		} else if (parser_accept(parser, '\n')) {
 			// aomori.fld adds extra spaces
 		} else {
-			parser_panic(parser, "{}: found invalid type = '{}'", parser.curr_line+1, parser_token_str(parser, memory::tmp()));
+			parser_panic(parser, "{}: found invalid type = '{}'", parser.curr_line+1, parser_token_str(parser, mu::memory::tmp()));
 		}
 	}
 
 	return field;
 }
 
-Field field_from_fld_file(StrView fld_file_abs_path) {
-	auto parser = parser_from_file(fld_file_abs_path, memory::tmp());
+Field field_from_fld_file(mu::StrView fld_file_abs_path) {
+	auto parser = parser_from_file(fld_file_abs_path, mu::memory::tmp());
 
 	auto field = _field_from_fld_str(parser);
-	field.file_abs_path = Str(fld_file_abs_path);
+	field.file_abs_path = mu::Str(fld_file_abs_path);
 	if (field.name.size() == 0) {
-		field.name += file_get_base_name(fld_file_abs_path);
+		field.name += mu::file_get_base_name(fld_file_abs_path);
 	}
 
 	return field;
@@ -2090,8 +2090,8 @@ void field_unload_from_gpu(Field& self) {
 	}
 }
 
-Vec<Field*> field_list_recursively(Field& self, memory::Allocator* allocator = memory::default_allocator()) {
-	Vec<Field*> buf(allocator);
+mu::Vec<Field*> field_list_recursively(Field& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	mu::Vec<Field*> buf(allocator);
 	buf.push_back(&self);
 
 	for (size_t i = 0; i < buf.size(); i++) {
@@ -2111,9 +2111,9 @@ struct Sounds {
 	Audio bang, blast, blast2, bombsaway, burner, damage;
 	Audio extendldg, gearhorn, gun, hit, missile, notice;
 	Audio retractldg, rocket, stallhorn, touchdwn, warning, engine;
-	Arr<Audio, 10> engines, props;
+	mu::Arr<Audio, 10> engines, props;
 
-	Vec<Audio*> as_array;
+	mu::Vec<Audio*> as_array;
 
 	~Sounds() {
 		for (int i = 0; i < as_array.size(); i++) {
@@ -2123,7 +2123,7 @@ struct Sounds {
 };
 
 inline static void
-_sounds_load(Sounds& self, Audio& audio, StrView path) {
+_sounds_load(Sounds& self, Audio& audio, mu::StrView path) {
 	audio = audio_new(path);
 	self.as_array.emplace_back(&audio);
 }
@@ -2148,40 +2148,40 @@ void sounds_load(Sounds& self) {
 	_sounds_load(self, self.warning,    ASSETS_DIR "/sound/warning.wav");
 	_sounds_load(self, self.engine,     ASSETS_DIR "/sound/engine.wav");
 	for (int i = 0; i < self.engines.size(); i++) {
-		_sounds_load(self, self.engines[i], str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i));
+		_sounds_load(self, self.engines[i], mu::str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i));
 	}
 	for (int i = 0; i < self.engines.size(); i++) {
-		_sounds_load(self, self.props[i], str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
+		_sounds_load(self, self.props[i], mu::str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
 	}
 }
 
-struct ImGuiWindowLogger : public ILogger {
-	memory::Arena _arena;
-	Vec<Str> logs;
+struct ImGuiWindowLogger : public mu::ILogger {
+	mu::memory::Arena _arena;
+	mu::Vec<mu::Str> logs;
 
 	bool auto_scrolling = true;
 	bool wrapped = false;
 	float last_scrolled_line = 0;
 
-	virtual void log_debug(StrView str) override {
-		logs.emplace_back(str_format(&_arena, "> {}\n", str));
+	virtual void log_debug(mu::StrView str) override {
+		logs.emplace_back(mu::str_format(&_arena, "> {}\n", str));
 		fmt::print("[debug] {}\n", str);
 	}
 
-	virtual void log_info(StrView str) override {
-		auto formatted = str_format(&_arena, "[info] {}\n", str);
+	virtual void log_info(mu::StrView str) override {
+		auto formatted = mu::str_format(&_arena, "[info] {}\n", str);
 		fmt::vprint(stdout, formatted, {});
 		logs.emplace_back(std::move(formatted));
 	}
 
-	virtual void log_warning(StrView str) override {
-		auto formatted = str_format(&_arena, "[warning] {}\n", str);
+	virtual void log_warning(mu::StrView str) override {
+		auto formatted = mu::str_format(&_arena, "[warning] {}\n", str);
 		fmt::vprint(stdout, formatted, {});
 		logs.emplace_back(std::move(formatted));
 	}
 
-	virtual void log_error(StrView str) override {
-		auto formatted = str_format(&_arena, "[error] {}\n", str);
+	virtual void log_error(mu::StrView str) override {
+		auto formatted = mu::str_format(&_arena, "[error] {}\n", str);
 		fmt::vprint(stderr, formatted, {});
 		logs.emplace_back(std::move(formatted));
 	}
@@ -2189,37 +2189,37 @@ struct ImGuiWindowLogger : public ILogger {
 
 int main() {
 	ImGuiWindowLogger imgui_window_logger {};
-	log_global_logger = (ILogger*) &imgui_window_logger;
+	mu::log_global_logger = (mu::ILogger*) &imgui_window_logger;
 
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
 	struct AircraftFiles {
-		Str short_name; // a4.dat -> a4
-		Str dat, dnm, collision, cockpit;
-		Str coarse; // optional
+		mu::Str short_name; // a4.dat -> a4
+		mu::Str dat, dnm, collision, cockpit;
+		mu::Str coarse; // optional
 	};
-	Vec<AircraftFiles> aircrafts {};
+	mu::Vec<AircraftFiles> aircrafts {};
 	{
 		auto parser = parser_from_file(ASSETS_DIR "/aircraft/aircraft.lst");
 
 		while (!parser_finished(parser)) {
 			AircraftFiles aircraft {};
 
-			aircraft.dat = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			aircraft.dat = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
 			parser_expect(parser, ' ');
 
-			aircraft.dnm = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			aircraft.dnm = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
 			parser_expect(parser, ' ');
 
-			aircraft.collision = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			aircraft.collision = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
 			parser_expect(parser, ' ');
 
-			aircraft.cockpit = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+			aircraft.cockpit = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
 
 			if (parser_accept(parser, ' ')) {
-				aircraft.coarse = str_format(ASSETS_DIR "/{}", parser_token_str(parser, memory::tmp()));
+				aircraft.coarse = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
 			}
 			parser_expect(parser, '\n');
 
@@ -2235,7 +2235,7 @@ int main() {
 
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-		panic(SDL_GetError());
+		mu::panic(SDL_GetError());
 	}
 	defer(SDL_Quit());
 
@@ -2246,25 +2246,25 @@ int main() {
 		SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | WND_FLAGS
 	);
 	if (!sdl_window) {
-		panic(SDL_GetError());
+		mu::panic(SDL_GetError());
 	}
 	defer(SDL_DestroyWindow(sdl_window));
 	SDL_SetWindowBordered(sdl_window, SDL_TRUE);
 
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR))  { panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR))  { panic(SDL_GetError()); }
-	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER))           { panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, GL_CONTEXT_PROFILE)) { mu::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_CONTEXT_MAJOR))  { mu::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_CONTEXT_MINOR))  { mu::panic(SDL_GetError()); }
+	if (SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, GL_DOUBLE_BUFFER))           { mu::panic(SDL_GetError()); }
 
 	auto gl_context = SDL_GL_CreateContext(sdl_window);
 	if (!gl_context) {
-		panic(SDL_GetError());
+		mu::panic(SDL_GetError());
 	}
 	defer(SDL_GL_DeleteContext(gl_context));
 
 	// glad: load all OpenGL function pointers
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-		panic("failed to load GLAD function pointers");
+		mu::panic("failed to load GLAD function pointers");
 	}
 
 	// setup audio
@@ -2276,21 +2276,21 @@ int main() {
 	sounds_load(sounds);
 
 	// setup imgui
-	auto _imgui_ini_file_path = str_format("{}/{}", folder_config(memory::tmp()), "open-ysf-imgui.ini");
+	auto _imgui_ini_file_path = mu::str_format("{}/{}", mu::folder_config(mu::memory::tmp()), "open-ysf-imgui.ini");
 
 	IMGUI_CHECKVERSION();
     if (ImGui::CreateContext() == nullptr) {
-		panic("failed to create imgui context");
+		mu::panic("failed to create imgui context");
 	}
 	defer(ImGui::DestroyContext());
 	ImGui::StyleColorsDark();
 
 	if (!ImGui_ImplSDL2_InitForOpenGL(sdl_window, gl_context)) {
-		panic("failed to init imgui implementation for SDL2");
+		mu::panic("failed to init imgui implementation for SDL2");
 	}
 	defer(ImGui_ImplSDL2_Shutdown());
     if (!ImGui_ImplOpenGL3_Init("#version 330")) {
-		panic("failed to init imgui implementation for OpenGL3");
+		mu::panic("failed to init imgui implementation for OpenGL3");
 	}
 	defer(ImGui_ImplOpenGL3_Shutdown());
 
@@ -2348,7 +2348,7 @@ int main() {
 	defer(gpu_program_free(meshes_gpu_program));
 
 	// models
-	Vec<Model> models;
+	mu::Vec<Model> models;
 	{
 		auto model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
 		model_load_to_gpu(model);
@@ -2423,7 +2423,7 @@ int main() {
 			glm::vec3 vertex;
 			glm::vec4 color;
 		};
-		const Vec<Stride> buffer {
+		const mu::Vec<Stride> buffer {
 			Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
 			Stride {{1, 0, 0}, {1, 0, 0, 1}},
 			Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
@@ -2507,7 +2507,7 @@ int main() {
 		glDeleteVertexArrays(1, &box_rendering.vao);
 	});
 	{
-		const Vec<glm::vec3> buffer {
+		const mu::Vec<glm::vec3> buffer {
 			{0, 0, 0}, // face x0
 			{0, 1, 0},
 			{0, 1, 1},
@@ -2678,7 +2678,7 @@ int main() {
 	// groundtile
 	SDL_Surface* groundtile = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
 	if (groundtile == nullptr || groundtile->pixels == nullptr) {
-		panic("failed to load groundtile.png");
+		mu::panic("failed to load groundtile.png");
 	}
 	defer(SDL_FreeSurface(groundtile));
 
@@ -2740,7 +2740,7 @@ int main() {
 	// zl_sprite
 	SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
 	if (zl_sprite == nullptr || zl_sprite->pixels == nullptr) {
-		panic("failed to load rwlight.png");
+		mu::panic("failed to load rwlight.png");
 	}
 	defer(SDL_FreeSurface(zl_sprite));
 
@@ -2758,9 +2758,9 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	while (running) {
-		memory::reset_tmp();
+		mu::memory::reset_tmp();
 
-		Vec<Str> overlay_text(memory::tmp());
+		mu::Vec<mu::Str> overlay_text(mu::memory::tmp());
 
 		// time
 		{
@@ -2785,7 +2785,7 @@ int main() {
 				delta_time = 0.0001f;
 			}
 		}
-		overlay_text.emplace_back(str_tmpf("fps: {:.2f}", 1.0f/delta_time));
+		overlay_text.emplace_back(mu::str_tmpf("fps: {:.2f}", 1.0f/delta_time));
 
 		camera_update(camera, delta_time);
 
@@ -2807,11 +2807,11 @@ int main() {
 					wnd_size_changed = true;
 					if (fullscreen) {
 						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
-							panic(SDL_GetError());
+							mu::panic(SDL_GetError());
 						}
 					} else {
 						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL)) {
-							panic(SDL_GetError());
+							mu::panic(SDL_GetError());
 						}
 					}
 					break;
@@ -2844,7 +2844,7 @@ int main() {
 			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
 			if (result.size() == 1) {
 				field.file_abs_path = result[0];
-				log_debug("loading '{}'", field.file_abs_path);
+				mu::log_debug("loading '{}'", field.file_abs_path);
 				field.should_load_file = true;
 			}
 		}
@@ -2875,7 +2875,7 @@ int main() {
 				model.current_state = models[i].current_state;
 				models[i] = model;
 
-				log_debug("loaded '{}'", models[i].file_abs_path);
+				mu::log_debug("loaded '{}'", models[i].file_abs_path);
 				models[i].should_load_file = false;
 			}
 
@@ -3017,7 +3017,7 @@ int main() {
 			}
 
 			// start with root meshes
-			Vec<Mesh*> meshes_stack(memory::tmp());
+			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 			for (const auto& name : model.root_meshes_names) {
 				auto& mesh = model.meshes.at(name);
 				mesh.transformation = model_transformation;
@@ -3059,7 +3059,7 @@ int main() {
 				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
 
 				// push children
-				for (const Str& child_name : mesh->children) {
+				for (const mu::Str& child_name : mesh->children) {
 					auto& child_mesh = model.meshes.at(child_name);
 					child_mesh.transformation = mesh->transformation;
 					meshes_stack.push_back(&child_mesh);
@@ -3067,10 +3067,10 @@ int main() {
 			}
 		}
 
-		Vec<glm::mat4> axis_instances(memory::tmp());
+		mu::Vec<glm::mat4> axis_instances(mu::memory::tmp());
 
 		// update fields
-		const auto all_fields = field_list_recursively(field, memory::tmp());
+		const auto all_fields = field_list_recursively(field, mu::memory::tmp());
 		if (field.should_transform) {
 			field.should_transform = false;
 
@@ -3111,11 +3111,11 @@ int main() {
 
 		// test intersection
 		struct Box { glm::vec3 translation, scale, color; };
-		Vec<Box> box_instances(memory::tmp());
+		mu::Vec<Box> box_instances(mu::memory::tmp());
 		if (models.size() > 0) {
 			for (int i = 0; i < models.size()-1; i++) {
 				if (models[i].current_state.visible == false) {
-					overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", i));
+					overlay_text.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 					continue;
 				}
 
@@ -3123,17 +3123,17 @@ int main() {
 
 				for (int j = i+1; j < models.size(); j++) {
 					if (models[j].current_state.visible == false) {
-						overlay_text.emplace_back(str_tmpf("model[{}] invisible and won't intersect", j));
+						overlay_text.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
 						continue;
 					}
 
 					glm::vec3 j_color {0, 0, 1};
 
 					if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
-						overlay_text.emplace_back(str_tmpf("model[{}] intersects model[{}]", i, j));
+						overlay_text.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
 						j_color = i_color = {1, 0, 0};
 					} else {
-						overlay_text.emplace_back(str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+						overlay_text.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
 					}
 
 					if (models[j].render_aabb) {
@@ -3286,7 +3286,7 @@ int main() {
 			}
 		}
 
-		Vec<ZLPoint> zlpoints(memory::tmp());
+		mu::Vec<ZLPoint> zlpoints(mu::memory::tmp());
 
 		// render models
 		for (int i = 0; i < models.size(); i++) {
@@ -3299,7 +3299,7 @@ int main() {
 			const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
 
 			// start with root meshes
-			Vec<Mesh*> meshes_stack(memory::tmp());
+			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 			for (const auto& name : model.root_meshes_names) {
 				meshes_stack.push_back(&model.meshes.at(name));
 			}
@@ -3358,7 +3358,7 @@ int main() {
 				}
 
 				// push children
-				for (const Str& child_name : mesh->children) {
+				for (const mu::Str& child_name : mesh->children) {
 					meshes_stack.push_back(&model.meshes.at(child_name));
 				}
 			}
@@ -3510,9 +3510,9 @@ int main() {
 							break;
 						}
 					}
-					if (ImGui::BeginCombo("Tracked Model", str_tmpf("Model[{}]", tracked_model_index).c_str())) {
+					if (ImGui::BeginCombo("Tracked Model", mu::str_tmpf("Model[{}]", tracked_model_index).c_str())) {
 						for (size_t j = 0; j < models.size(); j++) {
-							if (ImGui::Selectable(str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
+							if (ImGui::Selectable(mu::str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
 								camera.model = &models[j];
 							}
 						}
@@ -3643,7 +3643,7 @@ int main() {
 					ImGui::EndDisabled();
 
 					ImGui::SameLine();
-					ImGui::Text(Str(file_get_base_name(sound.file_path), memory::tmp()).c_str());
+					ImGui::Text(mu::Str(mu::file_get_base_name(sound.file_path), mu::memory::tmp()).c_str());
 
 					ImGui::PopID();
 				}
@@ -3652,7 +3652,7 @@ int main() {
 			}
 
 			ImGui::Separator();
-			ImGui::Text(str_tmpf("Aircrafts {}:", models.size()).c_str());
+			ImGui::Text(mu::str_tmpf("Aircrafts {}:", models.size()).c_str());
 
 			{
 				const bool should_add_aircraft = ImGui::Button("Add");
@@ -3700,10 +3700,10 @@ int main() {
 				}
 				my_assert(aircraft);
 
-				if (ImGui::TreeNode(str_tmpf("[{}] {}", i, aircraft->short_name).c_str())) {
+				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, aircraft->short_name).c_str())) {
 					models[i].should_load_file = ImGui::Button("Reload");
 					ImGui::SameLine();
-					if (ImGui::BeginCombo("DNM", Str(file_get_base_name(models[i].file_abs_path), memory::tmp()).c_str())) {
+					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(models[i].file_abs_path), mu::memory::tmp()).c_str())) {
 						for (size_t j = 0; j < aircrafts.size(); j++) {
 							if (ImGui::Selectable(aircrafts[j].short_name.c_str(), aircrafts[j].dnm == models[i].file_abs_path)) {
 								models[i].file_abs_path = aircrafts[j].dnm;
@@ -3787,12 +3787,12 @@ int main() {
 						}
 					}
 
-					ImGui::BulletText(str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.size(),
+					ImGui::BulletText(mu::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.size(),
 						model.root_meshes_names.size(), light_sources_count).c_str());
 
 					std::function<void(Mesh&)> render_mesh_ui;
 					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max](Mesh& mesh) {
-						if (ImGui::TreeNode(str_tmpf("{}", mesh.name).c_str())) {
+						if (ImGui::TreeNode(mu::str_tmpf("{}", mesh.name).c_str())) {
 							if (ImGui::Button("Reset")) {
 								mesh.current_state = mesh.initial_state;
 							}
@@ -3810,19 +3810,19 @@ int main() {
 							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
 							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, current_angle_max);
 
-							ImGui::Text(str_tmpf("{}", mesh.animation_type).c_str());
+							ImGui::Text(mu::str_tmpf("{}", mesh.animation_type).c_str());
 
-							ImGui::BulletText(str_tmpf("Children: ({})", mesh.children.size()).c_str());
+							ImGui::BulletText(mu::str_tmpf("Children: ({})", mesh.children.size()).c_str());
 							ImGui::Indent();
 							for (const auto& child_name : mesh.children) {
 								render_mesh_ui(model.meshes.at(child_name.c_str()));
 							}
 							ImGui::Unindent();
 
-							if (ImGui::TreeNode(str_tmpf("Faces: ({})", mesh.faces.size()).c_str())) {
+							if (ImGui::TreeNode(mu::str_tmpf("Faces: ({})", mesh.faces.size()).c_str())) {
 								for (size_t i = 0; i < mesh.faces.size(); i++) {
-									if (ImGui::TreeNode(str_tmpf("{}", i).c_str())) {
-										ImGui::TextWrapped("Vertices: %s", str_tmpf("{}", mesh.faces[i].vertices_ids).c_str());
+									if (ImGui::TreeNode(mu::str_tmpf("{}", i).c_str())) {
+										ImGui::TextWrapped("Vertices: %s", mu::str_tmpf("{}", mesh.faces[i].vertices_ids).c_str());
 
 										bool changed = false;
 										changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
@@ -3858,7 +3858,7 @@ int main() {
 
 			std::function<void(Field&,bool)> render_field_imgui;
 			render_field_imgui = [&render_field_imgui, &current_angle_max](Field& field, bool is_root) {
-				if (ImGui::TreeNode(str_tmpf("Field {}", field.name).c_str())) {
+				if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
 					if (is_root) {
 						field.should_select_file = ImGui::Button("Open FLD");
 						field.should_load_file = ImGui::Button("Reload");
@@ -4022,7 +4022,7 @@ int main() {
 			| ImGuiWindowFlags_NoNav
 			| ImGuiWindowFlags_NoMove)) {
 			for (const auto& line : overlay_text) {
-				ImGui::TextWrapped(str_tmpf("> {}", line).c_str());
+				ImGui::TextWrapped(mu::str_tmpf("> {}", line).c_str());
 			}
 		}
 		ImGui::End();
@@ -4120,7 +4120,7 @@ TODO:
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
-- Mesh contains Vec<Mesh> instead of names
+- Mesh contains mu::Vec<Mesh> instead of names
 - dnm hot realod per model
 
 - optimization:
