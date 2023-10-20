@@ -7,7 +7,7 @@
 
 #include <SDL.h>
 
-#include "utils.hpp"
+#include <mu/utils.h>
 
 // for stream at callback, bigger is slower, should be power of 2
 constexpr auto AUDIO_STREAM_SIZE = 512;

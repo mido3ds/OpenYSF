@@ -29,10 +29,10 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include(CPM)
 CPMAddPackage(
-	NAME             fmt
-	GIT_REPOSITORY   https://github.com/fmtlib/fmt.git
-	GIT_TAG          10.0.0
-	GIT_SHALLOW      TRUE
+    NAME             mu
+    GIT_REPOSITORY   https://github.com/mido3ds/mu.git
+    GIT_TAG          6368eee54ffe96c62505454991955e1b62d16238
+    GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
 	NAME             SDL2
@@ -99,18 +99,16 @@ target_link_libraries(_imgui PRIVATE SDL2::SDL2)
 # open-ysf
 add_executable(open-ysf
 	src/main.cpp
-	src/parser.hpp
-	src/math.hpp
-	src/gpu.hpp
-	src/imgui.hpp
-	src/audio.hpp
-	src/utils.hpp
-	src/utils.cpp
+	src/parser.h
+	src/math.h
+	src/gpu.h
+	src/imgui.h
+	src/audio.h
 )
 
 target_link_libraries(open-ysf
 	PRIVATE
-		fmt::fmt
+		mido3ds::mu
 		SDL2::SDL2
 		SDL2_image::SDL2_image
 		OpenGL::GL

@@ -19,11 +19,9 @@ OpenYSF uses assets from the original game.
 ```sh
 cmake -S. -Bbuild
 
-# either
 cmake --build build --target open-ysf -j
+
 ./build/bin/Debug/open-ysf
-# or call
-./run
 ```
 
 # License

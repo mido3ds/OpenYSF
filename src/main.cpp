@@ -9,12 +9,12 @@
 #undef near
 #undef far
 
-#include "imgui.hpp"
-#include "gpu.hpp"
-#include "parser.hpp"
-#include "math.hpp"
-#include "audio.hpp"
-#include "utils.hpp"
+#include "imgui.h"
+#include "gpu.h"
+#include "parser.h"
+#include "math.h"
+#include "audio.h"
+#include <mu/utils.h>
 
 constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;

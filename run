@@ -1,2 +1,0 @@
-#!/bin/bash
-cmake --build build -j --target open-ysf && ./build/bin/Debug/open-ysf
