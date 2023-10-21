@@ -65,6 +65,18 @@ CPMAddPackage(
 	GIT_TAG          0.1.0
 	GIT_SHALLOW      TRUE
 )
+CPMAddPackage(
+	NAME             freetype
+	GIT_REPOSITORY   https://github.com/freetype/freetype.git
+	GIT_TAG          VER-2-13-2
+	GIT_SHALLOW      TRUE
+	OPTIONS
+		"FT_DISABLE_ZLIB TRUE"
+		"FT_DISABLE_BZIP2 TRUE"
+		"FT_DISABLE_PNG TRUE"
+		"FT_DISABLE_HARFBUZZ TRUE"
+		"FT_DISABLE_BROTLI TRUE"
+)
 
 find_package(OpenGL REQUIRED)
 
@@ -113,6 +125,7 @@ target_link_libraries(open-ysf
 		SDL2_image::SDL2_image
 		OpenGL::GL
 		glm
+		freetype
 		_glad
 		_imgui
 		portable_file_dialogs

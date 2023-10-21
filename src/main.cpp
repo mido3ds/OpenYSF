@@ -16,6 +16,9 @@
 #include "audio.h"
 #include <mu/utils.h>
 
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
 constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;
 constexpr int  WND_INIT_HEIGHT  = 680;
@@ -4027,7 +4030,7 @@ int main() {
 		}
 		ImGui::End();
 
-		// ImGui::ShowDemoWindow();
+		ImGui::ShowDemoWindow();
 
 		ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -4043,6 +4046,12 @@ int main() {
 TODO:
 - mac: fix change line width
 - render text
+	- load one font
+	- load one character with its info
+	- load character into texture
+	- render texture
+	- load rest of characters
+	- make into function
 - render aircraft vectors:
 	- weight
 	- air lift
