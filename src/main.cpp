@@ -2760,10 +2760,157 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
+	// text
+	/// all state of loaded glyph using FreeType
+	// https://learnopengl.com/img/in-practice/glyph_offset.png
+	struct Glyph {
+		GLuint texture;
+		glm::ivec2 size;
+		// Offset from baseline to left/top of glyph
+		glm::ivec2 bearing;
+		// horizontal offset to advance to next glyph
+		uint32_t advance;
+	};
+	struct {
+		GPU_Program program;
+		GLuint vao, vbo;
+		mu::Arr<Glyph, 128> glyphs;
+	} text_rendering {};
+	defer({
+		gpu_program_free(text_rendering.program);
+		glDeleteBuffers(1, &text_rendering.vbo);
+		glBindVertexArray(0);
+		glDeleteVertexArrays(1, &text_rendering.vao);
+		for (auto& g : text_rendering.glyphs) {
+			glBindTexture(GL_TEXTURE_2D, 0);
+			glDeleteTextures(1, &g.texture);
+		}
+	});
+	{
+		text_rendering.program = gpu_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				layout (location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
+				out vec2 vs_tex_coord;
+
+				uniform mat4 projection;
+
+				void main() {
+					gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
+					vs_tex_coord = vertex.zw;
+				}
+			)GLSL",
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+				in vec2 vs_tex_coord;
+				out vec4 color;
+
+				uniform sampler2D text_texture;
+				uniform vec3 text_color;
+
+				void main() {
+					vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text_texture, vs_tex_coord).r);
+					color = vec4(text_color, 1.0) * sampled;
+				}
+			)GLSL"
+		);
+
+		// texture quads
+		glGenVertexArrays(1, &text_rendering.vao);
+		glGenBuffers(1, &text_rendering.vbo);
+		glBindVertexArray(text_rendering.vao);
+			glBindBuffer(GL_ARRAY_BUFFER, text_rendering.vbo);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glBindVertexArray(0);
+
+		// disable byte-alignment restriction
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+		// freetype
+		FT_Library ft;
+		if (FT_Init_FreeType(&ft)) {
+			mu::panic("could not init FreeType Library");
+		}
+		defer(FT_Done_FreeType(ft));
+
+		FT_Face face;
+		if (FT_New_Face(ft, ASSETS_DIR "/fonts/zig.ttf", 0, &face)) {
+			mu::panic("failed to load font");
+		}
+		defer(FT_Done_Face(face));
+
+		uint16_t face_height = 48;
+		uint16_t face_width = 0; // auto
+		if (FT_Set_Pixel_Sizes(face, face_width, face_height)) {
+			mu::panic("failed to set pixel size of font face");
+		}
+
+		if (FT_Load_Char(face, 'X', FT_LOAD_RENDER)) {
+			mu::panic("failed to load glyph");
+		}
+
+		// generate textures
+		for (uint8_t c = 0; c < text_rendering.glyphs.size(); c++) {
+			if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
+				mu::panic("failed to load glyph");
+			}
+
+			GLuint text_texture;
+			glGenTextures(1, &text_texture);
+			glBindTexture(GL_TEXTURE_2D, text_texture);
+			glTexImage2D(
+				GL_TEXTURE_2D,
+				0,
+				GL_RED,
+				face->glyph->bitmap.width,
+				face->glyph->bitmap.rows,
+				0,
+				GL_RED,
+				GL_UNSIGNED_BYTE,
+				face->glyph->bitmap.buffer
+			);
+
+			// texture options
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			text_rendering.glyphs[c] = Glyph {
+				.texture = text_texture,
+				.size = glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+				.bearing = glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+				.advance = uint32_t(face->glyph->advance.x)
+			};
+		}
+
+		gpu_check_errors();
+	}
+
+	struct TextRenderReq {
+		mu::Str text;
+		float x, y, scale;
+		glm::vec3 color;
+	};
+
 	while (running) {
 		mu::memory::reset_tmp();
 
 		mu::Vec<mu::Str> overlay_text(mu::memory::tmp());
+
+		mu::Vec<TextRenderReq> text_render_list(mu::memory::tmp());
+		text_render_list.emplace_back(TextRenderReq {
+			.text = mu::str_tmpf("Hello OpenYSF"),
+			.x = 25.0f,
+			.y = 25.0f,
+			.scale = 1.0f,
+			.color = {0.5, 0.8f, 0.2f}
+		});
 
 		// time
 		{
@@ -3449,6 +3596,52 @@ int main() {
 			}
 		}
 
+		for (auto& txt_rndr : text_render_list) {
+			int wnd_width, wnd_height;
+			SDL_GetWindowSize(sdl_window, &wnd_width, &wnd_height);
+			glm::mat4 projection = glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height));
+
+			// activate corresponding render state
+			glUseProgram(text_rendering.program);
+			glUniformMatrix4fv(glGetUniformLocation(text_rendering.program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+			glUniform3f(glGetUniformLocation(text_rendering.program, "text_color"), txt_rndr.color.x, txt_rndr.color.y, txt_rndr.color.z);
+			glActiveTexture(GL_TEXTURE0);
+			glBindVertexArray(text_rendering.vao);
+
+			for (char c : txt_rndr.text) {
+				if (c >= text_rendering.glyphs.size()) {
+					c = '?';
+				}
+				const Glyph& glyph = text_rendering.glyphs[c];
+
+				// update text_rendering.vbo content
+				float xpos = txt_rndr.x + glyph.bearing.x * txt_rndr.scale;
+				float ypos = txt_rndr.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
+				float w = glyph.size.x * txt_rndr.scale;
+				float h = glyph.size.y * txt_rndr.scale;
+				float vertices[6][4] = {
+					{ xpos,     ypos + h,   0.0f, 0.0f },
+					{ xpos,     ypos,       0.0f, 1.0f },
+					{ xpos + w, ypos,       1.0f, 1.0f },
+
+					{ xpos,     ypos + h,   0.0f, 0.0f },
+					{ xpos + w, ypos,       1.0f, 1.0f },
+					{ xpos + w, ypos + h,   1.0f, 0.0f }
+				};
+				glBindBuffer(GL_ARRAY_BUFFER, text_rendering.vbo);
+					glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+				// render glyph texture over quad
+				glBindTexture(GL_TEXTURE_2D, glyph.texture);
+				glDrawArrays(GL_TRIANGLES, 0, 6);
+
+				// now advance cursors for next glyph (note that advance is number of 1/64 pixels)
+				// bitshift by 6 to get value in pixels (2^6 = 64 (divide amount of 1/64th pixels by 64 to get amount of pixels))
+				txt_rndr.x += (glyph.advance >> 6) * txt_rndr.scale;
+			}
+		}
+
 		// imgui
 		ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
@@ -4030,7 +4223,7 @@ int main() {
 		}
 		ImGui::End();
 
-		ImGui::ShowDemoWindow();
+		// ImGui::ShowDemoWindow();
 
 		ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -4045,13 +4238,6 @@ int main() {
 /*
 TODO:
 - mac: fix change line width
-- render text
-	- load one font
-	- load one character with its info
-	- load character into texture
-	- render texture
-	- load rest of characters
-	- make into function
 - render aircraft vectors:
 	- weight
 	- air lift

@@ -35,5 +35,6 @@ build*
 .vscode
 
 assets/*
+!assets/fonts
 
 open-ysf-imgui.ini
