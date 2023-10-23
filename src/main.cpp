@@ -2979,7 +2979,7 @@ int main() {
 			wnd_size_changed = false;
 
 			int w, h;
-			SDL_GetWindowSize(sdl_window, &w, &h);
+			SDL_GL_GetDrawableSize(sdl_window, &w, &h);
 
 			glViewport(0, 0, w, h);
 
@@ -3597,7 +3597,7 @@ int main() {
 		// render text
 		for (auto& txt_rndr : text_render_list) {
 			int wnd_width, wnd_height;
-			SDL_GetWindowSize(sdl_window, &wnd_width, &wnd_height);
+			SDL_GL_GetDrawableSize(sdl_window, &wnd_width, &wnd_height);
 			glm::mat4 projection = glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height));
 
 			gl_program_use(text_rendering.program);
@@ -3658,6 +3658,7 @@ int main() {
 				const bool width_changed = ImGui::InputInt("Width", &size[0]);
 				const bool height_changed = ImGui::InputInt("Height", &size[1]);
 				if (width_changed || height_changed) {
+					wnd_size_changed = true;
 					SDL_SetWindowSize(sdl_window, size[0], size[1]);
 				}
 
