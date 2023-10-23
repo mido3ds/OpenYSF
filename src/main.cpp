@@ -10,7 +10,7 @@
 #undef far
 
 #include "imgui.h"
-#include "gpu.h"
+#include "graphics.h"
 #include "parser.h"
 #include "math.h"
 #include "audio.h"
@@ -344,7 +344,7 @@ void mesh_load_to_gpu(Mesh& self) {
 		offset += sizeof(Stride::normal);
 	glBindVertexArray(0);
 
-	gpu_check_errors();
+	gl_process_errors();
 }
 
 void mesh_unload_from_gpu(Mesh& self) {
@@ -1252,7 +1252,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		offset += sizeof(Stride::color);
 	glBindVertexArray(0);
 
-	gpu_check_errors();
+	gl_process_errors();
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
@@ -1362,7 +1362,7 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 		);
 	glBindVertexArray(0);
 
-	gpu_check_errors();
+	gl_process_errors();
 }
 
 void prmitive2d_unload_from_gpu(Primitive2D& self) {
@@ -2299,7 +2299,7 @@ int main() {
 
 	ImGui::GetIO().IniFilename = _imgui_ini_file_path.c_str();
 
-	auto meshes_gpu_program = gpu_program_new(
+	auto meshes_gpu_program = gl_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2348,7 +2348,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	defer(gpu_program_free(meshes_gpu_program));
+	defer(gl_program_free(meshes_gpu_program));
 
 	// models
 	mu::Vec<Model> models;
@@ -2405,8 +2405,8 @@ int main() {
 		GLenum polygon_mode            = GL_FILL;
 	} rendering {};
 
-	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = gpu_get_float(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
-	const GLfloat POINT_SIZE_GRANULARITY        = gpu_get_float(GL_POINT_SIZE_GRANULARITY);
+	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = gl_get_float(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
+	const GLfloat POINT_SIZE_GRANULARITY        = gl_get_float(GL_POINT_SIZE_GRANULARITY);
 
 	float current_angle_max = DEGREES_MAX;
 
@@ -2467,7 +2467,7 @@ int main() {
 			offset += sizeof(Stride::color);
 		glBindVertexArray(0);
 
-		gpu_check_errors();
+		gl_process_errors();
 	}
 
 	struct {
@@ -2476,7 +2476,7 @@ int main() {
 		float scale = 0.48f;
 	} world_axis;
 
-	auto lines_gpu_program = gpu_program_new(
+	auto lines_gpu_program = gl_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2497,7 +2497,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	defer(gpu_program_free(lines_gpu_program));
+	defer(gl_program_free(lines_gpu_program));
 
 	struct {
 		GLuint vao, vbo;
@@ -2561,10 +2561,10 @@ int main() {
 			);
 		glBindVertexArray(0);
 
-		gpu_check_errors();
+		gl_process_errors();
 	}
 
-	auto picture2d_gpu_program = gpu_program_new(
+	auto picture2d_gpu_program = gl_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2610,10 +2610,10 @@ int main() {
 			}
 		)GLSL"
 	);
-	defer(gpu_program_free(picture2d_gpu_program));
+	defer(gl_program_free(picture2d_gpu_program));
 
 	// https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
-	auto ground_gpu_program = gpu_program_new(
+	auto ground_gpu_program = gl_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2667,7 +2667,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	defer(gpu_program_free(ground_gpu_program));
+	defer(gl_program_free(ground_gpu_program));
 
 	// opengl can't call shader without VAO even if shader doesn't take input
 	// dummy_vao lets you call shader without input (useful when coords is embedded in shader)
@@ -2698,7 +2698,7 @@ int main() {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-	auto sprite_gpu_program = gpu_program_new(
+	auto sprite_gpu_program = gl_program_new(
 		// vertex shader
 		R"GLSL(
 			#version 330 core
@@ -2738,7 +2738,7 @@ int main() {
 			}
 		)GLSL"
 	);
-	defer(gpu_program_free(sprite_gpu_program));
+	defer(gl_program_free(sprite_gpu_program));
 
 	// zl_sprite
 	SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
@@ -2772,12 +2772,12 @@ int main() {
 		uint32_t advance;
 	};
 	struct {
-		GPU_Program program;
+		GLProgram program;
 		GLuint vao, vbo;
 		mu::Arr<Glyph, 128> glyphs;
 	} text_rendering {};
 	defer({
-		gpu_program_free(text_rendering.program);
+		gl_program_free(text_rendering.program);
 		glDeleteBuffers(1, &text_rendering.vbo);
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &text_rendering.vao);
@@ -2787,7 +2787,7 @@ int main() {
 		}
 	});
 	{
-		text_rendering.program = gpu_program_new(
+		text_rendering.program = gl_program_new(
 			// vertex shader
 			R"GLSL(
 				#version 330 core
@@ -2889,7 +2889,7 @@ int main() {
 			};
 		}
 
-		gpu_check_errors();
+		gl_process_errors();
 	}
 
 	struct TextRenderReq {
@@ -3341,18 +3341,18 @@ int main() {
 		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
 
 		// render last ground
-		glDisable(GL_DEPTH_TEST);
-		glUseProgram(ground_gpu_program);
-		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "proj_inv_view_inv"), 1, false, glm::value_ptr(proj_inv_view_inv_mat));
-		glUniformMatrix4fv(glGetUniformLocation(ground_gpu_program, "projection"), 1, false, glm::value_ptr(projection_mat));
+		gl_program_use(ground_gpu_program);
+		gl_program_uniform_set(ground_gpu_program, "proj_inv_view_inv", proj_inv_view_inv_mat);
+		gl_program_uniform_set(ground_gpu_program, "projection", projection_mat);
+		gl_program_uniform_set(ground_gpu_program, "color", all_fields[all_fields.size()-1]->ground_color);
 
+		glDisable(GL_DEPTH_TEST);
 		glBindTexture(GL_TEXTURE_2D, groundtile_texture);
 		glBindVertexArray(dummy_vao);
-		glUniform3fv(glGetUniformLocation(ground_gpu_program, "color"), 1, glm::value_ptr(all_fields[all_fields.size()-1]->ground_color));
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 
 		// render fields pictures
-		glUseProgram(picture2d_gpu_program);
+		gl_program_use(picture2d_gpu_program);
 		for (const Field* fld : all_fields) {
 			for (auto& picture : fld->pictures) {
 				if (picture.current_state.visible == false) {
@@ -3364,15 +3364,15 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
-				glUniformMatrix4fv(glGetUniformLocation(picture2d_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * model_transformation));
+				gl_program_uniform_set(picture2d_gpu_program, "projection_view_model", projection_view_mat * model_transformation);
 
 				for (auto& primitive : picture.primitives) {
-					glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color[0]"), 1, glm::value_ptr(primitive.color));
+					gl_program_uniform_set(picture2d_gpu_program, "primitive_color[0]", primitive.color);
 
 					const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
-					glUniform1i(glGetUniformLocation(picture2d_gpu_program, "gradation_enabled"), (GLint) gradation_enabled);
+					gl_program_uniform_set(picture2d_gpu_program, "gradation_enabled", gradation_enabled);
 					if (gradation_enabled) {
-						glUniform3fv(glGetUniformLocation(picture2d_gpu_program, "primitive_color[1]"), 1, glm::value_ptr(primitive.color2));
+						gl_program_uniform_set(picture2d_gpu_program, "primitive_color[1]", primitive.color2);
 					}
 
 					glBindVertexArray(primitive.gpu.vao);
@@ -3383,8 +3383,8 @@ int main() {
 		glEnable(GL_DEPTH_TEST);
 
 		// render fields terrains
-		glUseProgram(meshes_gpu_program);
-		glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) false);
+		gl_program_use(meshes_gpu_program);
+		gl_program_uniform_set(meshes_gpu_program, "is_light_source", false);
 		for (const Field* fld : all_fields) {
 			if (fld->current_state.visible == false) {
 				continue;
@@ -3400,21 +3400,21 @@ int main() {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * model_transformation));
+				gl_program_uniform_set(meshes_gpu_program, "projection_view_model", projection_view_mat * model_transformation);
 
-				glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) terr_mesh.gradiant.enabled);
+				gl_program_uniform_set(meshes_gpu_program, "gradient_enabled", terr_mesh.gradiant.enabled);
 				if (terr_mesh.gradiant.enabled) {
-					glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_y"), terr_mesh.gradiant.bottom_y);
-					glUniform1f(glGetUniformLocation(meshes_gpu_program, "gradient_top_y"), terr_mesh.gradiant.top_y);
-					glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_bottom_color"), 1, glm::value_ptr(terr_mesh.gradiant.bottom_color));
-					glUniform3fv(glGetUniformLocation(meshes_gpu_program, "gradient_top_color"), 1, glm::value_ptr(terr_mesh.gradiant.top_color));
+					gl_program_uniform_set(meshes_gpu_program, "gradient_bottom_y", terr_mesh.gradiant.bottom_y);
+					gl_program_uniform_set(meshes_gpu_program, "gradient_top_y", terr_mesh.gradiant.top_y);
+					gl_program_uniform_set(meshes_gpu_program, "gradient_bottom_color", terr_mesh.gradiant.bottom_color);
+					gl_program_uniform_set(meshes_gpu_program, "gradient_top_color", terr_mesh.gradiant.top_color);
 				}
 
 				glBindVertexArray(terr_mesh.gpu.vao);
 				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
 		}
-		glUniform1i(glGetUniformLocation(meshes_gpu_program, "gradient_enabled"), (GLint) false);
+		gl_program_uniform_set(meshes_gpu_program, "gradient_enabled", false);
 
 		// render fields meshes
 		for (const Field* fld : all_fields) {
@@ -3428,8 +3428,8 @@ int main() {
 				}
 
 				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * mesh.transformation));
-				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh.is_light_source);
+				gl_program_uniform_set(meshes_gpu_program, "projection_view_model", projection_view_mat * mesh.transformation);
+				gl_program_uniform_set(meshes_gpu_program, "is_light_source", mesh.is_light_source);
 
 				glBindVertexArray(mesh.gpu.vao);
 				glDrawArrays(mesh.is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh.gpu.array_count);
@@ -3488,10 +3488,8 @@ int main() {
 					axis_instances.push_back(mesh->transformation);
 				}
 
-				// upload transofmation model
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * mesh->transformation));
-
-				glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), (GLint) mesh->is_light_source);
+				gl_program_uniform_set(meshes_gpu_program, "projection_view_model", projection_view_mat * mesh->transformation);
+				gl_program_uniform_set(meshes_gpu_program, "is_light_source", mesh->is_light_source);
 
 				glBindVertexArray(mesh->gpu.vao);
 				glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
@@ -3517,23 +3515,21 @@ int main() {
 		if (zlpoints.empty() == false) {
 			auto model_transformation = glm::mat4(glm::mat3(view_inverse_mat)) * glm::scale(glm::vec3{ZL_SCALE, ZL_SCALE, 0});
 
-			glUseProgram(sprite_gpu_program);
+			gl_program_use(sprite_gpu_program);
 			glBindTexture(GL_TEXTURE_2D, zl_sprite_texture);
 			glBindVertexArray(dummy_vao);
 
 			for (const auto& zlpoint : zlpoints) {
 				model_transformation[3] = glm::vec4{zlpoint.center.x, zlpoint.center.y, zlpoint.center.z, 1.0f};
-				glUniform3fv(glGetUniformLocation(sprite_gpu_program, "color"), 1, glm::value_ptr(zlpoint.color));
-				glUniformMatrix4fv(glGetUniformLocation(sprite_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * model_transformation));
+				gl_program_uniform_set(sprite_gpu_program, "color", zlpoint.color);
+				gl_program_uniform_set(sprite_gpu_program, "projection_view_model", projection_view_mat * model_transformation);
 				glDrawArrays(GL_TRIANGLES, 0, 6);
 			}
 		}
 
-		glUseProgram(meshes_gpu_program);
-
 		// render axis
 		if (axis_instances.empty() == false) {
-
+			gl_program_use(meshes_gpu_program);
 			if (axis_rendering.on_top) {
 				glDisable(GL_DEPTH_TEST);
 			} else {
@@ -3544,10 +3540,10 @@ int main() {
             #ifndef OS_MACOS
 			glLineWidth(axis_rendering.line_width);
             #endif
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
+			gl_program_uniform_set(meshes_gpu_program, "is_light_source", false);
 			glBindVertexArray(axis_rendering.vao);
 			for (const auto& transformation : axis_instances) {
-				glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_mat * transformation));
+				gl_program_uniform_set(meshes_gpu_program, "projection_view_model", projection_view_mat * transformation);
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
 
@@ -3555,6 +3551,8 @@ int main() {
 		}
 
 		if (world_axis.enabled) {
+			gl_program_use(meshes_gpu_program);
+
 			glDisable(GL_DEPTH_TEST);
 
 			glEnable(GL_LINE_SMOOTH);
@@ -3562,14 +3560,14 @@ int main() {
 			glLineWidth(axis_rendering.line_width);
             #endif
 
-			glUniform1i(glGetUniformLocation(meshes_gpu_program, "is_light_source"), 0);
+			gl_program_uniform_set(meshes_gpu_program, "is_light_source", false);
 			glBindVertexArray(axis_rendering.vao);
 
 			auto new_view_mat = view_mat;
 			new_view_mat[3] = glm::vec4{0, 0, ((1 - world_axis.scale) * -39) - 1, 1};
 			auto trans = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world_axis.position.x, world_axis.position.y, 0});
 
-			glUniformMatrix4fv(glGetUniformLocation(meshes_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(trans * projection_mat * new_view_mat));
+			gl_program_uniform_set(meshes_gpu_program, "projection_view_model", trans * projection_mat * new_view_mat);
 			glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 
 			glEnable(GL_DEPTH_TEST);
@@ -3577,7 +3575,7 @@ int main() {
 
 		// render boxes
 		if (box_instances.empty() == false) {
-			glUseProgram(lines_gpu_program);
+			gl_program_use(lines_gpu_program);
 			glEnable(GL_LINE_SMOOTH);
             #ifndef OS_MACOS
 			glLineWidth(box_rendering.line_width);
@@ -3588,24 +3586,23 @@ int main() {
 				auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 				transformation = glm::scale(transformation, box.scale);
 				const auto projection_view_model = projection_view_mat * transformation;
-				glUniformMatrix4fv(glGetUniformLocation(lines_gpu_program, "projection_view_model"), 1, false, glm::value_ptr(projection_view_model));
+				gl_program_uniform_set(lines_gpu_program, "projection_view_model", projection_view_model);
 
-				glUniform3fv(glGetUniformLocation(lines_gpu_program, "color"), 1, glm::value_ptr(box.color));
+				gl_program_uniform_set(lines_gpu_program, "color", box.color);
 
 				glDrawArrays(GL_LINE_LOOP, 0, box_rendering.points_count);
 			}
 		}
 
+		// render text
 		for (auto& txt_rndr : text_render_list) {
 			int wnd_width, wnd_height;
 			SDL_GetWindowSize(sdl_window, &wnd_width, &wnd_height);
 			glm::mat4 projection = glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height));
 
-			// activate corresponding render state
-			glUseProgram(text_rendering.program);
-			glUniformMatrix4fv(glGetUniformLocation(text_rendering.program, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-			glUniform3f(glGetUniformLocation(text_rendering.program, "text_color"), txt_rndr.color.x, txt_rndr.color.y, txt_rndr.color.z);
-			glActiveTexture(GL_TEXTURE0);
+			gl_program_use(text_rendering.program);
+			gl_program_uniform_set(text_rendering.program, "projection", projection);
+			gl_program_uniform_set(text_rendering.program, "text_color", txt_rndr.color);
 			glBindVertexArray(text_rendering.vao);
 
 			for (char c : txt_rndr.text) {
@@ -3614,7 +3611,7 @@ int main() {
 				}
 				const Glyph& glyph = text_rendering.glyphs[c];
 
-				// update text_rendering.vbo content
+				// update vertices
 				float xpos = txt_rndr.x + glyph.bearing.x * txt_rndr.scale;
 				float ypos = txt_rndr.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
 				float w = glyph.size.x * txt_rndr.scale;
@@ -4230,7 +4227,7 @@ int main() {
 
 		SDL_GL_SwapWindow(sdl_window);
 
-		gpu_check_errors();
+		gl_process_errors();
 	}
 
 	return 0;

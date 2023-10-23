@@ -113,7 +113,7 @@ add_executable(open-ysf
 	src/main.cpp
 	src/parser.h
 	src/math.h
-	src/gpu.h
+	src/graphics.h
 	src/imgui.h
 	src/audio.h
 )
