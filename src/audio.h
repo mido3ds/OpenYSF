@@ -203,11 +203,3 @@ void audio_device_stop(AudioDevice& self, const Audio& audio) {
 
 	mu::log_warning("didn't find audio '{}' to stop", mu::file_get_base_name(audio.file_path));
 }
-
-/*
-TODO:
-- mixing anything with propoller isn't loud enough
-- don't use SDL_MixAudioFormat
-- what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
-- use silence.wav to get correct silence value dynamically?
-*/

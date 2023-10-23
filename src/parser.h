@@ -274,8 +274,3 @@ void test_parser() {
 
 	mu::log_debug("test_parser: all tests pass");
 }
-
-/*
-TODO:
-- read from disk?
-*/
