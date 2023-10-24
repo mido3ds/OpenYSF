@@ -1,5 +1,4 @@
 - move main variables into world:
-	- Events (wnd_size_changed)
 	- Settings (should_limit_fps, fps_limit, rendering, current_angle_max, ....)
 	- world_axis[_list]
 - mac: fix change line width

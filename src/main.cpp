@@ -2248,6 +2248,16 @@ struct World {
 	Camera camera;
 };
 
+struct Events {
+	bool wnd_size_changed;
+};
+
+struct TextRenderReq {
+	mu::Str text;
+	float x, y, scale;
+	glm::vec3 color;
+};
+
 int main() {
 	ImGuiWindowLogger imgui_window_logger {};
 	mu::log_global_logger = (mu::ILogger*) &imgui_window_logger;
@@ -2403,7 +2413,8 @@ int main() {
 		.position = world.start_infos[1].position
 	};
 
-	bool wnd_size_changed = true;
+	Events events {};
+
 	bool running = true;
 	bool fullscreen = false;
 
@@ -2911,12 +2922,6 @@ int main() {
 		gl_process_errors();
 	}
 
-	struct TextRenderReq {
-		mu::Str text;
-		float x, y, scale;
-		glm::vec3 color;
-	};
-
 	while (running) {
 		mu::memory::reset_tmp();
 
@@ -2973,7 +2978,7 @@ int main() {
 					break;
 				case 'f':
 					fullscreen = !fullscreen;
-					wnd_size_changed = true;
+					events.wnd_size_changed = true;
 					if (fullscreen) {
 						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
 							mu::panic(SDL_GetError());
@@ -2988,15 +2993,14 @@ int main() {
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				wnd_size_changed = true;
+				events.wnd_size_changed = true;
 			} else if (event.type == SDL_QUIT) {
 				running = false;
 			}
 		}
 
-		if (wnd_size_changed) {
-			wnd_size_changed = false;
-
+		// process events
+		if (events.wnd_size_changed) {
 			int w, h;
 			SDL_GL_GetDrawableSize(sdl_window, &w, &h);
 
@@ -3006,6 +3010,7 @@ int main() {
 				world.camera.projection.aspect = (float) w / h;
 			}
 		}
+		events = {};
 
 		if (world.field.should_select_file) {
 			world.field.should_select_file = false;
@@ -3677,7 +3682,7 @@ int main() {
 				const bool width_changed = ImGui::InputInt("Width", &size[0]);
 				const bool height_changed = ImGui::InputInt("Height", &size[1]);
 				if (width_changed || height_changed) {
-					wnd_size_changed = true;
+					events.wnd_size_changed = true;
 					SDL_SetWindowSize(sdl_window, size[0], size[1]);
 				}
 
@@ -3693,7 +3698,7 @@ int main() {
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
 					world.camera.projection = {};
-					wnd_size_changed = true;
+					events.wnd_size_changed = true;
 				}
 
 				ImGui::InputFloat("near", &world.camera.projection.near, 1, 10);
@@ -3701,7 +3706,7 @@ int main() {
 				ImGui::DragFloat("fovy (1/zoom)", &world.camera.projection.fovy, 1, 1, 45);
 
 				if (ImGui::Checkbox("custom aspect", &world.camera.projection.custom_aspect) && !world.camera.projection.custom_aspect) {
-					wnd_size_changed = true;
+					events.wnd_size_changed = true;
 				}
 				ImGui::BeginDisabled(!world.camera.projection.custom_aspect);
 					ImGui::InputFloat("aspect", &world.camera.projection.aspect, 1, 10);
