@@ -547,40 +547,42 @@ T clamp(T x, T lower_limit, T upper_limit) {
 struct LocalEulerAngles {
 	float roll, pitch, yaw;
 	glm::vec3 up {0, -1, 0}, front {0, 0, 1};
-
-	glm::mat4 matrix(glm::vec3 pos) const {
-		const auto right = glm::cross(up, front);
-		return glm::mat4{
-			-right.x, -right.y, -right.z,   0.0f,
-			-up.x,     -up.y,     -up.z,    0.0f,
-			+front.x,  +front.y,  +front.z, 0.0f,
-			+pos.x,    +pos.y,    +pos.z,   1.0f
-		};
-	}
-
-	void rotate(float delta_yaw, float delta_pitch, float delta_roll) {
-		auto right = glm::cross(up, front);
-
-		const glm::mat3 yaw_m = glm::rotate(delta_yaw, up);
-		right = yaw_m * right;
-		const glm::mat3 pitch_m = glm::rotate(delta_pitch, right);
-		front = pitch_m * yaw_m * front;
-		const glm::mat3 roll_m = glm::rotate(delta_roll, front);
-		right = roll_m * right;
-		up = glm::cross(front, right);
-
-		front = glm::normalize(front);
-		up = glm::normalize(up);
-
-		yaw += delta_yaw;
-		pitch += delta_pitch;
-		roll += delta_roll;
-	}
-
-	static LocalEulerAngles
-	from_attitude(glm::vec3 attitude) {
-		LocalEulerAngles self {};
-		self.rotate(attitude.z, attitude.y, attitude.x);
-		return self;
-	}
 };
+
+glm::mat4 local_euler_angles_matrix(const LocalEulerAngles& self, glm::vec3 pos) {
+	const auto& up = self.up;
+	const auto& front = self.front;
+	const auto right = glm::cross(up, front);
+	return glm::mat4{
+		-right.x, -right.y, -right.z,   0.0f,
+		-up.x,     -up.y,     -up.z,    0.0f,
+		+front.x,  +front.y,  +front.z, 0.0f,
+		+pos.x,    +pos.y,    +pos.z,   1.0f
+	};
+}
+
+void local_euler_angles_rotate(LocalEulerAngles& self, float delta_yaw, float delta_pitch, float delta_roll) {
+	auto right = glm::cross(self.up, self.front);
+
+	const glm::mat3 yaw_m = glm::rotate(delta_yaw, self.up);
+	right = yaw_m * right;
+	const glm::mat3 pitch_m = glm::rotate(delta_pitch, right);
+	self.front = pitch_m * yaw_m * self.front;
+	const glm::mat3 roll_m = glm::rotate(delta_roll, self.front);
+	right = roll_m * right;
+	self.up = glm::cross(self.front, right);
+
+	self.front = glm::normalize(self.front);
+	self.up = glm::normalize(self.up);
+
+	self.yaw += delta_yaw;
+	self.pitch += delta_pitch;
+	self.roll += delta_roll;
+}
+
+static LocalEulerAngles
+local_euler_angles_from_attitude(glm::vec3 attitude) {
+	LocalEulerAngles self {};
+	local_euler_angles_rotate(self, attitude.z, attitude.y, attitude.x);
+	return self;
+}

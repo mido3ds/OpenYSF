@@ -495,7 +495,7 @@ void model_unload_from_gpu(Model& self) {
 
 void model_set_start(Model& self, StartInfo& start_info) {
 	self.current_state.translation = start_info.position;
-	self.current_state.angles = LocalEulerAngles::from_attitude(start_info.attitude);
+	self.current_state.angles = local_euler_angles_from_attitude(start_info.attitude);
 	self.control.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.control.throttle = start_info.throttle;
 	self.current_state.speed = start_info.speed;
@@ -1052,7 +1052,7 @@ void camera_update(Camera& self, float delta_time) {
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
 		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
 
-		auto model_transformation = self.model->current_state.angles.matrix(self.model->current_state.translation);
+		auto model_transformation = local_euler_angles_matrix(self.model->current_state.angles, self.model->current_state.translation);
 
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
@@ -2117,12 +2117,6 @@ struct Sounds {
 	mu::Arr<Audio, 10> engines, props;
 
 	mu::Vec<Audio*> as_array;
-
-	~Sounds() {
-		for (int i = 0; i < as_array.size(); i++) {
-			audio_free(*as_array[i]);
-		}
-	}
 };
 
 inline static void
@@ -2155,6 +2149,12 @@ void sounds_load(Sounds& self) {
 	}
 	for (int i = 0; i < self.engines.size(); i++) {
 		_sounds_load(self, self.props[i], mu::str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
+	}
+}
+
+void sounds_free(Sounds& self) {
+	for (int i = 0; i < self.as_array.size(); i++) {
+		audio_free(*self.as_array[i]);
 	}
 }
 
@@ -2235,6 +2235,8 @@ mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_pat
 struct World {
 	// aircraft short name -> files
 	mu::Map<mu::Str, AircraftFiles> aircrafts_map;
+	AudioDevice audio_device;
+	Sounds sounds;
 };
 
 int main() {
@@ -2283,12 +2285,10 @@ int main() {
 	}
 
 	// setup audio
-	AudioDevice audio_device {};
-	audio_device_init(&audio_device);
-	defer(audio_device_free(audio_device));
-
-	Sounds sounds{};
-	sounds_load(sounds);
+	audio_device_init(&world.audio_device);
+	defer(audio_device_free(world.audio_device));
+	sounds_load(world.sounds);
+	defer(sounds_free(world.sounds));
 
 	// setup imgui
 	auto _imgui_ini_file_path = mu::str_format("{}/{}", mu::folder_config(mu::memory::tmp()), "open-ysf-imgui.ini");
@@ -3029,7 +3029,7 @@ int main() {
 				model_load_to_gpu(model);
 
 				if (models[i].engine_sound) {
-					audio_device_stop(audio_device, *models[i].engine_sound);
+					audio_device_stop(world.audio_device, *models[i].engine_sound);
 				}
 				model_unload_from_gpu(models[i]);
 
@@ -3085,7 +3085,7 @@ int main() {
 			if (key_pressed[SDL_SCANCODE_Z]) {
 				delta_yaw += ROTATE_SPEED * delta_time;
 			}
-			camera.model->current_state.angles.rotate(delta_yaw, delta_pitch, delta_roll);
+			local_euler_angles_rotate(camera.model->current_state.angles, delta_yaw, delta_pitch, delta_roll);
 
 			if (pressed_tab) {
 				camera.model->control.afterburner_reheat_enabled = ! camera.model->control.afterburner_reheat_enabled;
@@ -3102,23 +3102,23 @@ int main() {
 			}
 
 			// only currently controlled model has audio
-			int audio_index = camera.model->control.throttle * (sounds.props.size()-1);
+			int audio_index = camera.model->control.throttle * (world.sounds.props.size()-1);
 
 			Audio* audio;
 			if (camera.model->has_propellers) {
-				audio = &sounds.props[audio_index];
+				audio = &world.sounds.props[audio_index];
 			} else if (camera.model->control.afterburner_reheat_enabled && camera.model->has_afterburner) {
-				audio = &sounds.burner;
+				audio = &world.sounds.burner;
 			} else {
-				audio = &sounds.engines[audio_index];
+				audio = &world.sounds.engines[audio_index];
 			}
 
 			if (camera.model->engine_sound != audio) {
 				if (camera.model->engine_sound) {
-					audio_device_stop(audio_device, *camera.model->engine_sound);
+					audio_device_stop(world.audio_device, *camera.model->engine_sound);
 				}
 				camera.model->engine_sound = audio;
-				audio_device_play_looped(audio_device, *camera.model->engine_sound);
+				audio_device_play_looped(world.audio_device, *camera.model->engine_sound);
 			}
 		}
 
@@ -3137,7 +3137,7 @@ int main() {
 			}
 
 			// apply model transformation
-			const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
+			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
 
 			model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
 			model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
@@ -3458,7 +3458,7 @@ int main() {
 				continue;
 			}
 
-			const auto model_transformation = model.current_state.angles.matrix(model.current_state.translation);
+			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
@@ -3827,24 +3827,24 @@ int main() {
 			}
 
 			if (ImGui::TreeNode("Audio")) {
-				for (int i = 0; i < sounds.as_array.size(); i++) {
+				for (int i = 0; i < world.sounds.as_array.size(); i++) {
 					ImGui::PushID(i);
 
-					const Audio& sound = *sounds.as_array[i];
+					const Audio& sound = *world.sounds.as_array[i];
 
 					if (ImGui::Button("Play")) {
-						audio_device_play(audio_device, sound);
+						audio_device_play(world.audio_device, sound);
 					}
 
 					ImGui::SameLine();
 					if (ImGui::Button("Loop")) {
-						audio_device_play_looped(audio_device, sound);
+						audio_device_play_looped(world.audio_device, sound);
 					}
 
 					ImGui::SameLine();
-					ImGui::BeginDisabled(audio_device_is_playing(audio_device, sound) == false);
+					ImGui::BeginDisabled(audio_device_is_playing(world.audio_device, sound) == false);
 					if (ImGui::Button("Stop")) {
-						audio_device_stop(audio_device, sound);
+						audio_device_stop(world.audio_device, sound);
 					}
 					ImGui::EndDisabled();
 
@@ -3953,7 +3953,8 @@ int main() {
 						model.current_state.angles.yaw,
 					};
 					if (MyImGui::SliderAngle3("rotation", &now_rotation, current_angle_max)) {
-						model.current_state.angles.rotate(
+						local_euler_angles_rotate(
+							model.current_state.angles,
 							now_rotation.z - model.current_state.angles.yaw,
 							now_rotation.y - model.current_state.angles.pitch,
 							now_rotation.x - model.current_state.angles.roll
