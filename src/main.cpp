@@ -2234,6 +2234,39 @@ mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_pat
 	return aircrafts_map;
 }
 
+struct TextRenderReq {
+	mu::Str text;
+	float x, y, scale;
+	glm::vec3 color;
+};
+
+struct Events {
+	bool wnd_size_changed;
+};
+
+struct Settings {
+	bool fullscreen = false;
+	bool should_limit_fps = true;
+	int fps_limit = 60;
+	float current_angle_max = DEGREES_MAX;
+
+	struct {
+		bool smooth_lines = true;
+		GLfloat line_width = 3.0f;
+		GLfloat point_size = 3.0f;
+
+		GLenum regular_primitives_type = GL_TRIANGLES;
+		GLenum light_primitives_type   = GL_TRIANGLES;
+		GLenum polygon_mode            = GL_FILL;
+	} rendering;
+
+	struct {
+		bool enabled = true;
+		glm::vec2 position {-0.9f, -0.8f};
+		float scale = 0.48f;
+	} world_axis;
+};
+
 struct World {
 	// aircraft short name -> files
 	mu::Map<mu::Str, AircraftFiles> aircrafts_map;
@@ -2246,16 +2279,14 @@ struct World {
 	mu::Vec<StartInfo> start_infos;
 
 	Camera camera;
-};
 
-struct Events {
-	bool wnd_size_changed;
-};
+	Events events;
+	Settings settings;
 
-struct TextRenderReq {
-	mu::Str text;
-	float x, y, scale;
-	glm::vec3 color;
+	// render lists
+	mu::Vec<mu::Str> overlay_text_list; // debugging
+	mu::Vec<TextRenderReq> text_render_list;
+	mu::Vec<glm::mat4> axis_list;
 };
 
 int main() {
@@ -2265,9 +2296,6 @@ int main() {
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
-
-	World world {};
-	world.aircrafts_map = aircrafts_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
 
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
@@ -2302,12 +2330,6 @@ int main() {
     if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
 		mu::panic("failed to load GLAD function pointers");
 	}
-
-	// setup audio
-	audio_device_init(&world.audio_device);
-	defer(audio_device_free(world.audio_device));
-	sounds_load(world.sounds);
-	defer(sounds_free(world.sounds));
 
 	// setup imgui
 	auto _imgui_ini_file_path = mu::str_format("{}/{}", mu::folder_config(mu::memory::tmp()), "open-ysf-imgui.ini");
@@ -2381,64 +2403,8 @@ int main() {
 	);
 	defer(gl_program_free(meshes_gpu_program));
 
-	// models
-	{
-		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
-		model_load_to_gpu(model);
-		world.models.push_back(model);
-	}
-	defer({
-		for (auto& model : world.models) {
-			model_unload_from_gpu(model);
-		}
-	});
-
-	// field
-	world.field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
-	field_load_to_gpu(world.field);
-	defer(field_unload_from_gpu(world.field));
-
-	// start infos
-	world.start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
-	world.start_infos.insert(world.start_infos.begin(), StartInfo {
-		.name="-NULL-"
-	});
-
-	for (int i = 0; i < world.models.size(); i++) {
-		model_set_start(world.models[i], world.start_infos[mod(i+1, world.start_infos.size())]);
-	}
-
-	world.camera = Camera {
-		.model = &world.models[0],
-		.position = world.start_infos[1].position
-	};
-
-	Events events {};
-
-	bool running = true;
-	bool fullscreen = false;
-
-	Uint32 time_millis = SDL_GetTicks();
-	double delta_time; // seconds since previous frame
-
-	bool should_limit_fps = true;
-	int fps_limit = 60;
-	int millis_till_render = 0;
-
-	struct {
-		bool smooth_lines = true;
-		GLfloat line_width = 3.0f;
-		GLfloat point_size = 3.0f;
-
-		GLenum regular_primitives_type = GL_TRIANGLES;
-		GLenum light_primitives_type   = GL_TRIANGLES;
-		GLenum polygon_mode            = GL_FILL;
-	} rendering {};
-
 	const GLfloat SMOOTH_LINE_WIDTH_GRANULARITY = gl_get_float(GL_SMOOTH_LINE_WIDTH_GRANULARITY);
 	const GLfloat POINT_SIZE_GRANULARITY        = gl_get_float(GL_POINT_SIZE_GRANULARITY);
-
-	float current_angle_max = DEGREES_MAX;
 
 	struct {
 		GLuint vao, vbo;
@@ -2499,12 +2465,6 @@ int main() {
 
 		gl_process_errors();
 	}
-
-	struct {
-		bool enabled = true;
-		glm::vec2 position {-0.9f, -0.8f};
-		float scale = 0.48f;
-	} world_axis;
 
 	auto lines_gpu_program = gl_program_new(
 		// vertex shader
@@ -2771,24 +2731,25 @@ int main() {
 	defer(gl_program_free(sprite_gpu_program));
 
 	// zl_sprite
-	SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
-	if (zl_sprite == nullptr || zl_sprite->pixels == nullptr) {
-		mu::panic("failed to load rwlight.png");
-	}
-	defer(SDL_FreeSurface(zl_sprite));
+	GLuint zl_sprite_texture; {
+		SDL_Surface* zl_sprite = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
+		if (zl_sprite == nullptr || zl_sprite->pixels == nullptr) {
+			mu::panic("failed to load rwlight.png");
+		}
+		defer(SDL_FreeSurface(zl_sprite));
 
-	GLuint zl_sprite_texture;
-	glGenTextures(1, &zl_sprite_texture);
+		glGenTextures(1, &zl_sprite_texture);
+		glBindTexture(GL_TEXTURE_2D, zl_sprite_texture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, zl_sprite->w, zl_sprite->h, 0, GL_RED, GL_UNSIGNED_INT, zl_sprite->pixels);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
 	defer({
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glDeleteTextures(1, &zl_sprite_texture);
 	});
-	glBindTexture(GL_TEXTURE_2D, zl_sprite_texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, zl_sprite->w, zl_sprite->h, 0, GL_RED, GL_UNSIGNED_INT, zl_sprite->pixels);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	// text
 	/// all state of loaded glyph using FreeType
@@ -2922,13 +2883,66 @@ int main() {
 		gl_process_errors();
 	}
 
+	// build world
+	World world {};
+
+	// aircrafts list
+	world.aircrafts_map = aircrafts_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
+
+	// models
+	{
+		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
+		model_load_to_gpu(model);
+		world.models.push_back(model);
+	}
+	defer({
+		for (auto& model : world.models) {
+			model_unload_from_gpu(model);
+		}
+	});
+
+	// audio
+	audio_device_init(&world.audio_device);
+	defer(audio_device_free(world.audio_device));
+	sounds_load(world.sounds);
+	defer(sounds_free(world.sounds));
+
+	// field
+	world.field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
+	field_load_to_gpu(world.field);
+	defer(field_unload_from_gpu(world.field));
+
+	// start infos
+	world.start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
+	world.start_infos.insert(world.start_infos.begin(), StartInfo {
+		.name="-NULL-"
+	});
+	for (int i = 0; i < world.models.size(); i++) {
+		model_set_start(world.models[i], world.start_infos[mod(i+1, world.start_infos.size())]);
+	}
+
+	// camera
+	world.camera = Camera {
+		.model = &world.models[0],
+		.position = world.start_infos[1].position
+	};
+
+	// main loop
+	bool running = true;
+	Uint32 time_millis = SDL_GetTicks();
+	double delta_time; // seconds since previous frame
+	int millis_till_render = 0;
+
 	while (running) {
 		mu::memory::reset_tmp();
 
-		mu::Vec<mu::Str> overlay_text(mu::memory::tmp());
+		// reset rendering lists
+		world.axis_list = mu::Vec<glm::mat4>(mu::memory::tmp());
+		world.overlay_text_list = mu::Vec<mu::Str>(mu::memory::tmp());
+		world.text_render_list = mu::Vec<TextRenderReq>(mu::memory::tmp());
 
-		mu::Vec<TextRenderReq> text_render_list(mu::memory::tmp());
-		text_render_list.emplace_back(TextRenderReq {
+		// sample text
+		world.text_render_list.emplace_back(TextRenderReq {
 			.text = mu::str_tmpf("Hello OpenYSF"),
 			.x = 25.0f,
 			.y = 25.0f,
@@ -2941,15 +2955,15 @@ int main() {
 			Uint32 delta_time_millis = SDL_GetTicks() - time_millis;
 			time_millis += delta_time_millis;
 
-			if (should_limit_fps) {
-				int millis_diff = (1000 / fps_limit) - delta_time_millis;
+			if (world.settings.should_limit_fps) {
+				int millis_diff = (1000 / world.settings.fps_limit) - delta_time_millis;
 				millis_till_render = clamp(millis_till_render - millis_diff, 0, 1000);
 				if (millis_till_render > 0) {
 					SDL_Delay(2);
 					continue;
 				} else {
-					millis_till_render = 1000 / fps_limit;
-					delta_time = 1.0f/ fps_limit;
+					millis_till_render = 1000 / world.settings.fps_limit;
+					delta_time = 1.0f/ world.settings.fps_limit;
 				}
 			} else {
 				delta_time = (double) delta_time_millis / 1000;
@@ -2959,7 +2973,7 @@ int main() {
 				delta_time = 0.0001f;
 			}
 		}
-		overlay_text.emplace_back(mu::str_tmpf("fps: {:.2f}", 1.0f/delta_time));
+		world.overlay_text_list.emplace_back(mu::str_tmpf("fps: {:.2f}", 1.0f/delta_time));
 
 		camera_update(world.camera, delta_time);
 
@@ -2977,9 +2991,9 @@ int main() {
 					pressed_tab = true;
 					break;
 				case 'f':
-					fullscreen = !fullscreen;
-					events.wnd_size_changed = true;
-					if (fullscreen) {
+					world.settings.fullscreen = !world.settings.fullscreen;
+					world.events.wnd_size_changed = true;
+					if (world.settings.fullscreen) {
 						if (SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
 							mu::panic(SDL_GetError());
 						}
@@ -2993,14 +3007,14 @@ int main() {
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				events.wnd_size_changed = true;
+				world.events.wnd_size_changed = true;
 			} else if (event.type == SDL_QUIT) {
 				running = false;
 			}
 		}
 
-		// process events
-		if (events.wnd_size_changed) {
+		// process world.events
+		if (world.events.wnd_size_changed) {
 			int w, h;
 			SDL_GL_GetDrawableSize(sdl_window, &w, &h);
 
@@ -3010,7 +3024,7 @@ int main() {
 				world.camera.projection.aspect = (float) w / h;
 			}
 		}
-		events = {};
+		world.events = {};
 
 		if (world.field.should_select_file) {
 			world.field.should_select_file = false;
@@ -3241,8 +3255,6 @@ int main() {
 			}
 		}
 
-		mu::Vec<glm::mat4> axis_instances(mu::memory::tmp());
-
 		// update fields
 		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
 		if (world.field.should_transform) {
@@ -3266,7 +3278,7 @@ int main() {
 
 				for (auto& mesh : fld->meshes) {
 					if (mesh.render_cnt_axis) {
-						axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
+						world.axis_list.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
 					}
 
 					// apply mesh transformation
@@ -3277,7 +3289,7 @@ int main() {
 					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
 
 					if (mesh.render_pos_axis) {
-						axis_instances.push_back(mesh.transformation);
+						world.axis_list.push_back(mesh.transformation);
 					}
 				}
 			}
@@ -3289,7 +3301,7 @@ int main() {
 		if (world.models.size() > 0) {
 			for (int i = 0; i < world.models.size()-1; i++) {
 				if (world.models[i].current_state.visible == false) {
-					overlay_text.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
+					world.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 					continue;
 				}
 
@@ -3297,17 +3309,17 @@ int main() {
 
 				for (int j = i+1; j < world.models.size(); j++) {
 					if (world.models[j].current_state.visible == false) {
-						overlay_text.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
+						world.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
 						continue;
 					}
 
 					glm::vec3 j_color {0, 0, 1};
 
 					if (aabbs_intersect(world.models[i].current_aabb, world.models[j].current_aabb)) {
-						overlay_text.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
+						world.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
 						j_color = i_color = {1, 0, 0};
 					} else {
-						overlay_text.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+						world.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
 					}
 
 					if (world.models[j].render_aabb) {
@@ -3353,16 +3365,16 @@ int main() {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		if (rendering.smooth_lines) {
+		if (world.settings.rendering.smooth_lines) {
 			glEnable(GL_LINE_SMOOTH);
             #ifndef OS_MACOS
-			glLineWidth(rendering.line_width);
+			glLineWidth(world.settings.rendering.line_width);
             #endif
 		} else {
 			glDisable(GL_LINE_SMOOTH);
 		}
-		glPointSize(rendering.point_size);
-		glPolygonMode(GL_FRONT_AND_BACK, rendering.polygon_mode);
+		glPointSize(world.settings.rendering.point_size);
+		glPolygonMode(GL_FRONT_AND_BACK, world.settings.rendering.polygon_mode);
 
 		// render last ground
 		gl_program_use(ground_gpu_program);
@@ -3435,7 +3447,7 @@ int main() {
 				}
 
 				glBindVertexArray(terr_mesh.gpu.vao);
-				glDrawArrays(rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
+				glDrawArrays(world.settings.rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
 		}
 		gl_program_uniform_set(meshes_gpu_program, "gradient_enabled", false);
@@ -3456,7 +3468,7 @@ int main() {
 				gl_program_uniform_set(meshes_gpu_program, "is_light_source", mesh.is_light_source);
 
 				glBindVertexArray(mesh.gpu.vao);
-				glDrawArrays(mesh.is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh.gpu.array_count);
+				glDrawArrays(mesh.is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh.gpu.array_count);
 			}
 		}
 
@@ -3505,18 +3517,18 @@ int main() {
 				}
 
 				if (mesh->render_cnt_axis) {
-					axis_instances.push_back(glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
+					world.axis_list.push_back(glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
 				}
 
 				if (mesh->render_pos_axis) {
-					axis_instances.push_back(mesh->transformation);
+					world.axis_list.push_back(mesh->transformation);
 				}
 
 				gl_program_uniform_set(meshes_gpu_program, "projection_view_model", projection_view_mat * mesh->transformation);
 				gl_program_uniform_set(meshes_gpu_program, "is_light_source", mesh->is_light_source);
 
 				glBindVertexArray(mesh->gpu.vao);
-				glDrawArrays(mesh->is_light_source? rendering.light_primitives_type : rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+				glDrawArrays(mesh->is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh->gpu.array_count);
 
 				// ZL
 				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
@@ -3552,7 +3564,7 @@ int main() {
 		}
 
 		// render axis
-		if (axis_instances.empty() == false) {
+		if (world.axis_list.empty() == false) {
 			gl_program_use(meshes_gpu_program);
 			if (axis_rendering.on_top) {
 				glDisable(GL_DEPTH_TEST);
@@ -3566,7 +3578,7 @@ int main() {
             #endif
 			gl_program_uniform_set(meshes_gpu_program, "is_light_source", false);
 			glBindVertexArray(axis_rendering.vao);
-			for (const auto& transformation : axis_instances) {
+			for (const auto& transformation : world.axis_list) {
 				gl_program_uniform_set(meshes_gpu_program, "projection_view_model", projection_view_mat * transformation);
 				glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
 			}
@@ -3574,7 +3586,7 @@ int main() {
 			glEnable(GL_DEPTH_TEST);
 		}
 
-		if (world_axis.enabled) {
+		if (world.settings.world_axis.enabled) {
 			gl_program_use(meshes_gpu_program);
 
 			glDisable(GL_DEPTH_TEST);
@@ -3588,8 +3600,8 @@ int main() {
 			glBindVertexArray(axis_rendering.vao);
 
 			auto new_view_mat = view_mat;
-			new_view_mat[3] = glm::vec4{0, 0, ((1 - world_axis.scale) * -39) - 1, 1};
-			auto trans = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world_axis.position.x, world_axis.position.y, 0});
+			new_view_mat[3] = glm::vec4{0, 0, ((1 - world.settings.world_axis.scale) * -39) - 1, 1};
+			auto trans = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world.settings.world_axis.position.x, world.settings.world_axis.position.y, 0});
 
 			gl_program_uniform_set(meshes_gpu_program, "projection_view_model", trans * projection_mat * new_view_mat);
 			glDrawArrays(GL_LINES, 0, axis_rendering.points_count);
@@ -3619,7 +3631,7 @@ int main() {
 		}
 
 		// render text
-		for (auto& txt_rndr : text_render_list) {
+		for (auto& txt_rndr : world.text_render_list) {
 			int wnd_width, wnd_height;
 			SDL_GL_GetDrawableSize(sdl_window, &wnd_width, &wnd_height);
 			glm::mat4 projection = glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height));
@@ -3671,9 +3683,9 @@ int main() {
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			if (ImGui::TreeNodeEx("Window")) {
-				ImGui::Checkbox("Limit FPS", &should_limit_fps);
-				ImGui::BeginDisabled(!should_limit_fps); {
-					ImGui::InputInt("FPS", &fps_limit, 1, 5);
+				ImGui::Checkbox("Limit FPS", &world.settings.should_limit_fps);
+				ImGui::BeginDisabled(!world.settings.should_limit_fps); {
+					ImGui::InputInt("FPS", &world.settings.fps_limit, 1, 5);
 				}
 				ImGui::EndDisabled();
 
@@ -3682,11 +3694,11 @@ int main() {
 				const bool width_changed = ImGui::InputInt("Width", &size[0]);
 				const bool height_changed = ImGui::InputInt("Height", &size[1]);
 				if (width_changed || height_changed) {
-					events.wnd_size_changed = true;
+					world.events.wnd_size_changed = true;
 					SDL_SetWindowSize(sdl_window, size[0], size[1]);
 				}
 
-				MyImGui::EnumsCombo("Angle Max", &current_angle_max, {
+				MyImGui::EnumsCombo("Angle Max", &world.settings.current_angle_max, {
 					{DEGREES_MAX, "DEGREES_MAX"},
 					{RADIANS_MAX, "RADIANS_MAX"},
 					{YS_MAX,      "YS_MAX"},
@@ -3698,7 +3710,7 @@ int main() {
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
 					world.camera.projection = {};
-					events.wnd_size_changed = true;
+					world.events.wnd_size_changed = true;
 				}
 
 				ImGui::InputFloat("near", &world.camera.projection.near, 1, 10);
@@ -3706,7 +3718,7 @@ int main() {
 				ImGui::DragFloat("fovy (1/zoom)", &world.camera.projection.fovy, 1, 1, 45);
 
 				if (ImGui::Checkbox("custom aspect", &world.camera.projection.custom_aspect) && !world.camera.projection.custom_aspect) {
-					events.wnd_size_changed = true;
+					world.events.wnd_size_changed = true;
 				}
 				ImGui::BeginDisabled(!world.camera.projection.custom_aspect);
 					ImGui::InputFloat("aspect", &world.camera.projection.aspect, 1, 10);
@@ -3773,16 +3785,16 @@ int main() {
 
 			if (ImGui::TreeNode("Rendering")) {
 				if (ImGui::Button("Reset")) {
-					rendering = {};
+					world.settings.rendering = {};
 				}
 
-				MyImGui::EnumsCombo("Polygon Mode", &rendering.polygon_mode, {
+				MyImGui::EnumsCombo("Polygon Mode", &world.settings.rendering.polygon_mode, {
 					{GL_POINT, "GL_POINT"},
 					{GL_LINE,  "GL_LINE"},
 					{GL_FILL,  "GL_FILL"},
 				});
 
-				MyImGui::EnumsCombo("Regular Mesh Primitives", &rendering.regular_primitives_type, {
+				MyImGui::EnumsCombo("Regular Mesh Primitives", &world.settings.rendering.regular_primitives_type, {
 					{GL_POINTS,          "GL_POINTS"},
 					{GL_LINES,           "GL_LINES"},
 					{GL_LINE_LOOP,       "GL_LINE_LOOP"},
@@ -3792,7 +3804,7 @@ int main() {
 					{GL_TRIANGLE_FAN,    "GL_TRIANGLE_FAN"},
 				});
 
-				MyImGui::EnumsCombo("Light Mesh Primitives", &rendering.light_primitives_type, {
+				MyImGui::EnumsCombo("Light Mesh Primitives", &world.settings.rendering.light_primitives_type, {
 					{GL_POINTS,          "GL_POINTS"},
 					{GL_LINES,           "GL_LINES"},
 					{GL_LINE_LOOP,       "GL_LINE_LOOP"},
@@ -3802,14 +3814,14 @@ int main() {
 					{GL_TRIANGLE_FAN,    "GL_TRIANGLE_FAN"},
 				});
 
-				ImGui::Checkbox("Smooth Lines", &rendering.smooth_lines);
+				ImGui::Checkbox("Smooth Lines", &world.settings.rendering.smooth_lines);
                 #ifndef OS_MACOS
-				ImGui::BeginDisabled(!rendering.smooth_lines);
-					ImGui::DragFloat("Line Width", &rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
+				ImGui::BeginDisabled(!world.settings.rendering.smooth_lines);
+					ImGui::DragFloat("Line Width", &world.settings.rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
 				ImGui::EndDisabled();
                 #endif
 
-				ImGui::DragFloat("Point Size", &rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
+				ImGui::DragFloat("Point Size", &world.settings.rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
 
 				ImGui::TreePop();
 			}
@@ -3822,11 +3834,11 @@ int main() {
 
 				ImGui::BulletText("World Axis:");
 				if (ImGui::Button("Reset")) {
-					world_axis = {};
+					world.settings.world_axis = {};
 				}
-				ImGui::Checkbox("Enabled", &world_axis.enabled);
-				ImGui::DragFloat2("Position", glm::value_ptr(world_axis.position), 0.05, -1, 1);
-				ImGui::DragFloat("Scale", &world_axis.scale, .05, 0, 1);
+				ImGui::Checkbox("Enabled", &world.settings.world_axis.enabled);
+				ImGui::DragFloat2("Position", glm::value_ptr(world.settings.world_axis.position), 0.05, -1, 1);
+				ImGui::DragFloat("Scale", &world.settings.world_axis.scale, .05, 0, 1);
 
 				ImGui::TreePop();
 			}
@@ -3964,7 +3976,7 @@ int main() {
 						model.current_state.angles.pitch,
 						model.current_state.angles.yaw,
 					};
-					if (MyImGui::SliderAngle3("rotation", &now_rotation, current_angle_max)) {
+					if (MyImGui::SliderAngle3("rotation", &now_rotation, world.settings.current_angle_max)) {
 						local_euler_angles_rotate(
 							model.current_state.angles,
 							now_rotation.z - model.current_state.angles.yaw,
@@ -4010,7 +4022,7 @@ int main() {
 						model.root_meshes_names.size(), light_sources_count).c_str());
 
 					std::function<void(Mesh&)> render_mesh_ui;
-					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max](Mesh& mesh) {
+					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max=world.settings.current_angle_max](Mesh& mesh) {
 						if (ImGui::TreeNode(mu::str_tmpf("{}", mesh.name).c_str())) {
 							if (ImGui::Button("Reset")) {
 								mesh.current_state = mesh.initial_state;
@@ -4076,7 +4088,7 @@ int main() {
 			ImGui::Separator();
 
 			std::function<void(Field&,bool)> render_field_imgui;
-			render_field_imgui = [&render_field_imgui, &current_angle_max](Field& field, bool is_root) {
+			render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
 				if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
 					if (is_root) {
 						field.should_select_file = ImGui::Button("Open FLD");
@@ -4240,7 +4252,7 @@ int main() {
 			| ImGuiWindowFlags_NoFocusOnAppearing
 			| ImGuiWindowFlags_NoNav
 			| ImGuiWindowFlags_NoMove)) {
-			for (const auto& line : overlay_text) {
+			for (const auto& line : world.overlay_text_list) {
 				ImGui::TextWrapped(mu::str_tmpf("> {}", line).c_str());
 			}
 		}

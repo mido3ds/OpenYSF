@@ -1,6 +1,5 @@
-- move main variables into world:
-	- Settings (should_limit_fps, fps_limit, rendering, current_angle_max, ....)
-	- world_axis[_list]
+- create render in world
+	- move rendering creation into it
 - mac: fix change line width
 - render aircraft vectors:
 	- weight
