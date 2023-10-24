@@ -1026,6 +1026,8 @@ struct Camera {
 	glm::ivec2 last_mouse_pos;
 
 	bool enable_rotating_around;
+
+	PerspectiveProjection projection;
 };
 
 void camera_update(Camera& self, float delta_time) {
@@ -2242,6 +2244,8 @@ struct World {
 	mu::Vec<Model> models;
 	Field field;
 	mu::Vec<StartInfo> start_infos;
+
+	Camera camera;
 };
 
 int main() {
@@ -2394,11 +2398,10 @@ int main() {
 		model_set_start(world.models[i], world.start_infos[mod(i+1, world.start_infos.size())]);
 	}
 
-	Camera camera {
+	world.camera = Camera {
 		.model = &world.models[0],
 		.position = world.start_infos[1].position
 	};
-	PerspectiveProjection perspective_projection {};
 
 	bool wnd_size_changed = true;
 	bool running = true;
@@ -2953,7 +2956,7 @@ int main() {
 		}
 		overlay_text.emplace_back(mu::str_tmpf("fps: {:.2f}", 1.0f/delta_time));
 
-		camera_update(camera, delta_time);
+		camera_update(world.camera, delta_time);
 
 		SDL_Event event;
 		bool pressed_tab = false;
@@ -2999,8 +3002,8 @@ int main() {
 
 			glViewport(0, 0, w, h);
 
-			if (!perspective_projection.custom_aspect) {
-				perspective_projection.aspect = (float) w / h;
+			if (!world.camera.projection.custom_aspect) {
+				world.camera.projection.aspect = (float) w / h;
 			}
 		}
 
@@ -3048,7 +3051,7 @@ int main() {
 			if (world.models[i].should_be_removed) {
 				int tracked_model_index = -1;
 				for (int i = 0; i < world.models.size(); i++) {
-					if (camera.model == &world.models[i]) {
+					if (world.camera.model == &world.models[i]) {
 						tracked_model_index = i;
 						break;
 					}
@@ -3057,9 +3060,9 @@ int main() {
 				world.models.erase(world.models.begin()+i);
 
 				if (tracked_model_index > 0 && tracked_model_index >= i) {
-					camera.model = &world.models[tracked_model_index-1];
+					world.camera.model = &world.models[tracked_model_index-1];
 				} else if (tracked_model_index == 0 && i == 0) {
-					camera.model = world.models.empty()? nullptr : &world.models[0];
+					world.camera.model = world.models.empty()? nullptr : &world.models[0];
 				}
 
 				i--;
@@ -3067,7 +3070,7 @@ int main() {
 		}
 
 		// control currently tracked model
-		if (camera.model) {
+		if (world.camera.model) {
 			float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 			const Uint8* key_pressed = SDL_GetKeyboardState(nullptr);
 			constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3089,40 +3092,40 @@ int main() {
 			if (key_pressed[SDL_SCANCODE_Z]) {
 				delta_yaw += ROTATE_SPEED * delta_time;
 			}
-			local_euler_angles_rotate(camera.model->current_state.angles, delta_yaw, delta_pitch, delta_roll);
+			local_euler_angles_rotate(world.camera.model->current_state.angles, delta_yaw, delta_pitch, delta_roll);
 
 			if (pressed_tab) {
-				camera.model->control.afterburner_reheat_enabled = ! camera.model->control.afterburner_reheat_enabled;
+				world.camera.model->control.afterburner_reheat_enabled = ! world.camera.model->control.afterburner_reheat_enabled;
 			}
-			if (camera.model->control.afterburner_reheat_enabled && camera.model->control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-				camera.model->control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
+			if (world.camera.model->control.afterburner_reheat_enabled && world.camera.model->control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+				world.camera.model->control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 			}
 
 			if (key_pressed[SDL_SCANCODE_Q]) {
-				camera.model->control.throttle += THROTTLE_SPEED * delta_time;
+				world.camera.model->control.throttle += THROTTLE_SPEED * delta_time;
 			}
 			if (key_pressed[SDL_SCANCODE_A]) {
-				camera.model->control.throttle -= THROTTLE_SPEED * delta_time;
+				world.camera.model->control.throttle -= THROTTLE_SPEED * delta_time;
 			}
 
 			// only currently controlled model has audio
-			int audio_index = camera.model->control.throttle * (world.sounds.props.size()-1);
+			int audio_index = world.camera.model->control.throttle * (world.sounds.props.size()-1);
 
 			Audio* audio;
-			if (camera.model->has_propellers) {
+			if (world.camera.model->has_propellers) {
 				audio = &world.sounds.props[audio_index];
-			} else if (camera.model->control.afterburner_reheat_enabled && camera.model->has_afterburner) {
+			} else if (world.camera.model->control.afterburner_reheat_enabled && world.camera.model->has_afterburner) {
 				audio = &world.sounds.burner;
 			} else {
 				audio = &world.sounds.engines[audio_index];
 			}
 
-			if (camera.model->engine_sound != audio) {
-				if (camera.model->engine_sound) {
-					audio_device_stop(world.audio_device, *camera.model->engine_sound);
+			if (world.camera.model->engine_sound != audio) {
+				if (world.camera.model->engine_sound) {
+					audio_device_stop(world.audio_device, *world.camera.model->engine_sound);
 				}
-				camera.model->engine_sound = audio;
-				audio_device_play_looped(world.audio_device, *camera.model->engine_sound);
+				world.camera.model->engine_sound = audio;
+				audio_device_play_looped(world.audio_device, *world.camera.model->engine_sound);
 			}
 		}
 
@@ -3324,12 +3327,12 @@ int main() {
 		}
 
 		// view+projec matrices
-		const auto view_mat = camera_calc_view(camera);
+		const auto view_mat = camera_calc_view(world.camera);
 		const auto projection_mat = glm::perspective(
-			perspective_projection.fovy,
-			perspective_projection.aspect,
-			perspective_projection.near,
-			perspective_projection.far
+			world.camera.projection.fovy,
+			world.camera.projection.aspect,
+			world.camera.projection.near,
+			world.camera.projection.far
 		);
 
 		const auto view_inverse_mat = glm::inverse(view_mat);
@@ -3689,19 +3692,19 @@ int main() {
 
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
-					perspective_projection = {};
+					world.camera.projection = {};
 					wnd_size_changed = true;
 				}
 
-				ImGui::InputFloat("near", &perspective_projection.near, 1, 10);
-				ImGui::InputFloat("far", &perspective_projection.far, 1, 10);
-				ImGui::DragFloat("fovy (1/zoom)", &perspective_projection.fovy, 1, 1, 45);
+				ImGui::InputFloat("near", &world.camera.projection.near, 1, 10);
+				ImGui::InputFloat("far", &world.camera.projection.far, 1, 10);
+				ImGui::DragFloat("fovy (1/zoom)", &world.camera.projection.fovy, 1, 1, 45);
 
-				if (ImGui::Checkbox("custom aspect", &perspective_projection.custom_aspect) && !perspective_projection.custom_aspect) {
+				if (ImGui::Checkbox("custom aspect", &world.camera.projection.custom_aspect) && !world.camera.projection.custom_aspect) {
 					wnd_size_changed = true;
 				}
-				ImGui::BeginDisabled(!perspective_projection.custom_aspect);
-					ImGui::InputFloat("aspect", &perspective_projection.aspect, 1, 10);
+				ImGui::BeginDisabled(!world.camera.projection.custom_aspect);
+					ImGui::InputFloat("aspect", &world.camera.projection.aspect, 1, 10);
 				ImGui::EndDisabled();
 
 				ImGui::TreePop();
@@ -3709,13 +3712,13 @@ int main() {
 
 			if (ImGui::TreeNode("Camera")) {
 				if (ImGui::Button("Reset")) {
-					camera = { .model=camera.model };
+					world.camera = { .model=world.camera.model };
 				}
 
-				if (camera.model) {
+				if (world.camera.model) {
 					int tracked_model_index = 0;
 					for (int i = 0; i < world.models.size(); i++) {
-						if (camera.model == &world.models[i]) {
+						if (world.camera.model == &world.models[i]) {
 							tracked_model_index = i;
 							break;
 						}
@@ -3723,42 +3726,42 @@ int main() {
 					if (ImGui::BeginCombo("Tracked Model", mu::str_tmpf("Model[{}]", tracked_model_index).c_str())) {
 						for (size_t j = 0; j < world.models.size(); j++) {
 							if (ImGui::Selectable(mu::str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
-								camera.model = &world.models[j];
+								world.camera.model = &world.models[j];
 							}
 						}
 
 						ImGui::EndCombo();
 					}
 
-					ImGui::DragFloat("distance", &camera.distance_from_model, 1, 0);
+					ImGui::DragFloat("distance", &world.camera.distance_from_model, 1, 0);
 
-					ImGui::Checkbox("Rotate Around", &camera.enable_rotating_around);
+					ImGui::Checkbox("Rotate Around", &world.camera.enable_rotating_around);
 				} else {
 					static size_t start_info_index = 0;
 					if (ImGui::BeginCombo("Start Pos", world.start_infos[start_info_index].name.c_str())) {
 						for (size_t j = 0; j < world.start_infos.size(); j++) {
 							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								camera.position = world.start_infos[j].position;
+								world.camera.position = world.start_infos[j].position;
 							}
 						}
 
 						ImGui::EndCombo();
 					}
 
-					ImGui::DragFloat("movement_speed", &camera.movement_speed, 5, 50, 1000);
-					ImGui::DragFloat("mouse_sensitivity", &camera.mouse_sensitivity, 1, 0.5, 10);
-					ImGui::DragFloat3("world_up", glm::value_ptr(camera.world_up), 1, -100, 100);
-					ImGui::DragFloat3("front", glm::value_ptr(camera.front), 0.1, -1, 1);
-					ImGui::DragFloat3("right", glm::value_ptr(camera.right), 1, -100, 100);
-					ImGui::DragFloat3("up", glm::value_ptr(camera.up), 1, -100, 100);
+					ImGui::DragFloat("movement_speed", &world.camera.movement_speed, 5, 50, 1000);
+					ImGui::DragFloat("mouse_sensitivity", &world.camera.mouse_sensitivity, 1, 0.5, 10);
+					ImGui::DragFloat3("world_up", glm::value_ptr(world.camera.world_up), 1, -100, 100);
+					ImGui::DragFloat3("front", glm::value_ptr(world.camera.front), 0.1, -1, 1);
+					ImGui::DragFloat3("right", glm::value_ptr(world.camera.right), 1, -100, 100);
+					ImGui::DragFloat3("up", glm::value_ptr(world.camera.up), 1, -100, 100);
 
 				}
 
-				ImGui::SliderAngle("yaw", &camera.yaw, -89, 89);
-				ImGui::SliderAngle("pitch", &camera.pitch, -179, 179);
+				ImGui::SliderAngle("yaw", &world.camera.yaw, -89, 89);
+				ImGui::SliderAngle("pitch", &world.camera.pitch, -179, 179);
 
-				ImGui::DragFloat3("position", glm::value_ptr(camera.position), 1, -100, 100);
+				ImGui::DragFloat3("position", glm::value_ptr(world.camera.position), 1, -100, 100);
 
 				ImGui::TreePop();
 			}
@@ -3881,7 +3884,7 @@ int main() {
 				if (should_add_aircraft) {
 					int tracked_model_index = -1;
 					for (int i = 0; i < world.models.size(); i++) {
-						if (camera.model == &world.models[i]) {
+						if (world.camera.model == &world.models[i]) {
 							tracked_model_index = i;
 							break;
 						}
@@ -3893,7 +3896,7 @@ int main() {
 					});
 
 					if (tracked_model_index != -1) {
-						camera.model = &world.models[tracked_model_index];
+						world.camera.model = &world.models[tracked_model_index];
 					}
 				}
 			}
