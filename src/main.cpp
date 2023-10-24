@@ -2190,6 +2190,53 @@ struct ImGuiWindowLogger : public mu::ILogger {
 	}
 };
 
+// paths of files of one single aircraft
+struct AircraftFiles {
+	mu::Str short_name; // a4.dat -> a4
+	mu::Str dat, dnm, collision, cockpit;
+	mu::Str coarse; // optional
+};
+
+mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_path) {
+	mu::Map<mu::Str, AircraftFiles> aircrafts_map {};
+	auto parser = parser_from_file(lst_file_path);
+
+	while (!parser_finished(parser)) {
+		AircraftFiles aircraft {};
+
+		aircraft.dat = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		parser_expect(parser, ' ');
+
+		aircraft.dnm = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		parser_expect(parser, ' ');
+
+		aircraft.collision = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		parser_expect(parser, ' ');
+
+		aircraft.cockpit = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+
+		if (parser_accept(parser, ' ')) {
+			aircraft.coarse = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		}
+		parser_expect(parser, '\n');
+
+		while (parser_accept(parser, '\n')) { }
+
+		auto i = aircraft.dat.find_last_of('/') + 1;
+		auto j = aircraft.dat.size() - 4;
+		aircraft.short_name = aircraft.dat.substr(i, j-i);
+
+		aircrafts_map[aircraft.short_name] = aircraft;
+	}
+
+	return aircrafts_map;
+}
+
+struct World {
+	// aircraft short name -> files
+	mu::Map<mu::Str, AircraftFiles> aircrafts_map;
+};
+
 int main() {
 	ImGuiWindowLogger imgui_window_logger {};
 	mu::log_global_logger = (mu::ILogger*) &imgui_window_logger;
@@ -2198,43 +2245,8 @@ int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 
-	struct AircraftFiles {
-		mu::Str short_name; // a4.dat -> a4
-		mu::Str dat, dnm, collision, cockpit;
-		mu::Str coarse; // optional
-	};
-	mu::Vec<AircraftFiles> aircrafts {};
-	{
-		auto parser = parser_from_file(ASSETS_DIR "/aircraft/aircraft.lst");
-
-		while (!parser_finished(parser)) {
-			AircraftFiles aircraft {};
-
-			aircraft.dat = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-			parser_expect(parser, ' ');
-
-			aircraft.dnm = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-			parser_expect(parser, ' ');
-
-			aircraft.collision = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-			parser_expect(parser, ' ');
-
-			aircraft.cockpit = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-
-			if (parser_accept(parser, ' ')) {
-				aircraft.coarse = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-			}
-			parser_expect(parser, '\n');
-
-			while (parser_accept(parser, '\n')) { }
-
-			auto i = aircraft.dat.find_last_of('/') + 1;
-			auto j = aircraft.dat.size() - 4;
-			aircraft.short_name = aircraft.dat.substr(i, j-i);
-
-			aircrafts.push_back(aircraft);
-		}
-	}
+	World world {};
+	world.aircrafts_map = aircrafts_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
 
 	SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
@@ -2353,7 +2365,7 @@ int main() {
 	// models
 	mu::Vec<Model> models;
 	{
-		auto model = model_from_dnm_file(ASSETS_DIR "/aircraft/ys11.dnm");
+		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
 		model_load_to_gpu(model);
 		models.push_back(model);
 	}
@@ -3850,12 +3862,12 @@ int main() {
 
 			{
 				const bool should_add_aircraft = ImGui::Button("Add");
-				static size_t aircraft_to_add = 0;
+				static mu::Str aircraft_to_add;
 				ImGui::SameLine();
-				if (ImGui::BeginCombo("##new_aircraft", aircrafts[aircraft_to_add].short_name.c_str())) {
-					for (size_t j = 0; j < aircrafts.size(); j++) {
-						if (ImGui::Selectable(aircrafts[j].short_name.c_str(), j == aircraft_to_add)) {
-							aircraft_to_add = j;
+				if (ImGui::BeginCombo("##new_aircraft", world.aircrafts_map[aircraft_to_add].short_name.c_str())) {
+					for (const auto& [name, aircraft] : world.aircrafts_map) {
+						if (ImGui::Selectable(name.c_str(), name == aircraft_to_add)) {
+							aircraft_to_add = name;
 						}
 					}
 
@@ -3872,7 +3884,7 @@ int main() {
 					}
 
 					models.push_back(Model {
-						.file_abs_path = aircrafts[aircraft_to_add].dnm,
+						.file_abs_path = world.aircrafts_map[aircraft_to_add].dnm,
 						.should_load_file = true,
 					});
 
@@ -3886,7 +3898,7 @@ int main() {
 				Model& model = models[i];
 
 				AircraftFiles* aircraft = nullptr;
-				for (auto& a : aircrafts) {
+				for (auto& [_k, a] : world.aircrafts_map) {
 					if (a.dnm == model.file_abs_path) {
 						aircraft = &a;
 						break;
@@ -3898,9 +3910,9 @@ int main() {
 					models[i].should_load_file = ImGui::Button("Reload");
 					ImGui::SameLine();
 					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(models[i].file_abs_path), mu::memory::tmp()).c_str())) {
-						for (size_t j = 0; j < aircrafts.size(); j++) {
-							if (ImGui::Selectable(aircrafts[j].short_name.c_str(), aircrafts[j].dnm == models[i].file_abs_path)) {
-								models[i].file_abs_path = aircrafts[j].dnm;
+						for (const auto& [name, aircraft] : world.aircrafts_map) {
+							if (ImGui::Selectable(name.c_str(), aircraft.dnm == models[i].file_abs_path)) {
+								models[i].file_abs_path = aircraft.dnm;
 								models[i].should_load_file = true;
 							}
 						}
