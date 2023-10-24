@@ -2235,8 +2235,11 @@ mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_pat
 struct World {
 	// aircraft short name -> files
 	mu::Map<mu::Str, AircraftFiles> aircrafts_map;
+
 	AudioDevice audio_device;
 	Sounds sounds;
+
+	mu::Vec<Model> models;
 };
 
 int main() {
@@ -2363,14 +2366,13 @@ int main() {
 	defer(gl_program_free(meshes_gpu_program));
 
 	// models
-	mu::Vec<Model> models;
 	{
 		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
 		model_load_to_gpu(model);
-		models.push_back(model);
+		world.models.push_back(model);
 	}
 	defer({
-		for (auto& model : models) {
+		for (auto& model : world.models) {
 			model_unload_from_gpu(model);
 		}
 	});
@@ -2386,12 +2388,12 @@ int main() {
 		.name="-NULL-"
 	});
 
-	for (int i = 0; i < models.size(); i++) {
-		model_set_start(models[i], start_infos[mod(i+1, start_infos.size())]);
+	for (int i = 0; i < world.models.size(); i++) {
+		model_set_start(world.models[i], start_infos[mod(i+1, start_infos.size())]);
 	}
 
 	Camera camera {
-		.model = &models[0],
+		.model = &world.models[0],
 		.position = start_infos[1].position
 	};
 	PerspectiveProjection perspective_projection {};
@@ -3023,39 +3025,39 @@ int main() {
 			field = new_field;
 		}
 
-		for (int i = 0; i < models.size(); i++) {
-			if (models[i].should_load_file) {
-				auto model = model_from_dnm_file(models[i].file_abs_path);
+		for (int i = 0; i < world.models.size(); i++) {
+			if (world.models[i].should_load_file) {
+				auto model = model_from_dnm_file(world.models[i].file_abs_path);
 				model_load_to_gpu(model);
 
-				if (models[i].engine_sound) {
-					audio_device_stop(world.audio_device, *models[i].engine_sound);
+				if (world.models[i].engine_sound) {
+					audio_device_stop(world.audio_device, *world.models[i].engine_sound);
 				}
-				model_unload_from_gpu(models[i]);
+				model_unload_from_gpu(world.models[i]);
 
-				model.control = models[i].control;
-				model.current_state = models[i].current_state;
-				models[i] = model;
+				model.control = world.models[i].control;
+				model.current_state = world.models[i].current_state;
+				world.models[i] = model;
 
-				mu::log_debug("loaded '{}'", models[i].file_abs_path);
-				models[i].should_load_file = false;
+				mu::log_debug("loaded '{}'", world.models[i].file_abs_path);
+				world.models[i].should_load_file = false;
 			}
 
-			if (models[i].should_be_removed) {
+			if (world.models[i].should_be_removed) {
 				int tracked_model_index = -1;
-				for (int i = 0; i < models.size(); i++) {
-					if (camera.model == &models[i]) {
+				for (int i = 0; i < world.models.size(); i++) {
+					if (camera.model == &world.models[i]) {
 						tracked_model_index = i;
 						break;
 					}
 				}
 
-				models.erase(models.begin()+i);
+				world.models.erase(world.models.begin()+i);
 
 				if (tracked_model_index > 0 && tracked_model_index >= i) {
-					camera.model = &models[tracked_model_index-1];
+					camera.model = &world.models[tracked_model_index-1];
 				} else if (tracked_model_index == 0 && i == 0) {
-					camera.model = models.empty()? nullptr : &models[0];
+					camera.model = world.models.empty()? nullptr : &world.models[0];
 				}
 
 				i--;
@@ -3123,8 +3125,8 @@ int main() {
 		}
 
 		// update models
-		for (int i = 0; i < models.size(); i++) {
-			Model& model = models[i];
+		for (int i = 0; i < world.models.size(); i++) {
+			Model& model = world.models[i];
 
 			if (!model.current_state.visible) {
 				continue;
@@ -3274,32 +3276,32 @@ int main() {
 		// test intersection
 		struct Box { glm::vec3 translation, scale, color; };
 		mu::Vec<Box> box_instances(mu::memory::tmp());
-		if (models.size() > 0) {
-			for (int i = 0; i < models.size()-1; i++) {
-				if (models[i].current_state.visible == false) {
+		if (world.models.size() > 0) {
+			for (int i = 0; i < world.models.size()-1; i++) {
+				if (world.models[i].current_state.visible == false) {
 					overlay_text.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 					continue;
 				}
 
 				glm::vec3 i_color {0, 0, 1};
 
-				for (int j = i+1; j < models.size(); j++) {
-					if (models[j].current_state.visible == false) {
+				for (int j = i+1; j < world.models.size(); j++) {
+					if (world.models[j].current_state.visible == false) {
 						overlay_text.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
 						continue;
 					}
 
 					glm::vec3 j_color {0, 0, 1};
 
-					if (aabbs_intersect(models[i].current_aabb, models[j].current_aabb)) {
+					if (aabbs_intersect(world.models[i].current_aabb, world.models[j].current_aabb)) {
 						overlay_text.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
 						j_color = i_color = {1, 0, 0};
 					} else {
 						overlay_text.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
 					}
 
-					if (models[j].render_aabb) {
-						auto aabb = models[j].current_aabb;
+					if (world.models[j].render_aabb) {
+						auto aabb = world.models[j].current_aabb;
 						box_instances.push_back(Box {
 							.translation = aabb.min,
 							.scale = aabb.max - aabb.min,
@@ -3308,8 +3310,8 @@ int main() {
 					}
 				}
 
-				if (models[i].render_aabb) {
-					auto aabb = models[i].current_aabb;
+				if (world.models[i].render_aabb) {
+					auto aabb = world.models[i].current_aabb;
 					box_instances.push_back(Box {
 						.translation = aabb.min,
 						.scale = aabb.max - aabb.min,
@@ -3451,8 +3453,8 @@ int main() {
 		mu::Vec<ZLPoint> zlpoints(mu::memory::tmp());
 
 		// render models
-		for (int i = 0; i < models.size(); i++) {
-			Model& model = models[i];
+		for (int i = 0; i < world.models.size(); i++) {
+			Model& model = world.models[i];
 
 			if (!model.current_state.visible) {
 				continue;
@@ -3710,16 +3712,16 @@ int main() {
 
 				if (camera.model) {
 					int tracked_model_index = 0;
-					for (int i = 0; i < models.size(); i++) {
-						if (camera.model == &models[i]) {
+					for (int i = 0; i < world.models.size(); i++) {
+						if (camera.model == &world.models[i]) {
 							tracked_model_index = i;
 							break;
 						}
 					}
 					if (ImGui::BeginCombo("Tracked Model", mu::str_tmpf("Model[{}]", tracked_model_index).c_str())) {
-						for (size_t j = 0; j < models.size(); j++) {
+						for (size_t j = 0; j < world.models.size(); j++) {
 							if (ImGui::Selectable(mu::str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
-								camera.model = &models[j];
+								camera.model = &world.models[j];
 							}
 						}
 
@@ -3858,7 +3860,7 @@ int main() {
 			}
 
 			ImGui::Separator();
-			ImGui::Text(mu::str_tmpf("Aircrafts {}:", models.size()).c_str());
+			ImGui::Text(mu::str_tmpf("Aircrafts {}:", world.models.size()).c_str());
 
 			{
 				const bool should_add_aircraft = ImGui::Button("Add");
@@ -3876,26 +3878,26 @@ int main() {
 
 				if (should_add_aircraft) {
 					int tracked_model_index = -1;
-					for (int i = 0; i < models.size(); i++) {
-						if (camera.model == &models[i]) {
+					for (int i = 0; i < world.models.size(); i++) {
+						if (camera.model == &world.models[i]) {
 							tracked_model_index = i;
 							break;
 						}
 					}
 
-					models.push_back(Model {
+					world.models.push_back(Model {
 						.file_abs_path = world.aircrafts_map[aircraft_to_add].dnm,
 						.should_load_file = true,
 					});
 
 					if (tracked_model_index != -1) {
-						camera.model = &models[tracked_model_index];
+						camera.model = &world.models[tracked_model_index];
 					}
 				}
 			}
 
-			for (int i = 0; i < models.size(); i++) {
-				Model& model = models[i];
+			for (int i = 0; i < world.models.size(); i++) {
+				Model& model = world.models[i];
 
 				AircraftFiles* aircraft = nullptr;
 				for (auto& [_k, a] : world.aircrafts_map) {
@@ -3907,20 +3909,20 @@ int main() {
 				my_assert(aircraft);
 
 				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, aircraft->short_name).c_str())) {
-					models[i].should_load_file = ImGui::Button("Reload");
+					world.models[i].should_load_file = ImGui::Button("Reload");
 					ImGui::SameLine();
-					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(models[i].file_abs_path), mu::memory::tmp()).c_str())) {
+					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(world.models[i].file_abs_path), mu::memory::tmp()).c_str())) {
 						for (const auto& [name, aircraft] : world.aircrafts_map) {
-							if (ImGui::Selectable(name.c_str(), aircraft.dnm == models[i].file_abs_path)) {
-								models[i].file_abs_path = aircraft.dnm;
-								models[i].should_load_file = true;
+							if (ImGui::Selectable(name.c_str(), aircraft.dnm == world.models[i].file_abs_path)) {
+								world.models[i].file_abs_path = aircraft.dnm;
+								world.models[i].should_load_file = true;
 							}
 						}
 
 						ImGui::EndCombo();
 					}
 
-					models[i].should_be_removed = ImGui::Button("Remove");
+					world.models[i].should_be_removed = ImGui::Button("Remove");
 
 					if (ImGui::Button("Reset State")) {
 						model.current_state = {};
@@ -3937,7 +3939,7 @@ int main() {
 						for (size_t j = 0; j < start_infos.size(); j++) {
 							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								model_set_start(models[i], start_infos[start_info_index]);
+								model_set_start(world.models[i], start_infos[start_info_index]);
 							}
 						}
 

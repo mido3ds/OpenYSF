@@ -1,5 +1,4 @@
 - move main variables into world:
-	- model
 	- field
 	- start_infos
 	- camera
