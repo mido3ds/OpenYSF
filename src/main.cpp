@@ -2240,6 +2240,8 @@ struct World {
 	Sounds sounds;
 
 	mu::Vec<Model> models;
+	Field field;
+	mu::Vec<StartInfo> start_infos;
 };
 
 int main() {
@@ -2378,23 +2380,23 @@ int main() {
 	});
 
 	// field
-	auto field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
-	field_load_to_gpu(field);
-	defer(field_unload_from_gpu(field));
+	world.field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
+	field_load_to_gpu(world.field);
+	defer(field_unload_from_gpu(world.field));
 
 	// start infos
-	auto start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
-	start_infos.insert(start_infos.begin(), StartInfo {
+	world.start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
+	world.start_infos.insert(world.start_infos.begin(), StartInfo {
 		.name="-NULL-"
 	});
 
 	for (int i = 0; i < world.models.size(); i++) {
-		model_set_start(world.models[i], start_infos[mod(i+1, start_infos.size())]);
+		model_set_start(world.models[i], world.start_infos[mod(i+1, world.start_infos.size())]);
 	}
 
 	Camera camera {
 		.model = &world.models[0],
-		.position = start_infos[1].position
+		.position = world.start_infos[1].position
 	};
 	PerspectiveProjection perspective_projection {};
 
@@ -3002,27 +3004,27 @@ int main() {
 			}
 		}
 
-		if (field.should_select_file) {
-			field.should_select_file = false;
+		if (world.field.should_select_file) {
+			world.field.should_select_file = false;
 
 			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
 			if (result.size() == 1) {
-				field.file_abs_path = result[0];
-				mu::log_debug("loading '{}'", field.file_abs_path);
-				field.should_load_file = true;
+				world.field.file_abs_path = result[0];
+				mu::log_debug("loading '{}'", world.field.file_abs_path);
+				world.field.should_load_file = true;
 			}
 		}
-		if (field.should_load_file) {
-			field.should_load_file = false;
+		if (world.field.should_load_file) {
+			world.field.should_load_file = false;
 
 			Field new_field {};
-			if (field.file_abs_path.empty() == false) {
-				new_field = field_from_fld_file(field.file_abs_path);
+			if (world.field.file_abs_path.empty() == false) {
+				new_field = field_from_fld_file(world.field.file_abs_path);
 				field_load_to_gpu(new_field);
 			}
 
-			field_unload_from_gpu(field);
-			field = new_field;
+			field_unload_from_gpu(world.field);
+			world.field = new_field;
 		}
 
 		for (int i = 0; i < world.models.size(); i++) {
@@ -3234,12 +3236,12 @@ int main() {
 		mu::Vec<glm::mat4> axis_instances(mu::memory::tmp());
 
 		// update fields
-		const auto all_fields = field_list_recursively(field, mu::memory::tmp());
-		if (field.should_transform) {
-			field.should_transform = false;
+		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
+		if (world.field.should_transform) {
+			world.field.should_transform = false;
 
 			// transform fields
-			field.transformation = glm::identity<glm::mat4>();
+			world.field.transformation = glm::identity<glm::mat4>();
 			for (Field* fld : all_fields) {
 				if (fld->current_state.visible == false) {
 					continue;
@@ -3337,7 +3339,7 @@ int main() {
 
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
-		glClearColor(field.sky_color.x, field.sky_color.y, field.sky_color.z, 0.0f);
+		glClearColor(world.field.sky_color.x, world.field.sky_color.y, world.field.sky_color.z, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glEnable(GL_BLEND);
@@ -3733,11 +3735,11 @@ int main() {
 					ImGui::Checkbox("Rotate Around", &camera.enable_rotating_around);
 				} else {
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.c_str())) {
-						for (size_t j = 0; j < start_infos.size(); j++) {
-							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
+					if (ImGui::BeginCombo("Start Pos", world.start_infos[start_info_index].name.c_str())) {
+						for (size_t j = 0; j < world.start_infos.size(); j++) {
+							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								camera.position = start_infos[j].position;
+								camera.position = world.start_infos[j].position;
 							}
 						}
 
@@ -3935,11 +3937,11 @@ int main() {
 					}
 
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_infos[start_info_index].name.c_str())) {
-						for (size_t j = 0; j < start_infos.size(); j++) {
-							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
+					if (ImGui::BeginCombo("Start Pos", world.start_infos[start_info_index].name.c_str())) {
+						for (size_t j = 0; j < world.start_infos.size(); j++) {
+							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								model_set_start(world.models[i], start_infos[start_info_index]);
+								model_set_start(world.models[i], world.start_infos[start_info_index]);
 							}
 						}
 
@@ -4171,7 +4173,7 @@ int main() {
 					ImGui::TreePop();
 				}
 			};
-			render_field_imgui(field, true);
+			render_field_imgui(world.field, true);
 		}
 		ImGui::End();
 

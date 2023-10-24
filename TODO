@@ -1,6 +1,4 @@
 - move main variables into world:
-	- field
-	- start_infos
 	- camera
 	- Events (wnd_size_changed)
 	- Settings (should_limit_fps, fps_limit, rendering, current_angle_max, ....)
