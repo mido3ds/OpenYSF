@@ -1,5 +1,4 @@
-- create render in world
-	- move rendering creation into it
+- create canvas in world
 - mac: fix change line width
 - render aircraft vectors:
 	- weight
