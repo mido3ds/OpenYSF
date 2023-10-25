@@ -2441,6 +2441,48 @@ namespace sys {
 		self.projection_view = self.projection * self.view;
 		self.proj_inv_view_inv = self.view_inverse * self.projection_inverse;
 	}
+
+	void events_update(World& world) {
+		world.events = {};
+
+		world.events.sdl_mouse_state = SDL_GetMouseState(&world.events.mouse_pos.x, &world.events.mouse_pos.y);
+		world.events.sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
+
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
+			ImGui_ImplSDL2_ProcessEvent(&event);
+
+			if (event.type == SDL_KEYDOWN) {
+				switch (event.key.keysym.sym) {
+				case SDLK_ESCAPE:
+					world.events.quit = true;
+					break;
+				case SDLK_TAB:
+					world.events.pressed_tab = true;
+					break;
+				case 'f':
+					world.settings.fullscreen = !world.settings.fullscreen;
+					world.events.wnd_size_changed = true;
+					if (world.settings.fullscreen) {
+						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
+							mu::panic(SDL_GetError());
+						}
+					} else {
+						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL)) {
+							mu::panic(SDL_GetError());
+						}
+					}
+					break;
+				default:
+					break;
+				}
+			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
+				world.events.wnd_size_changed = true;
+			} else if (event.type == SDL_QUIT) {
+				world.events.quit = true;
+			}
+		}
+	}
 }
 
 int main() {
@@ -3074,50 +3116,7 @@ int main() {
 		});
 		world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.delta_time));
 
-		// process events
-		world.events = {};
-		world.events.sdl_mouse_state = SDL_GetMouseState(&world.events.mouse_pos.x, &world.events.mouse_pos.y);
-		world.events.sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
-		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
-			ImGui_ImplSDL2_ProcessEvent(&event);
-
-			if (event.type == SDL_KEYDOWN) {
-				switch (event.key.keysym.sym) {
-				case SDLK_ESCAPE:
-					world.events.quit = true;
-					break;
-				case SDLK_TAB:
-					world.events.pressed_tab = true;
-					break;
-				case 'f':
-					world.settings.fullscreen = !world.settings.fullscreen;
-					world.events.wnd_size_changed = true;
-					if (world.settings.fullscreen) {
-						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
-							mu::panic(SDL_GetError());
-						}
-					} else {
-						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL)) {
-							mu::panic(SDL_GetError());
-						}
-					}
-					break;
-				default:
-					break;
-				}
-			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				world.events.wnd_size_changed = true;
-			} else if (event.type == SDL_QUIT) {
-				world.events.quit = true;
-			}
-		}
-
-		if (world.events.wnd_size_changed) {
-			int w, h;
-			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
-			glViewport(0, 0, w, h);
-		}
+		sys::events_update(world);
 
 		if (world.field.should_select_file) {
 			world.field.should_select_file = false;
@@ -3441,6 +3440,11 @@ int main() {
 			}
 		}
 
+		if (world.events.wnd_size_changed) {
+			int w, h;
+			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
+			glViewport(0, 0, w, h);
+		}
 
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
