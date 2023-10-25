@@ -2483,6 +2483,179 @@ namespace sys {
 			}
 		}
 	}
+
+	// control currently tracked model
+	void tracked_model_update(World& world) {
+		if (world.camera.model == nullptr) {
+			return;
+		}
+		auto& self = *world.camera.model;
+
+		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
+		const Uint8* sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
+		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
+		if (sdl_keyb_pressed[SDL_SCANCODE_DOWN]) {
+			delta_pitch -= ROTATE_SPEED * world.delta_time;
+		}
+		if (sdl_keyb_pressed[SDL_SCANCODE_UP]) {
+			delta_pitch += ROTATE_SPEED * world.delta_time;
+		}
+		if (sdl_keyb_pressed[SDL_SCANCODE_LEFT]) {
+			delta_roll -= ROTATE_SPEED * world.delta_time;
+		}
+		if (sdl_keyb_pressed[SDL_SCANCODE_RIGHT]) {
+			delta_roll += ROTATE_SPEED * world.delta_time;
+		}
+		if (sdl_keyb_pressed[SDL_SCANCODE_C]) {
+			delta_yaw -= ROTATE_SPEED * world.delta_time;
+		}
+		if (sdl_keyb_pressed[SDL_SCANCODE_Z]) {
+			delta_yaw += ROTATE_SPEED * world.delta_time;
+		}
+		local_euler_angles_rotate(self.current_state.angles, delta_yaw, delta_pitch, delta_roll);
+
+		if (world.events.pressed_tab) {
+			self.control.afterburner_reheat_enabled = ! self.control.afterburner_reheat_enabled;
+		}
+		if (self.control.afterburner_reheat_enabled && self.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+			self.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
+		}
+
+		if (sdl_keyb_pressed[SDL_SCANCODE_Q]) {
+			self.control.throttle += THROTTLE_SPEED * world.delta_time;
+		}
+		if (sdl_keyb_pressed[SDL_SCANCODE_A]) {
+			self.control.throttle -= THROTTLE_SPEED * world.delta_time;
+		}
+
+		// only currently controlled model has audio
+		int audio_index = self.control.throttle * (world.sounds.props.size()-1);
+
+		Audio* audio;
+		if (self.has_propellers) {
+			audio = &world.sounds.props[audio_index];
+		} else if (self.control.afterburner_reheat_enabled && self.has_afterburner) {
+			audio = &world.sounds.burner;
+		} else {
+			audio = &world.sounds.engines[audio_index];
+		}
+
+		if (self.engine_sound != audio) {
+			if (self.engine_sound) {
+				audio_device_stop(world.audio_device, *self.engine_sound);
+			}
+			self.engine_sound = audio;
+			audio_device_play_looped(world.audio_device, *self.engine_sound);
+		}
+	}
+
+	void models_update(World& world) {
+		for (int i = 0; i < world.models.size(); i++) {
+			Model& model = world.models[i];
+
+			if (!model.current_state.visible) {
+				continue;
+			}
+
+			model.anti_coll_lights.time_left_secs -= world.delta_time;
+			if (model.anti_coll_lights.time_left_secs < 0) {
+				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
+				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
+			}
+
+			// apply model transformation
+			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
+
+			model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
+			model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
+			if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+				model.control.afterburner_reheat_enabled = false;
+			}
+
+			model.current_state.translation += ((float)world.delta_time * model.current_state.speed) * model.current_state.angles.front;
+
+			// transform AABB (estimate new AABB after rotation)
+			{
+				// translate AABB
+				model.current_aabb.min = model.current_aabb.max = model.current_state.translation;
+
+				// new rotated AABB (no translation)
+				const auto model_rotation = glm::mat3(model_transformation);
+				const auto rotated_min = model_rotation * model.initial_aabb.min;
+				const auto rotated_max = model_rotation * model.initial_aabb.max;
+				const AABB rotated_aabb {
+					.min = glm::min(rotated_min, rotated_max),
+					.max = glm::max(rotated_min, rotated_max),
+				};
+
+				// for all three axes
+				for (int i = 0; i < 3; i++) {
+					// form extent by summing smaller and larger terms respectively
+					for (int j = 0; j < 3; j++) {
+						const float e = model_rotation[j][i] * rotated_aabb.min[j];
+						const float f = model_rotation[j][i] * rotated_aabb.max[j];
+						if (e < f) {
+							model.current_aabb.min[i] += e;
+							model.current_aabb.max[i] += f;
+						} else {
+							model.current_aabb.min[i] += f;
+							model.current_aabb.max[i] += e;
+						}
+					}
+				}
+			}
+
+			// start with root meshes
+			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
+			for (const auto& name : model.root_meshes_names) {
+				auto& mesh = model.meshes.at(name);
+				mesh.transformation = model_transformation;
+				meshes_stack.push_back(&mesh);
+			}
+
+			while (meshes_stack.empty() == false) {
+				Mesh* mesh = *meshes_stack.rbegin();
+				meshes_stack.pop_back();
+
+				if (mesh->current_state.visible == false) {
+					continue;
+				}
+
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+					mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+				}
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
+					mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+				}
+
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
+					// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
+					const MeshState& state_up   = mesh->animation_states[0];
+					const MeshState& state_down = mesh->animation_states[1];
+					const auto& alpha = model.control.landing_gear_alpha;
+
+					mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
+					mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
+
+					float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
+					mesh->current_state.visible = visibilty > 0.05;;
+				}
+
+				// apply mesh transformation
+				mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
+
+				// push children
+				for (const mu::Str& child_name : mesh->children) {
+					auto& child_mesh = model.meshes.at(child_name);
+					child_mesh.transformation = mesh->transformation;
+					meshes_stack.push_back(&child_mesh);
+				}
+			}
+		}
+	}
 }
 
 int main() {
@@ -3187,172 +3360,8 @@ int main() {
 
 		sys::cached_matrices_recalc(world);
 
-		// control currently tracked model
-		if (world.camera.model) {
-			float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
-			const Uint8* sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
-			constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
-			if (sdl_keyb_pressed[SDL_SCANCODE_DOWN]) {
-				delta_pitch -= ROTATE_SPEED * world.delta_time;
-			}
-			if (sdl_keyb_pressed[SDL_SCANCODE_UP]) {
-				delta_pitch += ROTATE_SPEED * world.delta_time;
-			}
-			if (sdl_keyb_pressed[SDL_SCANCODE_LEFT]) {
-				delta_roll -= ROTATE_SPEED * world.delta_time;
-			}
-			if (sdl_keyb_pressed[SDL_SCANCODE_RIGHT]) {
-				delta_roll += ROTATE_SPEED * world.delta_time;
-			}
-			if (sdl_keyb_pressed[SDL_SCANCODE_C]) {
-				delta_yaw -= ROTATE_SPEED * world.delta_time;
-			}
-			if (sdl_keyb_pressed[SDL_SCANCODE_Z]) {
-				delta_yaw += ROTATE_SPEED * world.delta_time;
-			}
-			local_euler_angles_rotate(world.camera.model->current_state.angles, delta_yaw, delta_pitch, delta_roll);
-
-			if (world.events.pressed_tab) {
-				world.camera.model->control.afterburner_reheat_enabled = ! world.camera.model->control.afterburner_reheat_enabled;
-			}
-			if (world.camera.model->control.afterburner_reheat_enabled && world.camera.model->control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-				world.camera.model->control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
-			}
-
-			if (sdl_keyb_pressed[SDL_SCANCODE_Q]) {
-				world.camera.model->control.throttle += THROTTLE_SPEED * world.delta_time;
-			}
-			if (sdl_keyb_pressed[SDL_SCANCODE_A]) {
-				world.camera.model->control.throttle -= THROTTLE_SPEED * world.delta_time;
-			}
-
-			// only currently controlled model has audio
-			int audio_index = world.camera.model->control.throttle * (world.sounds.props.size()-1);
-
-			Audio* audio;
-			if (world.camera.model->has_propellers) {
-				audio = &world.sounds.props[audio_index];
-			} else if (world.camera.model->control.afterburner_reheat_enabled && world.camera.model->has_afterburner) {
-				audio = &world.sounds.burner;
-			} else {
-				audio = &world.sounds.engines[audio_index];
-			}
-
-			if (world.camera.model->engine_sound != audio) {
-				if (world.camera.model->engine_sound) {
-					audio_device_stop(world.audio_device, *world.camera.model->engine_sound);
-				}
-				world.camera.model->engine_sound = audio;
-				audio_device_play_looped(world.audio_device, *world.camera.model->engine_sound);
-			}
-		}
-
-		// update models
-		for (int i = 0; i < world.models.size(); i++) {
-			Model& model = world.models[i];
-
-			if (!model.current_state.visible) {
-				continue;
-			}
-
-			model.anti_coll_lights.time_left_secs -= world.delta_time;
-			if (model.anti_coll_lights.time_left_secs < 0) {
-				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
-				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
-			}
-
-			// apply model transformation
-			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
-
-			model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
-			model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
-			if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-				model.control.afterburner_reheat_enabled = false;
-			}
-
-			model.current_state.translation += ((float)world.delta_time * model.current_state.speed) * model.current_state.angles.front;
-
-			// transform AABB (estimate new AABB after rotation)
-			{
-				// translate AABB
-				model.current_aabb.min = model.current_aabb.max = model.current_state.translation;
-
-				// new rotated AABB (no translation)
-				const auto model_rotation = glm::mat3(model_transformation);
-				const auto rotated_min = model_rotation * model.initial_aabb.min;
-				const auto rotated_max = model_rotation * model.initial_aabb.max;
-				const AABB rotated_aabb {
-					.min = glm::min(rotated_min, rotated_max),
-					.max = glm::max(rotated_min, rotated_max),
-				};
-
-				// for all three axes
-				for (int i = 0; i < 3; i++) {
-					// form extent by summing smaller and larger terms respectively
-					for (int j = 0; j < 3; j++) {
-						const float e = model_rotation[j][i] * rotated_aabb.min[j];
-						const float f = model_rotation[j][i] * rotated_aabb.max[j];
-						if (e < f) {
-							model.current_aabb.min[i] += e;
-							model.current_aabb.max[i] += f;
-						} else {
-							model.current_aabb.min[i] += f;
-							model.current_aabb.max[i] += e;
-						}
-					}
-				}
-			}
-
-			// start with root meshes
-			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-			for (const auto& name : model.root_meshes_names) {
-				auto& mesh = model.meshes.at(name);
-				mesh.transformation = model_transformation;
-				meshes_stack.push_back(&mesh);
-			}
-
-			while (meshes_stack.empty() == false) {
-				Mesh* mesh = *meshes_stack.rbegin();
-				meshes_stack.pop_back();
-
-				if (mesh->current_state.visible == false) {
-					continue;
-				}
-
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
-				}
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
-				}
-
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
-					// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
-					const MeshState& state_up   = mesh->animation_states[0];
-					const MeshState& state_down = mesh->animation_states[1];
-					const auto& alpha = model.control.landing_gear_alpha;
-
-					mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
-					mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
-
-					float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
-					mesh->current_state.visible = visibilty > 0.05;;
-				}
-
-				// apply mesh transformation
-				mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
-
-				// push children
-				for (const mu::Str& child_name : mesh->children) {
-					auto& child_mesh = model.meshes.at(child_name);
-					child_mesh.transformation = mesh->transformation;
-					meshes_stack.push_back(&child_mesh);
-				}
-			}
-		}
+		sys::tracked_model_update(world);
+		sys::models_update(world);
 
 		// update fields
 		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
