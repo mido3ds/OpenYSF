@@ -2331,15 +2331,36 @@ namespace sys {
 		self.text_render_list  = mu::Vec<TextRenderReq>(mu::memory::tmp());
 		self.axis_list         = mu::Vec<glm::mat4>(mu::memory::tmp());
 		self.boxes_list        = mu::Vec<Box>(mu::memory::tmp());
+
+		if (world.events.wnd_size_changed) {
+			int w, h;
+			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
+			glViewport(0, 0, w, h);
+		}
+
+		glEnable(GL_DEPTH_TEST);
+		glClearDepth(1);
+		glClearColor(world.field.sky_color.x, world.field.sky_color.y, world.field.sky_color.z, 0.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		if (world.settings.rendering.smooth_lines) {
+			glEnable(GL_LINE_SMOOTH);
+            #ifndef OS_MACOS
+			glLineWidth(world.settings.rendering.line_width);
+            #endif
+		} else {
+			glDisable(GL_LINE_SMOOTH);
+		}
+		glPointSize(world.settings.rendering.point_size);
+		glPolygonMode(GL_FRONT_AND_BACK, world.settings.rendering.polygon_mode);
 	}
 
-	void camera_update_model_tracking_mode(World& world) {
+	void _camera_update_model_tracking_mode(World& world) {
 		auto& self = world.camera;
 		auto& events = world.events;
-
-		if (self.model == nullptr) {
-			return;
-		}
 
 		const float velocity = 0.40f * world.delta_time;
 		if (events.sdl_keyb_pressed[SDL_SCANCODE_U]) {
@@ -2369,13 +2390,9 @@ namespace sys {
 		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
 	}
 
-	void camera_update_flying_mode(World& world) {
+	void _camera_update_flying_mode(World& world) {
 		auto& self = world.camera;
 		auto& events = world.events;
-
-		if (self.model) {
-			return;
-		}
 
 		// move with keyboard
 		const float velocity = self.movement_speed * world.delta_time;
@@ -2415,6 +2432,14 @@ namespace sys {
 		self.up    = glm::normalize(glm::cross(self.right, self.front));
 	}
 
+	void camera_update(World& world) {
+		if (world.camera.model) {
+			_camera_update_model_tracking_mode(world);
+		} else {
+			_camera_update_flying_mode(world);
+		}
+	}
+
 	void projection_update(World& world) {
 		auto& self = world.projection;
 
@@ -2444,10 +2469,11 @@ namespace sys {
 	}
 
 	void events_update(World& world) {
-		world.events = {};
+		auto& self = world.events;
 
-		world.events.sdl_mouse_state = SDL_GetMouseState(&world.events.mouse_pos.x, &world.events.mouse_pos.y);
-		world.events.sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
+		self = {};
+		self.sdl_mouse_state = SDL_GetMouseState(&self.mouse_pos.x, &self.mouse_pos.y);
+		self.sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -2456,14 +2482,14 @@ namespace sys {
 			if (event.type == SDL_KEYDOWN) {
 				switch (event.key.keysym.sym) {
 				case SDLK_ESCAPE:
-					world.events.quit = true;
+					self.quit = true;
 					break;
 				case SDLK_TAB:
-					world.events.pressed_tab = true;
+					self.pressed_tab = true;
 					break;
 				case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
-					world.events.wnd_size_changed = true;
+					self.wnd_size_changed = true;
 					if (world.settings.fullscreen) {
 						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
 							mu::panic(SDL_GetError());
@@ -2478,9 +2504,9 @@ namespace sys {
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				world.events.wnd_size_changed = true;
+				self.wnd_size_changed = true;
 			} else if (event.type == SDL_QUIT) {
-				world.events.quit = true;
+				self.quit = true;
 			}
 		}
 	}
@@ -2702,10 +2728,60 @@ namespace sys {
 		}
 	}
 
+	void _models_handle_collision(World& world) {
+		if (world.models.empty()) {
+			return;
+		}
+
+		for (int i = 0; i < world.models.size()-1; i++) {
+			if (world.models[i].current_state.visible == false) {
+				world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
+				continue;
+			}
+
+			glm::vec3 i_color {0, 0, 1};
+
+			for (int j = i+1; j < world.models.size(); j++) {
+				if (world.models[j].current_state.visible == false) {
+					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
+					continue;
+				}
+
+				glm::vec3 j_color {0, 0, 1};
+
+				if (aabbs_intersect(world.models[i].current_aabb, world.models[j].current_aabb)) {
+					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
+					j_color = i_color = {1, 0, 0};
+				} else {
+					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+				}
+
+				if (world.models[j].render_aabb) {
+					auto aabb = world.models[j].current_aabb;
+					world.canvas.boxes_list.push_back(Box {
+						.translation = aabb.min,
+						.scale = aabb.max - aabb.min,
+						.color = j_color,
+					});
+				}
+			}
+
+			if (world.models[i].render_aabb) {
+				auto aabb = world.models[i].current_aabb;
+				world.canvas.boxes_list.push_back(Box {
+					.translation = aabb.min,
+					.scale = aabb.max - aabb.min,
+					.color = i_color,
+				});
+			}
+		}
+	}
+
 	void models_update(World& world) {
 		_models_load_from_files(world);
 		_models_autoremove(world);
 		_models_apply_physics(world);
+		_models_handle_collision(world);
 
 		_tracked_model_control(world);
 	}
@@ -3409,85 +3485,11 @@ int main() {
 		sys::events_update(world);
 
 		sys::projection_update(world);
-
-		sys::camera_update_flying_mode(world);
-		sys::camera_update_model_tracking_mode(world);
-
+		sys::camera_update(world);
 		sys::cached_matrices_recalc(world);
 
 		sys::fields_update(world);
 		sys::models_update(world);
-
-		// test intersection
-		if (world.models.size() > 0) {
-			for (int i = 0; i < world.models.size()-1; i++) {
-				if (world.models[i].current_state.visible == false) {
-					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
-					continue;
-				}
-
-				glm::vec3 i_color {0, 0, 1};
-
-				for (int j = i+1; j < world.models.size(); j++) {
-					if (world.models[j].current_state.visible == false) {
-						world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
-						continue;
-					}
-
-					glm::vec3 j_color {0, 0, 1};
-
-					if (aabbs_intersect(world.models[i].current_aabb, world.models[j].current_aabb)) {
-						world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
-						j_color = i_color = {1, 0, 0};
-					} else {
-						world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
-					}
-
-					if (world.models[j].render_aabb) {
-						auto aabb = world.models[j].current_aabb;
-						world.canvas.boxes_list.push_back(Box {
-							.translation = aabb.min,
-							.scale = aabb.max - aabb.min,
-							.color = j_color,
-						});
-					}
-				}
-
-				if (world.models[i].render_aabb) {
-					auto aabb = world.models[i].current_aabb;
-					world.canvas.boxes_list.push_back(Box {
-						.translation = aabb.min,
-						.scale = aabb.max - aabb.min,
-						.color = i_color,
-					});
-				}
-			}
-		}
-
-		if (world.events.wnd_size_changed) {
-			int w, h;
-			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
-			glViewport(0, 0, w, h);
-		}
-
-		glEnable(GL_DEPTH_TEST);
-		glClearDepth(1);
-		glClearColor(world.field.sky_color.x, world.field.sky_color.y, world.field.sky_color.z, 0.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		if (world.settings.rendering.smooth_lines) {
-			glEnable(GL_LINE_SMOOTH);
-            #ifndef OS_MACOS
-			glLineWidth(world.settings.rendering.line_width);
-            #endif
-		} else {
-			glDisable(GL_LINE_SMOOTH);
-		}
-		glPointSize(world.settings.rendering.point_size);
-		glPolygonMode(GL_FRONT_AND_BACK, world.settings.rendering.polygon_mode);
 
 		// render last ground
 		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
