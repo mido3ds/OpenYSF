@@ -2232,6 +2232,7 @@ struct World {
 	SDL_Window* sdl_window;
 	SDL_GLContext sdl_gl_context;
 
+	ImGuiWindowLogger imgui_window_logger;
 	mu::Str imgui_ini_file_path;
 
 	// aircraft short name -> files
@@ -2659,14 +2660,12 @@ namespace sys {
 }
 
 int main() {
-	ImGuiWindowLogger imgui_window_logger {};
-	mu::log_global_logger = (mu::ILogger*) &imgui_window_logger;
+	World world {};
+	mu::log_global_logger = (mu::ILogger*) &world.imgui_window_logger;
 
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
-
-	World world {};
 
 	sys::sdl_init(world);
 	defer(sys::sdl_shutdown(world));
@@ -4297,23 +4296,23 @@ int main() {
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Logs")) {
-			ImGui::Checkbox("Auto-Scroll", &imgui_window_logger.auto_scrolling);
+			ImGui::Checkbox("Auto-Scroll", &world.imgui_window_logger.auto_scrolling);
 			ImGui::SameLine();
-			ImGui::Checkbox("Wrapped", &imgui_window_logger.wrapped);
+			ImGui::Checkbox("Wrapped", &world.imgui_window_logger.wrapped);
 			ImGui::SameLine();
 			if (ImGui::Button("Clear")) {
-				imgui_window_logger = {};
+				world.imgui_window_logger = {};
 			}
 
-			if (ImGui::BeginChild("logs child", {}, false, imgui_window_logger.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
+			if (ImGui::BeginChild("logs child", {}, false, world.imgui_window_logger.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
-				ImGuiListClipper clipper(imgui_window_logger.logs.size());
+				ImGuiListClipper clipper(world.imgui_window_logger.logs.size());
 				while (clipper.Step()) {
 					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-						if (imgui_window_logger.wrapped) {
-							ImGui::TextWrapped("%s", imgui_window_logger.logs[i].c_str());
+						if (world.imgui_window_logger.wrapped) {
+							ImGui::TextWrapped("%s", world.imgui_window_logger.logs[i].c_str());
 						} else {
-							auto log = imgui_window_logger.logs[i];
+							auto log = world.imgui_window_logger.logs[i];
 							ImGui::TextUnformatted(&log[0], &log[log.size()-1]);
 						}
 					}
@@ -4321,9 +4320,9 @@ int main() {
 				ImGui::PopStyleVar();
 
 				// scroll
-				if (imgui_window_logger.auto_scrolling) {
-					if (imgui_window_logger.last_scrolled_line != imgui_window_logger.logs.size()) {
-						imgui_window_logger.last_scrolled_line = imgui_window_logger.logs.size();
+				if (world.imgui_window_logger.auto_scrolling) {
+					if (world.imgui_window_logger.last_scrolled_line != world.imgui_window_logger.logs.size()) {
+						world.imgui_window_logger.last_scrolled_line = world.imgui_window_logger.logs.size();
 						ImGui::SetScrollHereY();
 					}
 				}
