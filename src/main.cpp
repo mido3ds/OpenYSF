@@ -2485,32 +2485,31 @@ namespace sys {
 		}
 	}
 
-	// control currently tracked model
-	void tracked_model_update(World& world) {
+	// allow user control over camera tracked model
+	void _tracked_model_control(World& world) {
 		if (world.camera.model == nullptr) {
 			return;
 		}
 		auto& self = *world.camera.model;
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
-		const Uint8* sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
-		if (sdl_keyb_pressed[SDL_SCANCODE_DOWN]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_DOWN]) {
 			delta_pitch -= ROTATE_SPEED * world.delta_time;
 		}
-		if (sdl_keyb_pressed[SDL_SCANCODE_UP]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_UP]) {
 			delta_pitch += ROTATE_SPEED * world.delta_time;
 		}
-		if (sdl_keyb_pressed[SDL_SCANCODE_LEFT]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_LEFT]) {
 			delta_roll -= ROTATE_SPEED * world.delta_time;
 		}
-		if (sdl_keyb_pressed[SDL_SCANCODE_RIGHT]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_RIGHT]) {
 			delta_roll += ROTATE_SPEED * world.delta_time;
 		}
-		if (sdl_keyb_pressed[SDL_SCANCODE_C]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_C]) {
 			delta_yaw -= ROTATE_SPEED * world.delta_time;
 		}
-		if (sdl_keyb_pressed[SDL_SCANCODE_Z]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_Z]) {
 			delta_yaw += ROTATE_SPEED * world.delta_time;
 		}
 		local_euler_angles_rotate(self.current_state.angles, delta_yaw, delta_pitch, delta_roll);
@@ -2522,10 +2521,10 @@ namespace sys {
 			self.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 		}
 
-		if (sdl_keyb_pressed[SDL_SCANCODE_Q]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_Q]) {
 			self.control.throttle += THROTTLE_SPEED * world.delta_time;
 		}
-		if (sdl_keyb_pressed[SDL_SCANCODE_A]) {
+		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_A]) {
 			self.control.throttle -= THROTTLE_SPEED * world.delta_time;
 		}
 
@@ -2550,7 +2549,52 @@ namespace sys {
 		}
 	}
 
-	void models_update(World& world) {
+	void _models_load_from_files(World& world) {
+		for (int i = 0; i < world.models.size(); i++) {
+			if (world.models[i].should_load_file) {
+				auto model = model_from_dnm_file(world.models[i].file_abs_path);
+				model_load_to_gpu(model);
+
+				if (world.models[i].engine_sound) {
+					audio_device_stop(world.audio_device, *world.models[i].engine_sound);
+				}
+				model_unload_from_gpu(world.models[i]);
+
+				model.control = world.models[i].control;
+				model.current_state = world.models[i].current_state;
+				world.models[i] = model;
+
+				mu::log_debug("loaded '{}'", world.models[i].file_abs_path);
+				world.models[i].should_load_file = false;
+			}
+		}
+	}
+
+	void _models_autoremove(World& world) {
+		for (int i = 0; i < world.models.size(); i++) {
+			if (world.models[i].should_be_removed) {
+				int tracked_model_index = -1;
+				for (int i = 0; i < world.models.size(); i++) {
+					if (world.camera.model == &world.models[i]) {
+						tracked_model_index = i;
+						break;
+					}
+				}
+
+				world.models.erase(world.models.begin()+i);
+
+				if (tracked_model_index > 0 && tracked_model_index >= i) {
+					world.camera.model = &world.models[tracked_model_index-1];
+				} else if (tracked_model_index == 0 && i == 0) {
+					world.camera.model = world.models.empty()? nullptr : &world.models[0];
+				}
+
+				i--;
+			}
+		}
+	}
+
+	void _models_apply_physics(World& world) {
 		for (int i = 0; i < world.models.size(); i++) {
 			Model& model = world.models[i];
 
@@ -2653,6 +2697,80 @@ namespace sys {
 					auto& child_mesh = model.meshes.at(child_name);
 					child_mesh.transformation = mesh->transformation;
 					meshes_stack.push_back(&child_mesh);
+				}
+			}
+		}
+	}
+
+	void models_update(World& world) {
+		_models_load_from_files(world);
+		_models_autoremove(world);
+		_models_apply_physics(world);
+
+		_tracked_model_control(world);
+	}
+
+	void fields_update(World& world) {
+		if (world.field.should_select_file) {
+			world.field.should_select_file = false;
+
+			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
+			if (result.size() == 1) {
+				world.field.file_abs_path = result[0];
+				mu::log_debug("loading '{}'", world.field.file_abs_path);
+				world.field.should_load_file = true;
+			}
+		}
+
+		if (world.field.should_load_file) {
+			world.field.should_load_file = false;
+
+			Field new_field {};
+			if (world.field.file_abs_path.empty() == false) {
+				new_field = field_from_fld_file(world.field.file_abs_path);
+				field_load_to_gpu(new_field);
+			}
+
+			field_unload_from_gpu(world.field);
+			world.field = new_field;
+		}
+
+		// transform subfields
+		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
+		if (world.field.should_transform) {
+			world.field.should_transform = false;
+
+			// transform fields
+			world.field.transformation = glm::identity<glm::mat4>();
+			for (Field* fld : all_fields) {
+				if (fld->current_state.visible == false) {
+					continue;
+				}
+
+				fld->transformation = glm::translate(fld->transformation, fld->current_state.translation);
+				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[2], glm::vec3{0, 0, 1});
+				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[1], glm::vec3{1, 0, 0});
+				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[0], glm::vec3{0, 1, 0});
+
+				for (auto& subfield : fld->subfields) {
+					subfield.transformation = fld->transformation;
+				}
+
+				for (auto& mesh : fld->meshes) {
+					if (mesh.render_cnt_axis) {
+						world.canvas.axis_list.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
+					}
+
+					// apply mesh transformation
+					mesh.transformation = fld->transformation;
+					mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+
+					if (mesh.render_pos_axis) {
+						world.canvas.axis_list.push_back(mesh.transformation);
+					}
 				}
 			}
 		}
@@ -3290,68 +3408,6 @@ int main() {
 
 		sys::events_update(world);
 
-		if (world.field.should_select_file) {
-			world.field.should_select_file = false;
-
-			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
-			if (result.size() == 1) {
-				world.field.file_abs_path = result[0];
-				mu::log_debug("loading '{}'", world.field.file_abs_path);
-				world.field.should_load_file = true;
-			}
-		}
-		if (world.field.should_load_file) {
-			world.field.should_load_file = false;
-
-			Field new_field {};
-			if (world.field.file_abs_path.empty() == false) {
-				new_field = field_from_fld_file(world.field.file_abs_path);
-				field_load_to_gpu(new_field);
-			}
-
-			field_unload_from_gpu(world.field);
-			world.field = new_field;
-		}
-
-		for (int i = 0; i < world.models.size(); i++) {
-			if (world.models[i].should_load_file) {
-				auto model = model_from_dnm_file(world.models[i].file_abs_path);
-				model_load_to_gpu(model);
-
-				if (world.models[i].engine_sound) {
-					audio_device_stop(world.audio_device, *world.models[i].engine_sound);
-				}
-				model_unload_from_gpu(world.models[i]);
-
-				model.control = world.models[i].control;
-				model.current_state = world.models[i].current_state;
-				world.models[i] = model;
-
-				mu::log_debug("loaded '{}'", world.models[i].file_abs_path);
-				world.models[i].should_load_file = false;
-			}
-
-			if (world.models[i].should_be_removed) {
-				int tracked_model_index = -1;
-				for (int i = 0; i < world.models.size(); i++) {
-					if (world.camera.model == &world.models[i]) {
-						tracked_model_index = i;
-						break;
-					}
-				}
-
-				world.models.erase(world.models.begin()+i);
-
-				if (tracked_model_index > 0 && tracked_model_index >= i) {
-					world.camera.model = &world.models[tracked_model_index-1];
-				} else if (tracked_model_index == 0 && i == 0) {
-					world.camera.model = world.models.empty()? nullptr : &world.models[0];
-				}
-
-				i--;
-			}
-		}
-
 		sys::projection_update(world);
 
 		sys::camera_update_flying_mode(world);
@@ -3359,48 +3415,8 @@ int main() {
 
 		sys::cached_matrices_recalc(world);
 
-		sys::tracked_model_update(world);
+		sys::fields_update(world);
 		sys::models_update(world);
-
-		// update fields
-		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
-		if (world.field.should_transform) {
-			world.field.should_transform = false;
-
-			// transform fields
-			world.field.transformation = glm::identity<glm::mat4>();
-			for (Field* fld : all_fields) {
-				if (fld->current_state.visible == false) {
-					continue;
-				}
-
-				fld->transformation = glm::translate(fld->transformation, fld->current_state.translation);
-				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[2], glm::vec3{0, 0, 1});
-				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[1], glm::vec3{1, 0, 0});
-				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[0], glm::vec3{0, 1, 0});
-
-				for (auto& subfield : fld->subfields) {
-					subfield.transformation = fld->transformation;
-				}
-
-				for (auto& mesh : fld->meshes) {
-					if (mesh.render_cnt_axis) {
-						world.canvas.axis_list.push_back(glm::translate(glm::identity<glm::mat4>(), mesh.cnt));
-					}
-
-					// apply mesh transformation
-					mesh.transformation = fld->transformation;
-					mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
-					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
-
-					if (mesh.render_pos_axis) {
-						world.canvas.axis_list.push_back(mesh.transformation);
-					}
-				}
-			}
-		}
 
 		// test intersection
 		if (world.models.size() > 0) {
@@ -3474,6 +3490,7 @@ int main() {
 		glPolygonMode(GL_FRONT_AND_BACK, world.settings.rendering.polygon_mode);
 
 		// render last ground
+		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
 		gl_program_use(ground_gpu_program);
 		gl_program_uniform_set(ground_gpu_program, "proj_inv_view_inv", world.mats.proj_inv_view_inv);
 		gl_program_uniform_set(ground_gpu_program, "projection", world.mats.projection);
