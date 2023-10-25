@@ -2214,6 +2214,7 @@ struct Canvas {
 	mu::Vec<TextRenderReq> text_render_list;
 	mu::Vec<glm::mat4> axis_list;
 	mu::Vec<Box> boxes_list;
+	mu::Vec<ZLPoint> zlpoints_list;
 };
 
 // precalculated matrices
@@ -2327,10 +2328,11 @@ namespace sys {
 	void canvas_reset(World& world) {
 		auto& self = world.canvas;
 
-		self.overlay_text_list = mu::Vec<mu::Str>(mu::memory::tmp());
-		self.text_render_list  = mu::Vec<TextRenderReq>(mu::memory::tmp());
-		self.axis_list         = mu::Vec<glm::mat4>(mu::memory::tmp());
-		self.boxes_list        = mu::Vec<Box>(mu::memory::tmp());
+		self.overlay_text_list     = mu::Vec<mu::Str>(mu::memory::tmp());
+		self.text_render_list      = mu::Vec<TextRenderReq>(mu::memory::tmp());
+		self.axis_list             = mu::Vec<glm::mat4>(mu::memory::tmp());
+		self.boxes_list            = mu::Vec<Box>(mu::memory::tmp());
+		world.canvas.zlpoints_list = mu::Vec<ZLPoint>(mu::memory::tmp());
 
 		if (world.events.wnd_size_changed) {
 			int w, h;
@@ -3588,8 +3590,6 @@ int main() {
 			}
 		}
 
-		mu::Vec<ZLPoint> zlpoints(mu::memory::tmp());
-
 		// render models
 		for (int i = 0; i < world.models.size(); i++) {
 			Model& model = world.models[i];
@@ -3650,7 +3650,7 @@ int main() {
 				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
 					for (size_t zlid : mesh->zls) {
 						Face& face = mesh->faces[zlid];
-						zlpoints.push_back(ZLPoint {
+						world.canvas.zlpoints_list.push_back(ZLPoint {
 							.center = model_transformation * glm::vec4(face.center, 1.0f),
 							.color = face.color
 						});
@@ -3664,14 +3664,15 @@ int main() {
 			}
 		}
 
-		if (zlpoints.empty() == false) {
+		// render zlpoints
+		if (world.canvas.zlpoints_list.empty() == false) {
 			auto model_transformation = glm::mat4(glm::mat3(world.mats.view_inverse)) * glm::scale(glm::vec3{ZL_SCALE, ZL_SCALE, 0});
 
 			gl_program_use(sprite_gpu_program);
 			glBindTexture(GL_TEXTURE_2D, zl_sprite_texture);
 			glBindVertexArray(dummy_vao);
 
-			for (const auto& zlpoint : zlpoints) {
+			for (const auto& zlpoint : world.canvas.zlpoints_list) {
 				model_transformation[3] = glm::vec4{zlpoint.center.x, zlpoint.center.y, zlpoint.center.z, 1.0f};
 				gl_program_uniform_set(sprite_gpu_program, "color", zlpoint.color);
 				gl_program_uniform_set(sprite_gpu_program, "projection_view_model", world.mats.projection_view * model_transformation);
