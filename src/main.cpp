@@ -4183,8 +4183,6 @@ namespace sys {
 			gl_program_use(world.canvas.meshes_program);
 			if (world.canvas.axis_rendering.on_top) {
 				glDisable(GL_DEPTH_TEST);
-			} else {
-				glEnable(GL_DEPTH_TEST);
 			}
 
 			glEnable(GL_LINE_SMOOTH);
@@ -4204,8 +4202,6 @@ namespace sys {
 		if (world.settings.world_axis.enabled) {
 			gl_program_use(world.canvas.meshes_program);
 
-			glDisable(GL_DEPTH_TEST);
-
 			glEnable(GL_LINE_SMOOTH);
             #ifndef OS_MACOS
 			glLineWidth(world.canvas.axis_rendering.line_width);
@@ -4214,14 +4210,16 @@ namespace sys {
 			gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", false);
 			glBindVertexArray(world.canvas.axis_rendering.vao);
 
+			float camera_z = 1 - world.settings.world_axis.scale; // invert scale because it's camera moving away
+			camera_z *= -40; // arbitrary multiplier
+			camera_z -= 1; // keep a fixed distance or axis will vanish
 			auto new_view_mat = world.mats.view;
-			new_view_mat[3] = glm::vec4{0, 0, ((1 - world.settings.world_axis.scale) * -39) - 1, 1};
-			auto trans = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world.settings.world_axis.position.x, world.settings.world_axis.position.y, 0});
+			new_view_mat[3] = glm::vec4{0, 0, camera_z, 1}; // scale is a camera zoom out in z
 
-			gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", trans * world.mats.projection * new_view_mat);
+			auto translate = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world.settings.world_axis.position.x, world.settings.world_axis.position.y, 0});
+
+			gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", translate * world.mats.projection * new_view_mat);
 			glDrawArrays(GL_LINES, 0, world.canvas.axis_rendering.points_count);
-
-			glEnable(GL_DEPTH_TEST);
 		}
 	}
 
