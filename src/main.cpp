@@ -2167,14 +2167,30 @@ mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_pat
 struct Events {
 	bool quit;
 	bool wnd_size_changed;
-	bool pressed_tab;
 
-	// see SDL_mouse.h
+	// model
+	bool afterburner_toggle;
+	bool stick_right;
+	bool stick_left;
+	bool stick_front;
+	bool stick_back;
+	bool rudder_right;
+	bool rudder_left;
+	bool throttle_increase;
+	bool throttle_decrease;
+
+	// camera
+	bool camera_tracking_up;
+	bool camera_tracking_down;
+	bool camera_tracking_right;
+	bool camera_tracking_left;
+	bool camera_flying_up;
+	bool camera_flying_down;
+	bool camera_flying_right;
+	bool camera_flying_left;
+	bool camera_flying_rotate_enabled;
+
 	glm::ivec2 mouse_pos;
-	uint32_t sdl_mouse_state;
-
-	// see SDL_scancode.h
-	const uint8_t* sdl_keyb_pressed;
 };
 
 struct Settings {
@@ -3499,16 +3515,16 @@ namespace sys {
 		auto& events = world.events;
 
 		const float velocity = 0.40f * world.delta_time;
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_U]) {
+		if (events.camera_tracking_up) {
 			self.yaw += velocity;
 		}
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_M]) {
+		if (events.camera_tracking_down) {
 			self.yaw -= velocity;
 		}
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_K]) {
+		if (events.camera_tracking_right) {
 			self.pitch += velocity;
 		}
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_H]) {
+		if (events.camera_tracking_left) {
 			self.pitch -= velocity;
 		}
 
@@ -3532,21 +3548,21 @@ namespace sys {
 
 		// move with keyboard
 		const float velocity = self.movement_speed * world.delta_time;
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_W]) {
+		if (events.camera_flying_up) {
 			self.position += self.front * velocity;
 		}
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_S]) {
+		if (events.camera_flying_down) {
 			self.position -= self.front * velocity;
 		}
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_D]) {
+		if (events.camera_flying_right) {
 			self.position += self.right * velocity;
 		}
-		if (events.sdl_keyb_pressed[SDL_SCANCODE_A]) {
+		if (events.camera_flying_left) {
 			self.position -= self.right * velocity;
 		}
 
-		// move with mouse
-		if ((events.sdl_mouse_state & SDL_BUTTON(SDL_BUTTON_RIGHT))) {
+		// roate with mouse
+		if (events.camera_flying_rotate_enabled) {
 			self.yaw   += (events.mouse_pos.x - self.last_mouse_pos.x) * self.mouse_sensitivity / 1000;
 			self.pitch -= (events.mouse_pos.y - self.last_mouse_pos.y) * self.mouse_sensitivity / 1000;
 
@@ -3608,8 +3624,29 @@ namespace sys {
 		auto& self = world.events;
 
 		self = {};
-		self.sdl_mouse_state = SDL_GetMouseState(&self.mouse_pos.x, &self.mouse_pos.y);
-		self.sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
+
+		const Uint8* sdl_keyb_pressed = SDL_GetKeyboardState(nullptr);
+		self.stick_right           = sdl_keyb_pressed[SDL_SCANCODE_RIGHT];
+		self.stick_left            = sdl_keyb_pressed[SDL_SCANCODE_LEFT];
+		self.stick_front           = sdl_keyb_pressed[SDL_SCANCODE_UP];
+		self.stick_back            = sdl_keyb_pressed[SDL_SCANCODE_DOWN];
+		self.rudder_right          = sdl_keyb_pressed[SDL_SCANCODE_C];
+		self.rudder_left           = sdl_keyb_pressed[SDL_SCANCODE_Z];
+		self.throttle_increase     = sdl_keyb_pressed[SDL_SCANCODE_Q];
+		self.throttle_decrease     = sdl_keyb_pressed[SDL_SCANCODE_A];
+
+		self.camera_tracking_up    = sdl_keyb_pressed[SDL_SCANCODE_U];
+		self.camera_tracking_down  = sdl_keyb_pressed[SDL_SCANCODE_M];
+		self.camera_tracking_right = sdl_keyb_pressed[SDL_SCANCODE_K];
+		self.camera_tracking_left  = sdl_keyb_pressed[SDL_SCANCODE_H];
+
+		self.camera_flying_up      = sdl_keyb_pressed[SDL_SCANCODE_W];
+		self.camera_flying_down    = sdl_keyb_pressed[SDL_SCANCODE_S];
+		self.camera_flying_right   = sdl_keyb_pressed[SDL_SCANCODE_D];
+		self.camera_flying_left    = sdl_keyb_pressed[SDL_SCANCODE_A];
+
+		Uint32 sdl_mouse_state = SDL_GetMouseState(&self.mouse_pos.x, &self.mouse_pos.y);
+		self.camera_flying_rotate_enabled = sdl_mouse_state & SDL_BUTTON(SDL_BUTTON_RIGHT);
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -3621,7 +3658,7 @@ namespace sys {
 					self.quit = true;
 					break;
 				case SDLK_TAB:
-					self.pressed_tab = true;
+					self.afterburner_toggle = true;
 					break;
 				case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
@@ -3671,37 +3708,37 @@ namespace sys {
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_DOWN]) {
+		if (world.events.stick_back) {
 			delta_pitch -= ROTATE_SPEED * world.delta_time;
 		}
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_UP]) {
+		if (world.events.stick_front) {
 			delta_pitch += ROTATE_SPEED * world.delta_time;
 		}
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_LEFT]) {
+		if (world.events.stick_left) {
 			delta_roll -= ROTATE_SPEED * world.delta_time;
 		}
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_RIGHT]) {
+		if (world.events.stick_right) {
 			delta_roll += ROTATE_SPEED * world.delta_time;
 		}
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_C]) {
+		if (world.events.rudder_right) {
 			delta_yaw -= ROTATE_SPEED * world.delta_time;
 		}
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_Z]) {
+		if (world.events.rudder_left) {
 			delta_yaw += ROTATE_SPEED * world.delta_time;
 		}
 		local_euler_angles_rotate(self.state.angles, delta_yaw, delta_pitch, delta_roll);
 
-		if (world.events.pressed_tab) {
+		if (world.events.afterburner_toggle) {
 			self.state.afterburner_reheat_enabled = ! self.state.afterburner_reheat_enabled;
 		}
 		if (self.state.afterburner_reheat_enabled && self.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 			self.state.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 		}
 
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_Q]) {
+		if (world.events.throttle_increase) {
 			self.state.throttle += THROTTLE_SPEED * world.delta_time;
 		}
-		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_A]) {
+		if (world.events.throttle_decrease) {
 			self.state.throttle -= THROTTLE_SPEED * world.delta_time;
 		}
 

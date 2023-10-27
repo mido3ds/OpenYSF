@@ -1,4 +1,3 @@
-- events: remove key/mouse states and replace with explicit `do_action_pressed`
 - mac: fix change line width
 - render aircraft vectors:
 	- weight
