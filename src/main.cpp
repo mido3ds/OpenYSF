@@ -39,6 +39,8 @@ constexpr float THROTTLE_SPEED = 0.4f;
 constexpr float MIN_SPEED = 0.0f;
 constexpr float MAX_SPEED = 50.0f;
 
+constexpr float ENGINE_PROPELLERS_RESISTENCE = 15.0f;
+
 constexpr float ZL_SCALE = 0.151f;
 
 // 2 secs to flash anti collision lights
@@ -465,6 +467,7 @@ struct Model {
 
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 		float throttle = 0;
+		float engine_speed;
 		bool afterburner_reheat_enabled = false;
 	} state;
 
@@ -3192,6 +3195,10 @@ namespace sys {
 						ImGui::DragFloat("Landing Gear", &model.state.landing_gear_alpha, 0.01, 0, 1);
 						ImGui::SliderFloat("Throttle", &model.state.throttle, 0.0f, 1.0f);
 
+						ImGui::BeginDisabled();
+						ImGui::SliderFloat("Engine Speed %%", &model.state.engine_speed, 0.0f, 1.0f);
+						ImGui::EndDisabled();
+
 						ImGui::Checkbox("Afterburner Reheat", &model.state.afterburner_reheat_enabled);
 
 						ImGui::TreePop();
@@ -3699,7 +3706,7 @@ namespace sys {
 		}
 
 		// only currently controlled model has audio
-		int audio_index = self.state.throttle * (world.sounds.props.size()-1);
+		int audio_index = self.state.engine_speed * (world.sounds.props.size()-1);
 
 		Audio* audio;
 		if (self.has_propellers) {
@@ -3781,10 +3788,18 @@ namespace sys {
 			const auto model_transformation = local_euler_angles_matrix(model.state.angles, model.state.translation);
 
 			model.state.throttle = clamp(model.state.throttle, 0.0f, 1.0f);
-			model.state.speed = model.state.throttle * MAX_SPEED + MIN_SPEED;
 			if (model.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 				model.state.afterburner_reheat_enabled = false;
 			}
+
+			if (model.state.engine_speed < model.state.throttle) {
+				model.state.engine_speed += world.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				model.state.engine_speed = clamp(model.state.engine_speed, 0.0f, model.state.throttle);
+			} else if (model.state.engine_speed > model.state.throttle) {
+				model.state.engine_speed -= world.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				model.state.engine_speed = clamp(model.state.engine_speed, model.state.throttle, 1.0f);
+			}
+			model.state.speed = model.state.engine_speed * MAX_SPEED + MIN_SPEED;
 
 			model.state.translation += ((float)world.delta_time * model.state.speed) * model.state.angles.front;
 
@@ -3836,10 +3851,10 @@ namespace sys {
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->state.rotation.x += model.state.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+					mesh->state.rotation.x += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
 				}
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->state.rotation.z += model.state.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+					mesh->state.rotation.z += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
