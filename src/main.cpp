@@ -1004,7 +1004,6 @@ struct PerspectiveProjection {
 	float far          = 100000;
 	float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
 	float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
-	bool custom_aspect = false;
 };
 
 glm::mat4 projection_calc_mat(PerspectiveProjection& self) {
@@ -2054,7 +2053,7 @@ struct Sounds {
 inline static void
 _sounds_load(Sounds& self, Audio& audio, mu::StrView path) {
 	audio = audio_new(path);
-	self.as_array.emplace_back(&audio);
+	self.as_array.push_back(&audio);
 }
 
 void sounds_load(Sounds& self) {
@@ -2099,26 +2098,26 @@ struct ImGuiWindowLogger : public mu::ILogger {
 	float last_scrolled_line = 0;
 
 	virtual void log_debug(mu::StrView str) override {
-		logs.emplace_back(mu::str_format(&_arena, "> {}\n", str));
+		logs.push_back(mu::str_format(&_arena, "> {}\n", str));
 		fmt::print("[debug] {}\n", str);
 	}
 
 	virtual void log_info(mu::StrView str) override {
 		auto formatted = mu::str_format(&_arena, "[info] {}\n", str);
 		fmt::vprint(stdout, formatted, {});
-		logs.emplace_back(std::move(formatted));
+		logs.push_back(std::move(formatted));
 	}
 
 	virtual void log_warning(mu::StrView str) override {
 		auto formatted = mu::str_format(&_arena, "[warning] {}\n", str);
 		fmt::vprint(stdout, formatted, {});
-		logs.emplace_back(std::move(formatted));
+		logs.push_back(std::move(formatted));
 	}
 
 	virtual void log_error(mu::StrView str) override {
 		auto formatted = mu::str_format(&_arena, "[error] {}\n", str);
 		fmt::vprint(stderr, formatted, {});
-		logs.emplace_back(std::move(formatted));
+		logs.push_back(std::move(formatted));
 	}
 };
 
@@ -2181,6 +2180,7 @@ struct Settings {
 	bool fullscreen = false;
 	bool should_limit_fps = true;
 	int fps_limit = 60;
+	bool custom_aspect_ratio = false;
 	float current_angle_max = DEGREES_MAX;
 
 	struct {
@@ -2904,10 +2904,10 @@ namespace sys {
 				ImGui::InputFloat("far", &world.projection.far, 1, 10);
 				ImGui::DragFloat("fovy (1/zoom)", &world.projection.fovy, 1, 1, 45);
 
-				if (ImGui::Checkbox("custom aspect", &world.projection.custom_aspect) && !world.projection.custom_aspect) {
+				if (ImGui::Checkbox("custom aspect", &world.settings.custom_aspect_ratio) && !world.settings.custom_aspect_ratio) {
 					world.events.wnd_size_changed = true;
 				}
-				ImGui::BeginDisabled(!world.projection.custom_aspect);
+				ImGui::BeginDisabled(!world.settings.custom_aspect_ratio);
 					ImGui::InputFloat("aspect", &world.projection.aspect, 1, 10);
 				ImGui::EndDisabled();
 
@@ -2919,24 +2919,27 @@ namespace sys {
 					world.camera = { .model=world.camera.model };
 				}
 
+				int tracked_model_index = -1;
+				for (int i = 0; i < world.models.size(); i++) {
+					if (world.camera.model == &world.models[i]) {
+						tracked_model_index = i;
+						break;
+					}
+				}
+				if (ImGui::BeginCombo("Tracked Model", world.camera.model ? mu::str_tmpf("Model[{}]", tracked_model_index).c_str() : "-NULL-")) {
+					if (ImGui::Selectable("-NULL-", world.camera.model == nullptr)) {
+						world.camera.model = nullptr;
+					}
+					for (size_t j = 0; j < world.models.size(); j++) {
+						if (ImGui::Selectable(mu::str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
+							world.camera.model = &world.models[j];
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
 				if (world.camera.model) {
-					int tracked_model_index = 0;
-					for (int i = 0; i < world.models.size(); i++) {
-						if (world.camera.model == &world.models[i]) {
-							tracked_model_index = i;
-							break;
-						}
-					}
-					if (ImGui::BeginCombo("Tracked Model", mu::str_tmpf("Model[{}]", tracked_model_index).c_str())) {
-						for (size_t j = 0; j < world.models.size(); j++) {
-							if (ImGui::Selectable(mu::str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
-								world.camera.model = &world.models[j];
-							}
-						}
-
-						ImGui::EndCombo();
-					}
-
 					ImGui::DragFloat("distance", &world.camera.distance_from_model, 1, 0);
 
 					ImGui::Checkbox("Rotate Around", &world.camera.enable_rotating_around);
@@ -3579,7 +3582,7 @@ namespace sys {
 			int w, h;
 			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
 
-			if (!self.custom_aspect) {
+			if (!world.settings.custom_aspect_ratio) {
 				self.aspect = (float) w / h;
 			}
 		}
@@ -3590,7 +3593,7 @@ namespace sys {
 		auto& camera = world.camera;
 		auto& proj = world.projection;
 
-		self.view = camera_calc_view(world.camera);
+		self.view = camera_calc_view(camera);
 		self.view_inverse = glm::inverse(self.view);
 
 		self.projection = projection_calc_mat(proj);
@@ -3867,7 +3870,7 @@ namespace sys {
 
 		for (int i = 0; i < world.models.size()-1; i++) {
 			if (world.models[i].current_state.visible == false) {
-				world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
+				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 				continue;
 			}
 
@@ -3875,17 +3878,17 @@ namespace sys {
 
 			for (int j = i+1; j < world.models.size(); j++) {
 				if (world.models[j].current_state.visible == false) {
-					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
 					continue;
 				}
 
 				glm::vec3 j_color {0, 0, 1};
 
 				if (aabbs_intersect(world.models[i].current_aabb, world.models[j].current_aabb)) {
-					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
 					j_color = i_color = {1, 0, 0};
 				} else {
-					world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
 				}
 
 				if (world.models[j].render_aabb) {
@@ -3912,13 +3915,16 @@ namespace sys {
 	void models_update(World& world) {
 		_models_load_from_files(world);
 		_models_autoremove(world);
-		_models_apply_physics(world);
-		_models_handle_collision(world);
 
 		_tracked_model_control(world);
+
+		_models_apply_physics(world);
+		_models_handle_collision(world);
 	}
 
 	void models_render(World& world) {
+		gl_program_use(world.canvas.meshes_program);
+
 		for (int i = 0; i < world.models.size(); i++) {
 			Model& model = world.models[i];
 
@@ -3927,7 +3933,7 @@ namespace sys {
 			}
 
 			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
-
+			
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 			for (const auto& name : model.root_meshes_names) {
@@ -3979,7 +3985,7 @@ namespace sys {
 					for (size_t zlid : mesh->zls) {
 						Face& face = mesh->faces[zlid];
 						world.canvas.zlpoints_list.push_back(ZLPoint {
-							.center = model_transformation * glm::vec4(face.center, 1.0f),
+							.center = mesh->transformation * glm::vec4{face.center.x, face.center.y, face.center.z, 1.0f},
 							.color = face.color
 						});
 					}
@@ -4388,14 +4394,14 @@ int main() {
 		sys::canvas_reset(world);
 
 		// sample text
-		world.canvas.text_list.emplace_back(TextRenderReq {
+		world.canvas.text_list.push_back(TextRenderReq {
 			.text = mu::str_tmpf("Hello OpenYSF"),
 			.x = 25.0f,
 			.y = 25.0f,
 			.scale = 1.0f,
 			.color = {0.5, 0.8f, 0.2f}
 		});
-		world.canvas.overlay_text_list.emplace_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.delta_time));
+		world.canvas.overlay_text_list.push_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.delta_time));
 
 		sys::events_update(world);
 

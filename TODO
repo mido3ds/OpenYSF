@@ -1,5 +1,5 @@
+- events: remove key/mouse states and replace with explicit `do_action_pressed`
 - mac: fix change line width
-- strobes render in front of ys11 aircraft with non zero throttle
 - render aircraft vectors:
 	- weight
 	- air lift
