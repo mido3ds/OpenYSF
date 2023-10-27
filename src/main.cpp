@@ -278,7 +278,7 @@ struct Mesh {
 
 	// physics
 	glm::mat4 transformation;
-	MeshState current_state;
+	MeshState state;
 
 	bool render_pos_axis;
 	bool render_cnt_axis;
@@ -462,13 +462,11 @@ struct Model {
 		LocalEulerAngles angles;
 		bool visible = true;
 		float speed;
-	} current_state;
 
-	struct {
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 		float throttle = 0;
 		bool afterburner_reheat_enabled = false;
-	} control;
+	} state;
 
 	struct {
 		bool visible = true;
@@ -494,11 +492,11 @@ void model_unload_from_gpu(Model& self) {
 }
 
 void model_set_start(Model& self, StartInfo& start_info) {
-	self.current_state.translation = start_info.position;
-	self.current_state.angles = local_euler_angles_from_attitude(start_info.attitude);
-	self.control.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
-	self.control.throttle = start_info.throttle;
-	self.current_state.speed = start_info.speed;
+	self.state.translation = start_info.position;
+	self.state.angles = local_euler_angles_from_attitude(start_info.attitude);
+	self.state.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
+	self.state.throttle = start_info.throttle;
+	self.state.speed = start_info.speed;
 }
 
 Mesh mesh_from_srf_str(Parser& parser, mu::StrView name, size_t dnm_version = 1) {
@@ -868,7 +866,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 
 				parser_expect(parser, '\n');
 
-				surf->second.current_state = surf->second.initial_state;
+				surf->second.state = surf->second.initial_state;
 			} else if (parser_accept(parser, "CNT ")) {
 				read_cnt = true;
 
@@ -970,10 +968,10 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 			v -= mesh->cnt;
 
 			// apply mesh transformation to get model space vertex
-			mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, 1, 0});
+			mesh->transformation = glm::translate(mesh->transformation, mesh->state.translation);
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[2], glm::vec3{0, 0, 1});
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[1], glm::vec3{1, 0, 0});
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[0], glm::vec3{0, 1, 0});
 			const auto model_v = mesh->transformation * glm::vec4(v, 1.0);
 
 			// update AABB
@@ -1033,7 +1031,7 @@ struct Camera {
 
 glm::mat4 camera_calc_view(const Camera& self) {
 	if (self.model) {
-		return glm::lookAt(self.position, self.model->current_state.translation, self.model->current_state.angles.up);
+		return glm::lookAt(self.position, self.model->state.translation, self.model->state.angles.up);
 	}
 
 	return glm::lookAt(self.position, self.position + self.front, self.up);
@@ -1072,7 +1070,7 @@ struct TerrMesh {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
-	} current_state, initial_state;
+	} state, initial_state;
 };
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
@@ -1312,7 +1310,7 @@ struct Picture2D {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
-	} current_state, initial_state;
+	} state, initial_state;
 };
 
 void picture2d_load_to_gpu(Picture2D& self) {
@@ -1384,7 +1382,7 @@ struct Field {
 		glm::vec3 translation;
 		glm::vec3 rotation; // roll, pitch, yaw
 		bool visible = true;
-	} current_state, initial_state;
+	} state, initial_state;
 };
 
 Field _field_from_fld_str(Parser& parser) {
@@ -1509,7 +1507,7 @@ Field _field_from_fld_str(Parser& parser) {
 			terr_mesh.scale.y = parser_token_float(parser);
 			parser_expect(parser, '\n');
 
-			terr_mesh.current_state = terr_mesh.initial_state;
+			terr_mesh.state = terr_mesh.initial_state;
 
 			if (parser_accept(parser, "CBE ")) {
 				terr_mesh.gradiant.enabled = true;
@@ -1629,7 +1627,7 @@ Field _field_from_fld_str(Parser& parser) {
 		} else if (parser_accept(parser, "Pict2\n")) {
 			Picture2D picture { .name=name };
 
-			picture.current_state = picture.initial_state;
+			picture.state = picture.initial_state;
 
 			while (parser_accept(parser, "ENDPICT\n") == false) {
 				Primitive2D permitive {};
@@ -1781,7 +1779,7 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, ' ');
 			subfield->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, '\n');
-			subfield->current_state = subfield->initial_state;
+			subfield->state = subfield->initial_state;
 
 			parser_expect(parser, "ID ");
 			subfield->id = (FieldID) parser_token_u8(parser);
@@ -1817,7 +1815,7 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, ' ');
 			terr_mesh->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, '\n');
-			terr_mesh->current_state = terr_mesh->initial_state;
+			terr_mesh->state = terr_mesh->initial_state;
 
 			parser_expect(parser, "ID ");
 			terr_mesh->id = (FieldID) parser_token_u8(parser);
@@ -1861,7 +1859,7 @@ Field _field_from_fld_str(Parser& parser) {
 			parser_expect(parser, ' ');
 			picture->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, '\n');
-			picture->current_state = picture->initial_state;
+			picture->state = picture->initial_state;
 
 			parser_expect(parser, "ID ");
 			picture->id = (FieldID) parser_token_u8(parser);
@@ -1965,7 +1963,7 @@ Field _field_from_fld_str(Parser& parser) {
 			mesh->initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 			parser_expect(parser, '\n');
 			mesh->initial_state.visible = true;
-			mesh->current_state = mesh->initial_state;
+			mesh->state = mesh->initial_state;
 
 			parser_expect(parser, "ID ");
 			mesh->id = (FieldID) parser_token_u8(parser);
@@ -3139,12 +3137,12 @@ namespace sys {
 					world.models[i].should_be_removed = ImGui::Button("Remove");
 
 					if (ImGui::Button("Reset State")) {
-						model.current_state = {};
+						model.state = {};
 					}
 					if (ImGui::Button("Reset All")) {
-						model.current_state = {};
+						model.state = {};
 						for (auto& [_, mesh] : model.meshes) {
-							mesh.current_state = mesh.initial_state;
+							mesh.state = mesh.initial_state;
 						}
 					}
 
@@ -3160,45 +3158,41 @@ namespace sys {
 						ImGui::EndCombo();
 					}
 
-					ImGui::Checkbox("visible", &model.current_state.visible);
-					ImGui::DragFloat3("translation", glm::value_ptr(model.current_state.translation));
+					ImGui::Checkbox("visible", &model.state.visible);
+					ImGui::DragFloat3("translation", glm::value_ptr(model.state.translation));
 
 					glm::vec3 now_rotation {
-						model.current_state.angles.roll,
-						model.current_state.angles.pitch,
-						model.current_state.angles.yaw,
+						model.state.angles.roll,
+						model.state.angles.pitch,
+						model.state.angles.yaw,
 					};
 					if (MyImGui::SliderAngle3("rotation", &now_rotation, world.settings.current_angle_max)) {
 						local_euler_angles_rotate(
-							model.current_state.angles,
-							now_rotation.z - model.current_state.angles.yaw,
-							now_rotation.y - model.current_state.angles.pitch,
-							now_rotation.x - model.current_state.angles.roll
+							model.state.angles,
+							now_rotation.z - model.state.angles.yaw,
+							now_rotation.y - model.state.angles.pitch,
+							now_rotation.x - model.state.angles.roll
 						);
 					}
 
 					ImGui::BeginDisabled();
-					auto x = glm::cross(model.current_state.angles.up, model.current_state.angles.front);
+					auto x = glm::cross(model.state.angles.up, model.state.angles.front);
 					ImGui::DragFloat3("right", glm::value_ptr(x));
-					ImGui::DragFloat3("up", glm::value_ptr(model.current_state.angles.up));
-					ImGui::DragFloat3("front", glm::value_ptr(model.current_state.angles.front));
+					ImGui::DragFloat3("up", glm::value_ptr(model.state.angles.up));
+					ImGui::DragFloat3("front", glm::value_ptr(model.state.angles.front));
 					ImGui::EndDisabled();
 
-					ImGui::DragFloat("Speed", &model.current_state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
+					ImGui::DragFloat("Speed", &model.state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
 
 					ImGui::Checkbox("Render AABB", &model.render_aabb);
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.current_aabb.min));
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.current_aabb.max));
 
 					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
-						if (ImGui::Button("Reset")) {
-							model.control = {};
-						}
+						ImGui::DragFloat("Landing Gear", &model.state.landing_gear_alpha, 0.01, 0, 1);
+						ImGui::SliderFloat("Throttle", &model.state.throttle, 0.0f, 1.0f);
 
-						ImGui::DragFloat("Landing Gear", &model.control.landing_gear_alpha, 0.01, 0, 1);
-						ImGui::SliderFloat("Throttle", &model.control.throttle, 0.0f, 1.0f);
-
-						ImGui::Checkbox("Afterburner Reheat", &model.control.afterburner_reheat_enabled);
+						ImGui::Checkbox("Afterburner Reheat", &model.state.afterburner_reheat_enabled);
 
 						ImGui::TreePop();
 					}
@@ -3217,11 +3211,11 @@ namespace sys {
 					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max=world.settings.current_angle_max](Mesh& mesh) {
 						if (ImGui::TreeNode(mu::str_tmpf("{}", mesh.name).c_str())) {
 							if (ImGui::Button("Reset")) {
-								mesh.current_state = mesh.initial_state;
+								mesh.state = mesh.initial_state;
 							}
 
 							ImGui::Checkbox("light source", &mesh.is_light_source);
-							ImGui::Checkbox("visible", &mesh.current_state.visible);
+							ImGui::Checkbox("visible", &mesh.state.visible);
 
 							ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
 							ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
@@ -3230,8 +3224,8 @@ namespace sys {
 								ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
 							ImGui::EndDisabled();
 
-							ImGui::DragFloat3("translation", glm::value_ptr(mesh.current_state.translation));
-							MyImGui::SliderAngle3("rotation", &mesh.current_state.rotation, current_angle_max);
+							ImGui::DragFloat3("translation", glm::value_ptr(mesh.state.translation));
+							MyImGui::SliderAngle3("rotation", &mesh.state.rotation, current_angle_max);
 
 							ImGui::Text(mu::str_tmpf("{}", mesh.animation_type).c_str());
 
@@ -3288,7 +3282,7 @@ namespace sys {
 					}
 
 					if (ImGui::Button("Reset State")) {
-						field.current_state = field.initial_state;
+						field.state = field.initial_state;
 					}
 
 					MyImGui::EnumsCombo("ID", &field.id, {
@@ -3311,10 +3305,10 @@ namespace sys {
 					ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
 					ImGui::Checkbox("GND Specular", &field.ground_specular);
 
-					ImGui::Checkbox("Visible", &field.current_state.visible);
+					ImGui::Checkbox("Visible", &field.state.visible);
 
-					ImGui::DragFloat3("Translation", glm::value_ptr(field.current_state.translation));
-					MyImGui::SliderAngle3("Rotation", &field.current_state.rotation, current_angle_max);
+					ImGui::DragFloat3("Translation", glm::value_ptr(field.state.translation));
+					MyImGui::SliderAngle3("Rotation", &field.state.rotation, current_angle_max);
 
 					ImGui::BulletText("Sub Fields:");
 					for (auto& subfield : field.subfields) {
@@ -3325,7 +3319,7 @@ namespace sys {
 					for (auto& terr_mesh : field.terr_meshes) {
 						if (ImGui::TreeNode(terr_mesh.name.c_str())) {
 							if (ImGui::Button("Reset State")) {
-								terr_mesh.current_state = terr_mesh.initial_state;
+								terr_mesh.state = terr_mesh.initial_state;
 							}
 
 							ImGui::Text("Tag: %s", terr_mesh.tag.c_str());
@@ -3341,10 +3335,10 @@ namespace sys {
 								{FieldID::VIEW_POINT, "VIEW_POINT"},
 							});
 
-							ImGui::Checkbox("Visible", &terr_mesh.current_state.visible);
+							ImGui::Checkbox("Visible", &terr_mesh.state.visible);
 
-							ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.current_state.translation));
-							MyImGui::SliderAngle3("Rotation", &terr_mesh.current_state.rotation, current_angle_max);
+							ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.state.translation));
+							MyImGui::SliderAngle3("Rotation", &terr_mesh.state.rotation, current_angle_max);
 
 							ImGui::TreePop();
 						}
@@ -3354,7 +3348,7 @@ namespace sys {
 					for (auto& picture : field.pictures) {
 						if (ImGui::TreeNode(picture.name.c_str())) {
 							if (ImGui::Button("Reset State")) {
-								picture.current_state = picture.initial_state;
+								picture.state = picture.initial_state;
 							}
 
 							MyImGui::EnumsCombo("ID", &picture.id, {
@@ -3368,10 +3362,10 @@ namespace sys {
 								{FieldID::VIEW_POINT, "VIEW_POINT"},
 							});
 
-							ImGui::Checkbox("Visible", &picture.current_state.visible);
+							ImGui::Checkbox("Visible", &picture.state.visible);
 
-							ImGui::DragFloat3("Translation", glm::value_ptr(picture.current_state.translation));
-							MyImGui::SliderAngle3("Rotation", &picture.current_state.rotation, current_angle_max);
+							ImGui::DragFloat3("Translation", glm::value_ptr(picture.state.translation));
+							MyImGui::SliderAngle3("Rotation", &picture.state.rotation, current_angle_max);
 
 							ImGui::TreePop();
 						}
@@ -3518,7 +3512,7 @@ namespace sys {
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
 		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
 
-		auto model_transformation = local_euler_angles_matrix(self.model->current_state.angles, self.model->current_state.translation);
+		auto model_transformation = local_euler_angles_matrix(self.model->state.angles, self.model->state.translation);
 
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
@@ -3646,6 +3640,21 @@ namespace sys {
 		}
 	}
 
+	void models_init(World& world) {
+		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
+		model_load_to_gpu(model);
+		world.models.push_back(model);
+	}
+
+	void models_free(World& world) {
+		for (auto& model : world.models) {
+			if (model.engine_sound) {
+				audio_device_stop(world.audio_device, *model.engine_sound);
+			}
+			model_unload_from_gpu(model);
+		}
+	}
+
 	// allow user control over camera tracked model
 	void _tracked_model_control(World& world) {
 		if (world.camera.model == nullptr) {
@@ -3673,29 +3682,29 @@ namespace sys {
 		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_Z]) {
 			delta_yaw += ROTATE_SPEED * world.delta_time;
 		}
-		local_euler_angles_rotate(self.current_state.angles, delta_yaw, delta_pitch, delta_roll);
+		local_euler_angles_rotate(self.state.angles, delta_yaw, delta_pitch, delta_roll);
 
 		if (world.events.pressed_tab) {
-			self.control.afterburner_reheat_enabled = ! self.control.afterburner_reheat_enabled;
+			self.state.afterburner_reheat_enabled = ! self.state.afterburner_reheat_enabled;
 		}
-		if (self.control.afterburner_reheat_enabled && self.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-			self.control.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
+		if (self.state.afterburner_reheat_enabled && self.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+			self.state.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 		}
 
 		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_Q]) {
-			self.control.throttle += THROTTLE_SPEED * world.delta_time;
+			self.state.throttle += THROTTLE_SPEED * world.delta_time;
 		}
 		if (world.events.sdl_keyb_pressed[SDL_SCANCODE_A]) {
-			self.control.throttle -= THROTTLE_SPEED * world.delta_time;
+			self.state.throttle -= THROTTLE_SPEED * world.delta_time;
 		}
 
 		// only currently controlled model has audio
-		int audio_index = self.control.throttle * (world.sounds.props.size()-1);
+		int audio_index = self.state.throttle * (world.sounds.props.size()-1);
 
 		Audio* audio;
 		if (self.has_propellers) {
 			audio = &world.sounds.props[audio_index];
-		} else if (self.control.afterburner_reheat_enabled && self.has_afterburner) {
+		} else if (self.state.afterburner_reheat_enabled && self.has_afterburner) {
 			audio = &world.sounds.burner;
 		} else {
 			audio = &world.sounds.engines[audio_index];
@@ -3721,8 +3730,7 @@ namespace sys {
 				}
 				model_unload_from_gpu(world.models[i]);
 
-				model.control = world.models[i].control;
-				model.current_state = world.models[i].current_state;
+				model.state = world.models[i].state;
 				world.models[i] = model;
 
 				mu::log_debug("loaded '{}'", world.models[i].file_abs_path);
@@ -3759,7 +3767,7 @@ namespace sys {
 		for (int i = 0; i < world.models.size(); i++) {
 			Model& model = world.models[i];
 
-			if (!model.current_state.visible) {
+			if (!model.state.visible) {
 				continue;
 			}
 
@@ -3770,20 +3778,20 @@ namespace sys {
 			}
 
 			// apply model transformation
-			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
+			const auto model_transformation = local_euler_angles_matrix(model.state.angles, model.state.translation);
 
-			model.control.throttle = clamp(model.control.throttle, 0.0f, 1.0f);
-			model.current_state.speed = model.control.throttle * MAX_SPEED + MIN_SPEED;
-			if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-				model.control.afterburner_reheat_enabled = false;
+			model.state.throttle = clamp(model.state.throttle, 0.0f, 1.0f);
+			model.state.speed = model.state.throttle * MAX_SPEED + MIN_SPEED;
+			if (model.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+				model.state.afterburner_reheat_enabled = false;
 			}
 
-			model.current_state.translation += ((float)world.delta_time * model.current_state.speed) * model.current_state.angles.front;
+			model.state.translation += ((float)world.delta_time * model.state.speed) * model.state.angles.front;
 
 			// transform AABB (estimate new AABB after rotation)
 			{
 				// translate AABB
-				model.current_aabb.min = model.current_aabb.max = model.current_state.translation;
+				model.current_aabb.min = model.current_aabb.max = model.state.translation;
 
 				// new rotated AABB (no translation)
 				const auto model_rotation = glm::mat3(model_transformation);
@@ -3823,35 +3831,35 @@ namespace sys {
 				Mesh* mesh = *meshes_stack.rbegin();
 				meshes_stack.pop_back();
 
-				if (mesh->current_state.visible == false) {
+				if (mesh->state.visible == false) {
 					continue;
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->current_state.rotation.x += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+					mesh->state.rotation.x += model.state.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
 				}
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->current_state.rotation.z += model.control.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+					mesh->state.rotation.z += model.state.throttle * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
 					// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
 					const MeshState& state_up   = mesh->animation_states[0];
 					const MeshState& state_down = mesh->animation_states[1];
-					const auto& alpha = model.control.landing_gear_alpha;
+					const auto& alpha = model.state.landing_gear_alpha;
 
-					mesh->current_state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
-					mesh->current_state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
+					mesh->state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
+					mesh->state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
 
 					float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
-					mesh->current_state.visible = visibilty > 0.05;;
+					mesh->state.visible = visibilty > 0.05;;
 				}
 
 				// apply mesh transformation
-				mesh->transformation = glm::translate(mesh->transformation, mesh->current_state.translation);
-				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[2], glm::vec3{0, 0, 1});
-				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[1], glm::vec3{1, 0, 0});
-				mesh->transformation = glm::rotate(mesh->transformation, mesh->current_state.rotation[0], glm::vec3{0, -1, 0});
+				mesh->transformation = glm::translate(mesh->transformation, mesh->state.translation);
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[2], glm::vec3{0, 0, 1});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[1], glm::vec3{1, 0, 0});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[0], glm::vec3{0, -1, 0});
 
 				// push children
 				for (const mu::Str& child_name : mesh->children) {
@@ -3869,7 +3877,7 @@ namespace sys {
 		}
 
 		for (int i = 0; i < world.models.size()-1; i++) {
-			if (world.models[i].current_state.visible == false) {
+			if (world.models[i].state.visible == false) {
 				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 				continue;
 			}
@@ -3877,7 +3885,7 @@ namespace sys {
 			glm::vec3 i_color {0, 0, 1};
 
 			for (int j = i+1; j < world.models.size(); j++) {
-				if (world.models[j].current_state.visible == false) {
+				if (world.models[j].state.visible == false) {
 					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
 					continue;
 				}
@@ -3928,12 +3936,12 @@ namespace sys {
 		for (int i = 0; i < world.models.size(); i++) {
 			Model& model = world.models[i];
 
-			if (!model.current_state.visible) {
+			if (!model.state.visible) {
 				continue;
 			}
 
-			const auto model_transformation = local_euler_angles_matrix(model.current_state.angles, model.current_state.translation);
-			
+			const auto model_transformation = local_euler_angles_matrix(model.state.angles, model.state.translation);
+
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 			for (const auto& name : model.root_meshes_names) {
@@ -3944,7 +3952,7 @@ namespace sys {
 				Mesh* mesh = *meshes_stack.rbegin();
 				meshes_stack.pop_back();
 
-				const bool enable_high_throttle = almost_equal(model.control.throttle, 1.0f);
+				const bool enable_high_throttle = almost_equal(model.state.throttle, 1.0f);
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
 					continue;
 				}
@@ -3953,16 +3961,16 @@ namespace sys {
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-					if (model.control.afterburner_reheat_enabled == false) {
+					if (model.state.afterburner_reheat_enabled == false) {
 						continue;
 					}
 
-					if (model.control.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+					if (model.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 						continue;
 					}
 				}
 
-				if (!mesh->current_state.visible) {
+				if (!mesh->state.visible) {
 					continue;
 				}
 
@@ -4032,14 +4040,14 @@ namespace sys {
 			// transform fields
 			world.field.transformation = glm::identity<glm::mat4>();
 			for (Field* fld : all_fields) {
-				if (fld->current_state.visible == false) {
+				if (fld->state.visible == false) {
 					continue;
 				}
 
-				fld->transformation = glm::translate(fld->transformation, fld->current_state.translation);
-				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[2], glm::vec3{0, 0, 1});
-				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[1], glm::vec3{1, 0, 0});
-				fld->transformation = glm::rotate(fld->transformation, fld->current_state.rotation[0], glm::vec3{0, 1, 0});
+				fld->transformation = glm::translate(fld->transformation, fld->state.translation);
+				fld->transformation = glm::rotate(fld->transformation, fld->state.rotation[2], glm::vec3{0, 0, 1});
+				fld->transformation = glm::rotate(fld->transformation, fld->state.rotation[1], glm::vec3{1, 0, 0});
+				fld->transformation = glm::rotate(fld->transformation, fld->state.rotation[0], glm::vec3{0, 1, 0});
 
 				for (auto& subfield : fld->subfields) {
 					subfield.transformation = fld->transformation;
@@ -4052,10 +4060,10 @@ namespace sys {
 
 					// apply mesh transformation
 					mesh.transformation = fld->transformation;
-					mesh.transformation = glm::translate(mesh.transformation, mesh.current_state.translation);
-					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-					mesh.transformation = glm::rotate(mesh.transformation, mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+					mesh.transformation = glm::translate(mesh.transformation, mesh.state.translation);
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.state.rotation[2], glm::vec3{0, 0, 1});
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.state.rotation[1], glm::vec3{1, 0, 0});
+					mesh.transformation = glm::rotate(mesh.transformation, mesh.state.rotation[0], glm::vec3{0, 1, 0});
 
 					if (mesh.render_pos_axis) {
 						world.canvas.axis_list.push_back(mesh.transformation);
@@ -4083,15 +4091,15 @@ namespace sys {
 		gl_program_use(world.canvas.picture2d_program);
 		for (const Field* fld : all_fields) {
 			for (auto& picture : fld->pictures) {
-				if (picture.current_state.visible == false) {
+				if (picture.state.visible == false) {
 					continue;
 				}
 
 				auto model_transformation = fld->transformation;
-				model_transformation = glm::translate(model_transformation, picture.current_state.translation);
-				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[2], glm::vec3{0, 0, 1});
-				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[1], glm::vec3{1, 0, 0});
-				model_transformation = glm::rotate(model_transformation, picture.current_state.rotation[0], glm::vec3{0, 1, 0});
+				model_transformation = glm::translate(model_transformation, picture.state.translation);
+				model_transformation = glm::rotate(model_transformation, picture.state.rotation[2], glm::vec3{0, 0, 1});
+				model_transformation = glm::rotate(model_transformation, picture.state.rotation[1], glm::vec3{1, 0, 0});
+				model_transformation = glm::rotate(model_transformation, picture.state.rotation[0], glm::vec3{0, 1, 0});
 				gl_program_uniform_set(world.canvas.picture2d_program, "projection_view_model", world.mats.projection_view * model_transformation);
 
 				for (auto& primitive : picture.primitives) {
@@ -4114,20 +4122,20 @@ namespace sys {
 		gl_program_use(world.canvas.meshes_program);
 		gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", false);
 		for (const Field* fld : all_fields) {
-			if (fld->current_state.visible == false) {
+			if (fld->state.visible == false) {
 				continue;
 			}
 
 			for (const auto& terr_mesh : fld->terr_meshes) {
-				if (terr_mesh.current_state.visible == false) {
+				if (terr_mesh.state.visible == false) {
 					continue;
 				}
 
 				auto model_transformation = fld->transformation;
-				model_transformation = glm::translate(model_transformation, terr_mesh.current_state.translation);
-				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[2], glm::vec3{0, 0, 1});
-				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[1], glm::vec3{1, 0, 0});
-				model_transformation = glm::rotate(model_transformation, terr_mesh.current_state.rotation[0], glm::vec3{0, 1, 0});
+				model_transformation = glm::translate(model_transformation, terr_mesh.state.translation);
+				model_transformation = glm::rotate(model_transformation, terr_mesh.state.rotation[2], glm::vec3{0, 0, 1});
+				model_transformation = glm::rotate(model_transformation, terr_mesh.state.rotation[1], glm::vec3{1, 0, 0});
+				model_transformation = glm::rotate(model_transformation, terr_mesh.state.rotation[0], glm::vec3{0, 1, 0});
 				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * model_transformation);
 
 				gl_program_uniform_set(world.canvas.meshes_program, "gradient_enabled", terr_mesh.gradiant.enabled);
@@ -4146,12 +4154,12 @@ namespace sys {
 
 		// render fields meshes
 		for (const Field* fld : all_fields) {
-			if (fld->current_state.visible == false) {
+			if (fld->state.visible == false) {
 				continue;
 			}
 
 			for (const auto& mesh : fld->meshes) {
-				if (mesh.current_state.visible == false) {
+				if (mesh.state.visible == false) {
 					continue;
 				}
 
@@ -4319,26 +4327,17 @@ int main() {
 	canvas_init(world.canvas);
 	defer(canvas_free(world.canvas));
 
-	// aircrafts list
-	world.aircrafts_map = aircrafts_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
-
-	// models
-	{
-		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
-		model_load_to_gpu(model);
-		world.models.push_back(model);
-	}
-	defer({
-		for (auto& model : world.models) {
-			model_unload_from_gpu(model);
-		}
-	});
-
-	// audio
 	audio_device_init(&world.audio_device);
 	defer(audio_device_free(world.audio_device));
 	sounds_load(world.sounds);
 	defer(sounds_free(world.sounds));
+
+	// aircrafts list
+	world.aircrafts_map = aircrafts_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
+
+	// models
+	sys::models_init(world);
+	defer(sys::models_free(world));
 
 	// field
 	world.field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
