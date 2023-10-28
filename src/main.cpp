@@ -3924,10 +3924,7 @@ namespace sys {
 	}
 
 	void _models_handle_collision(World& world) {
-		if (world.models.empty()) {
-			return;
-		}
-
+		// between models
 		for (int i = 0; i < world.models.size()-1; i++) {
 			if (world.models[i].state.visible == false) {
 				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
@@ -3970,9 +3967,31 @@ namespace sys {
 				});
 			}
 		}
+
+		// if one single model, just add its aabb for debugging
+		if (world.models.size() == 1 && world.models[0].render_aabb) {
+			auto aabb = world.models[0].current_aabb;
+			world.canvas.boxes_list.push_back(Box {
+				.translation = aabb.min,
+				.scale = aabb.max - aabb.min,
+				.color = glm::vec3{0, 0, 1.0f},
+			});
+		}
+
+		// models and ground
+		for (auto& model : world.models) {
+			float model_y = model.current_aabb.max.y;
+			if (model_y > 0) {
+				model.state.translation.y -= model_y;
+			}
+		}
 	}
 
 	void models_update(World& world) {
+		if (world.models.empty()) {
+			return;
+		}
+
 		_models_load_from_files(world);
 		_models_autoremove(world);
 

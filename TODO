@@ -51,8 +51,6 @@
 - what do if REL DEP not in dnm?
 - shade using normals
 - refactor rendering
-	- use gpu program
-	- set uniforms
 	- primitives?
 - fix render land texture (now it's half-assed)
 - render terrain texture
