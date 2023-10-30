@@ -2783,12 +2783,62 @@ struct CachedMatrices {
 	glm::mat4 proj_inv_view_inv;
 };
 
+struct LoopTimer {
+	uint64_t _last_time_millis;
+	int64_t _millis_till_render;
+
+	// seconds since previous frame
+	double delta_time;
+};
+
+uint64_t time_now_millis() {
+	return SDL_GetTicks64();
+}
+
+void time_delay_millis(uint32_t millis) {
+	SDL_Delay(millis);
+}
+
+LoopTimer loop_timer_new(uint64_t now_millis) {
+	return LoopTimer {
+		._last_time_millis = now_millis,
+		._millis_till_render = 0
+	};
+}
+
+// call in a loop as long it's true
+bool loop_timer_update(LoopTimer& self, Settings& settings, uint64_t now_millis) {
+	const uint64_t delta_time_millis = now_millis - self._last_time_millis;
+	self._last_time_millis = now_millis;
+
+	if (settings.should_limit_fps) {
+		int millis_diff = (1000 / settings.fps_limit) - delta_time_millis;
+		self._millis_till_render = clamp<int64_t>(self._millis_till_render - millis_diff, 0, 1000);
+		if (self._millis_till_render > 0) {
+			return true;
+		} else {
+			self._millis_till_render = 1000 / settings.fps_limit;
+			self.delta_time = 1.0f/ settings.fps_limit;
+		}
+	} else {
+		self.delta_time = (double) delta_time_millis / 1000;
+	}
+
+	if (self.delta_time < 0.0001f) {
+		self.delta_time = 0.0001f;
+	}
+
+	return false;
+}
+
 struct World {
 	SDL_Window* sdl_window;
 	SDL_GLContext sdl_gl_context;
 
 	ImGuiWindowLogger imgui_window_logger;
 	mu::Str imgui_ini_file_path;
+
+	LoopTimer loop_timer;
 
 	// aircraft short name -> files
 	mu::Map<mu::Str, AircraftFiles> aircrafts_map;
@@ -2808,9 +2858,6 @@ struct World {
 	Settings settings;
 
 	Canvas canvas;
-
-	// seconds since previous frame
-	double delta_time;
 };
 
 namespace sys {
@@ -3514,7 +3561,7 @@ namespace sys {
 		auto& self = world.camera;
 		auto& events = world.events;
 
-		const float velocity = 0.40f * world.delta_time;
+		const float velocity = 0.40f * world.loop_timer.delta_time;
 		if (events.camera_tracking_up) {
 			self.yaw += velocity;
 		}
@@ -3529,7 +3576,7 @@ namespace sys {
 		}
 
 		if (self.enable_rotating_around) {
-			self.pitch += (7 * world.delta_time) / DEGREES_MAX * RADIANS_MAX;
+			self.pitch += (7 * world.loop_timer.delta_time) / DEGREES_MAX * RADIANS_MAX;
 		}
 
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3547,7 +3594,7 @@ namespace sys {
 		auto& events = world.events;
 
 		// move with keyboard
-		const float velocity = self.movement_speed * world.delta_time;
+		const float velocity = self.movement_speed * world.loop_timer.delta_time;
 		if (events.camera_flying_up) {
 			self.position += self.front * velocity;
 		}
@@ -3709,22 +3756,22 @@ namespace sys {
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
 		if (world.events.stick_back) {
-			delta_pitch -= ROTATE_SPEED * world.delta_time;
+			delta_pitch -= ROTATE_SPEED * world.loop_timer.delta_time;
 		}
 		if (world.events.stick_front) {
-			delta_pitch += ROTATE_SPEED * world.delta_time;
+			delta_pitch += ROTATE_SPEED * world.loop_timer.delta_time;
 		}
 		if (world.events.stick_left) {
-			delta_roll -= ROTATE_SPEED * world.delta_time;
+			delta_roll -= ROTATE_SPEED * world.loop_timer.delta_time;
 		}
 		if (world.events.stick_right) {
-			delta_roll += ROTATE_SPEED * world.delta_time;
+			delta_roll += ROTATE_SPEED * world.loop_timer.delta_time;
 		}
 		if (world.events.rudder_right) {
-			delta_yaw -= ROTATE_SPEED * world.delta_time;
+			delta_yaw -= ROTATE_SPEED * world.loop_timer.delta_time;
 		}
 		if (world.events.rudder_left) {
-			delta_yaw += ROTATE_SPEED * world.delta_time;
+			delta_yaw += ROTATE_SPEED * world.loop_timer.delta_time;
 		}
 		local_euler_angles_rotate(self.state.angles, delta_yaw, delta_pitch, delta_roll);
 
@@ -3736,10 +3783,10 @@ namespace sys {
 		}
 
 		if (world.events.throttle_increase) {
-			self.state.throttle += THROTTLE_SPEED * world.delta_time;
+			self.state.throttle += THROTTLE_SPEED * world.loop_timer.delta_time;
 		}
 		if (world.events.throttle_decrease) {
-			self.state.throttle -= THROTTLE_SPEED * world.delta_time;
+			self.state.throttle -= THROTTLE_SPEED * world.loop_timer.delta_time;
 		}
 
 		// only currently controlled model has audio
@@ -3815,7 +3862,7 @@ namespace sys {
 				continue;
 			}
 
-			model.anti_coll_lights.time_left_secs -= world.delta_time;
+			model.anti_coll_lights.time_left_secs -= world.loop_timer.delta_time;
 			if (model.anti_coll_lights.time_left_secs < 0) {
 				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
 				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
@@ -3830,15 +3877,15 @@ namespace sys {
 			}
 
 			if (model.state.engine_speed < model.state.throttle) {
-				model.state.engine_speed += world.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				model.state.engine_speed += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
 				model.state.engine_speed = clamp(model.state.engine_speed, 0.0f, model.state.throttle);
 			} else if (model.state.engine_speed > model.state.throttle) {
-				model.state.engine_speed -= world.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				model.state.engine_speed -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
 				model.state.engine_speed = clamp(model.state.engine_speed, model.state.throttle, 1.0f);
 			}
 			model.state.speed = model.state.engine_speed * MAX_SPEED + MIN_SPEED;
 
-			model.state.translation += ((float)world.delta_time * model.state.speed) * model.state.angles.front;
+			model.state.translation += ((float)world.loop_timer.delta_time * model.state.speed) * model.state.angles.front;
 
 			// transform AABB (estimate new AABB after rotation)
 			{
@@ -3888,10 +3935,10 @@ namespace sys {
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->state.rotation.x += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+					mesh->state.rotation.x += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->state.rotation.z += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.delta_time;
+					mesh->state.rotation.z += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
@@ -4430,35 +4477,13 @@ int main() {
 		.position = world.start_infos[1].position
 	};
 
-	uint32_t time_millis = SDL_GetTicks();;
-	int millis_till_render = 0;
+	world.loop_timer = loop_timer_new(time_now_millis());
 
 	// main loop
 	while (!world.events.quit) {
-		mu::memory::reset_tmp();
-
-		// time
-		{
-			Uint32 delta_time_millis = SDL_GetTicks() - time_millis;
-			time_millis += delta_time_millis;
-
-			if (world.settings.should_limit_fps) {
-				int millis_diff = (1000 / world.settings.fps_limit) - delta_time_millis;
-				millis_till_render = clamp(millis_till_render - millis_diff, 0, 1000);
-				if (millis_till_render > 0) {
-					SDL_Delay(2);
-					continue;
-				} else {
-					millis_till_render = 1000 / world.settings.fps_limit;
-					world.delta_time = 1.0f/ world.settings.fps_limit;
-				}
-			} else {
-				world.delta_time = (double) delta_time_millis / 1000;
-			}
-
-			if (world.delta_time < 0.0001f) {
-				world.delta_time = 0.0001f;
-			}
+		if (loop_timer_update(world.loop_timer, world.settings, time_now_millis())) {
+			time_delay_millis(2);
+			continue;
 		}
 
 		sys::canvas_reset(world);
@@ -4471,7 +4496,7 @@ int main() {
 			.scale = 1.0f,
 			.color = {0.5, 0.8f, 0.2f}
 		});
-		world.canvas.overlay_text_list.push_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.delta_time));
+		world.canvas.overlay_text_list.push_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.loop_timer.delta_time));
 
 		sys::events_update(world);
 
@@ -4495,6 +4520,7 @@ int main() {
 		SDL_GL_SwapWindow(world.sdl_window);
 
 		gl_process_errors();
+		mu::memory::reset_tmp();
 	}
 
 	return 0;
