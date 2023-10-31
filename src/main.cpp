@@ -574,7 +574,7 @@ Mesh mesh_from_srf_str(Parser& parser, mu::StrView name, size_t dnm_version = 1)
 					face.color.r = packed_color.as_struct.r / 255.0f;
 					face.color.g = packed_color.as_struct.g / 255.0f;
 					face.color.b = packed_color.as_struct.b / 255.0f;
-					my_assert(packed_color.as_struct.padding == 0);
+					mu_assert(packed_color.as_struct.padding == 0);
 				}
 
 				parser_expect(parser, '\n');
@@ -774,7 +774,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 
 	while (parser_accept(parser, "SRF ")) {
 		auto name = parser_token_str(parser);
-		if (!(mu::str_prefix(name, "\"") && mu::str_suffix(name, "\""))) {
+		if (!(name.starts_with("\"") && name.ends_with("\""))) {
 			mu::panic("name must be in \"\" found={}", name);
 		}
 		_str_unquote(name);
@@ -893,7 +893,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 				for (size_t i = 0; i < num_children; i++) {
 					parser_expect(parser, "CLD ");
 					auto child_name = parser_token_str(parser);
-					if (!(mu::str_prefix(child_name, "\"") && mu::str_suffix(child_name, "\""))) {
+					if (!(child_name.starts_with("\"") && child_name.ends_with("\""))) {
 						mu::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					_str_unquote(child_name);
@@ -998,6 +998,156 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 	model.current_aabb = model.initial_aabb;
 
 	return model;
+}
+
+// trim from start (in place)
+void _str_ltrim(mu::Str& s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+}
+
+// trim from end (in place)
+void _str_rtrim(mu::Str& s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), s.end());
+}
+
+// trim from both ends (in place)
+void _str_trim(mu::Str& s) {
+    _str_rtrim(s);
+    _str_ltrim(s);
+}
+
+struct DATMap {
+	mu::Map<mu::Str, mu::Str> map;
+};
+
+DATMap datmap_from_dat_file(mu::StrView dat_file_path) {
+	DATMap dat {};
+
+	auto parser = parser_from_file(dat_file_path, mu::memory::tmp());
+
+	while (!parser_finished(parser)) {
+		if (parser_accept(parser, '\n')) {
+		} else if (parser_accept(parser, "REM ")) {
+			parser_skip_after(parser, '\n');
+		} else {
+			auto key = parser_token_str(parser);
+
+			if (key == "AUTOCALC") { break; }
+
+			// | <--key--> | |  <--  value  -->  |
+			// REALPROP 0 CD -5deg 0.006 20deg 0.4
+			// key = "REALPROP 0 CD"
+			// val = "-5deg 0.006 20deg 0.4"
+			if (key == "REALPROP") {
+				parser_expect(parser, ' ');
+				int index = parser_token_u8(parser);
+				parser_expect(parser, ' ');
+				auto rest_of_key = parser_token_str(parser, mu::memory::tmp());
+				key = mu::str_format("REALPROP {} {}", index, rest_of_key);
+			}
+
+			// | <--   key   --> | |  <--            value            -->  |
+			// EXCAMERA "CO-PILOT" 0.4m  1.22m  9.00m 0deg 0deg 0deg INSIDE
+			// key = "EXCAMERA \"CO-PILOT\""
+			// val = "0.4m  1.22m  9.00m 0deg 0deg 0deg INSIDE"
+			if (key == "EXCAMERA") {
+				parser_expect(parser, ' ');
+				auto camera_name = parser_token_str(parser, mu::memory::tmp());
+				key = mu::str_format("EXCAMERA {}", camera_name);
+			}
+
+			auto value = parser_token_str_with(parser, [](char c){ return c != '#' && c != '\n'; });
+			_str_trim(value);
+
+			parser_skip_after(parser, '\n');
+
+			dat.map[std::move(key)] = std::move(value);
+		}
+	}
+
+	return dat;
+}
+
+mu::Str datmap_get_str(const DATMap& self, const mu::Str& key,
+	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	auto it = self.map.find(key);
+	if (it == self.map.end()) {
+		return "";
+	}
+	return mu::Str(it->second, allocator);
+}
+
+mu::Vec<float> datmap_get_floats(const DATMap& self, const mu::Str& key,
+	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	auto it = self.map.find(key);
+	if (it == self.map.end()) {
+		return {};
+	}
+	auto parser = parser_from_str(it->second, mu::memory::tmp());
+	mu::Vec<float> out(allocator);
+	while (!parser_finished(parser)) {
+		out.push_back(parser_token_float(parser) * parser_accept_unit(parser));
+		while (parser_accept(parser, ' ')) { }
+	}
+	return out;
+}
+
+mu::Vec<int64_t> datmap_get_ints(const DATMap& self, const mu::Str& key,
+	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	auto it = self.map.find(key);
+	if (it == self.map.end()) {
+		return {};
+	}
+	auto parser = parser_from_str(it->second, mu::memory::tmp());
+	mu::Vec<int64_t> out(allocator);
+	while (!parser_finished(parser)) {
+		out.push_back(parser_token_i64(parser) * parser_accept_unit(parser));
+		while (parser_accept(parser, ' ')) { }
+	}
+	return out;
+}
+
+struct ExternalCameraLocation {
+	mu::Str name;
+	glm::vec3 pos, angles;
+	bool inside;
+};
+
+mu::Vec<ExternalCameraLocation> datmap_get_excameras(const DATMap& self,
+	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	constexpr mu::StrView SUFFIX = "EXCAMERA ";
+	mu::Vec<ExternalCameraLocation> out(allocator);
+
+	for (const auto& [k, v] : self.map) {
+		if (k.starts_with(SUFFIX)) {
+			ExternalCameraLocation excamera {  };
+
+			excamera.name = mu::Str(k.substr(SUFFIX.size(), k.size()-SUFFIX.size()), allocator);
+			_str_unquote(excamera.name);
+
+			auto parser = parser_from_str(v, mu::memory::tmp());
+
+			for (int i = 0; i < 3; i++) {
+				excamera.pos[i] = parser_token_float(parser) * parser_accept_unit(parser);
+				while (parser_accept(parser, ' ')) { }
+			}
+
+			for (int i = 0; i < 3; i++) {
+				excamera.angles[i] = parser_token_float(parser) * parser_accept_unit(parser);
+				while (parser_accept(parser, ' ')) { }
+			}
+
+			excamera.inside = parser_token_str(parser, mu::memory::tmp()) == "INSIDE";
+
+			out.push_back(excamera);
+		}
+	}
+
+	return out;
 }
 
 struct PerspectiveProjection {
@@ -3184,7 +3334,7 @@ namespace sys {
 						break;
 					}
 				}
-				my_assert(aircraft);
+				mu_assert(aircraft);
 
 				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, aircraft->short_name).c_str())) {
 					world.models[i].should_load_file = ImGui::Button("Reload");
@@ -3735,6 +3885,9 @@ namespace sys {
 		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
 		model_load_to_gpu(model);
 		world.models.push_back(model);
+
+		auto dat = datmap_from_dat_file(world.aircrafts_map["ys11"].dat);
+		// we don't use dat values yet
 	}
 
 	void models_free(World& world) {

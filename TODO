@@ -9,7 +9,6 @@
 - struct Model -> struct Aircraft
 - when switch tracking of aircraft, turn off the audio for current aircraft
 - hear nearby models' sounds
-- parse .dat files
 - calculate camera distance based on model size
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right

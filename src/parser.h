@@ -12,10 +12,7 @@ struct Parser {
 Parser parser_from_str(mu::StrView str, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	mu::Str str_clone(str, allocator);
 	mu::str_replace(str_clone, "\r\n", "\n");
-	return Parser {
-		.str = str_clone,
-		.file_path = mu::Str("%memory%", allocator),
-	};
+	return Parser { .str = str_clone };
 }
 
 Parser parser_from_file(mu::StrView file_path, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
@@ -83,6 +80,26 @@ bool parser_accept(Parser& self, mu::StrView s) {
 	return true;
 }
 
+// return multiplier that converts to standard unit (maybe 1 if no unit or standard unit)
+// standard units: m, g, m/s, joules/second, degrees
+double parser_accept_unit(Parser& self) {
+	if (parser_accept(self, "ft"))   { return 0.3048;    }
+	if (parser_accept(self, "kt"))   { return 0.514444;  }
+	if (parser_accept(self, "HP"))   { return 745.7;     }
+	if (parser_accept(self, "km/h")) { return 0.277778;  }
+	if (parser_accept(self, "MACH")) { return 340.29;    }
+	if (parser_accept(self, "kg"))   { return 1000;      }
+	if (parser_accept(self, "t"))    { return 1000*1000; }
+	if (parser_accept(self, "%"))    { return .01; }
+
+	// accept those units to avoid crashing on them later
+	if (parser_accept(self, "deg"))  { return 1;    }
+	if (parser_accept(self, "m^2"))  { return 1;    }
+	if (parser_accept(self, "m"))    { return 1;    }
+
+	return 1;
+}
+
 template<typename ... Args>
 void parser_panic(const Parser& self, mu::StrView err_msg, const Args& ... args) {
 	mu::Str summary(self.str, mu::memory::tmp());
@@ -92,7 +109,8 @@ void parser_panic(const Parser& self, mu::StrView err_msg, const Args& ... args)
 	}
 	mu::str_replace(summary, "\n", "\\n");
 
-	mu::panic("{}:{}: {}, parser.str='{}', parser.pos={}", self.file_path, self.curr_line+1, mu::str_tmpf(err_msg.data(), args...), summary, self.pos);
+	auto file_path = self.file_path.empty() ? "%memory%" : self.file_path;
+	mu::panic("{}:{}: {}, parser.str='{}', parser.pos={}", file_path, self.curr_line+1, mu::str_tmpf(err_msg.data(), args...), summary, self.pos);
 }
 
 template<typename T>
@@ -195,12 +213,17 @@ int64_t parser_token_i64(Parser& self) {
 	return d;
 }
 
-mu::Str parser_token_str(Parser& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+template<typename Function>
+mu::Str parser_token_str_with(Parser& self, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	auto a = &self.str[self.pos];
-	while (self.pos < self.str.size() && self.str[self.pos] != ' ' && self.str[self.pos] != '\n') {
+	while (self.pos < self.str.size() && predicate(self.str[self.pos])) {
 		self.pos++;
 	}
 	return mu::Str(a, &self.str[self.pos], allocator);
+}
+
+mu::Str parser_token_str(Parser& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	return parser_token_str_with(self, [](char c){ return !::isspace(c); }, allocator);
 }
 
 bool parser_finished(Parser& self) {
@@ -233,44 +256,57 @@ void test_parser() {
 	Parser parser = parser_from_str("hello world \r\n m", mu::memory::tmp());
 	auto orig = parser;
 
-	my_assert(parser_peek(parser, "hello"));
-	my_assert(parser_peek(parser, "ello") == false);
+	mu_assert(parser_peek(parser, "hello"));
+	mu_assert(parser_peek(parser, "ello") == false);
 
 	{
 		parser = orig;
-		my_assert(parser_accept(parser, "hello"));
-		my_assert(parser_accept(parser, ' '));
-		my_assert(parser_finished(parser) == false);
-		my_assert(parser.curr_line == 0);
-		my_assert(parser_accept(parser, "world \n"));
-		my_assert(parser.curr_line == 1);
-		my_assert(parser_accept(parser, " m"));
-		my_assert(parser_finished(parser));
+		mu_assert(parser_accept(parser, "hello"));
+		mu_assert(parser_accept(parser, ' '));
+		mu_assert(parser_finished(parser) == false);
+		mu_assert(parser.curr_line == 0);
+		mu_assert(parser_accept(parser, "world \n"));
+		mu_assert(parser.curr_line == 1);
+		mu_assert(parser_accept(parser, " m"));
+		mu_assert(parser_finished(parser));
 
 		parser = orig;
-		my_assert(parser_accept(parser, "ello") == false);
+		mu_assert(parser_accept(parser, "ello") == false);
 	}
 
 	{
 		parser = orig;
 		parser_expect(parser, "hello");
 		parser_expect(parser, ' ');
-		my_assert(parser.curr_line == 0);
+		mu_assert(parser.curr_line == 0);
 		parser_expect(parser, "world \n");
-		my_assert(parser.curr_line == 1);
+		mu_assert(parser.curr_line == 1);
 		parser_expect(parser, " m");
 	}
 
 	parser = parser_from_str("5\n-1.4\nhello 1%", mu::memory::tmp());
-	my_assert(parser_token_u64(parser) == 5);
+	mu_assert(parser_token_u64(parser) == 5);
 	parser_expect(parser, '\n');
-	my_assert(parser_token_float(parser) == -1.4f);
+	mu_assert(parser_token_float(parser) == -1.4f);
 	parser_expect(parser, '\n');
-	my_assert(parser_token_str(parser, mu::memory::tmp()) == "hello");
+	mu_assert(parser_token_str(parser, mu::memory::tmp()) == "hello");
 	parser_expect(parser, ' ');
-	my_assert(parser_token_u64(parser) == 1);
+	mu_assert(parser_token_u64(parser) == 1);
 	parser_expect(parser, '%');
-	my_assert(parser.curr_line == 2);
+	mu_assert(parser.curr_line == 2);
+
+	parser = parser_from_str("0deg 0.2ft 15HP 1.2 2%", mu::memory::tmp());
+	mu_assert(parser_token_float(parser) == 0);
+	mu_assert(parser_accept_unit(parser) == 1);
+	parser_expect(parser, ' ');
+	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.06096f));
+	parser_expect(parser, ' ');
+	mu_assert(almost_equal((float)parser_token_i64(parser) * parser_accept_unit(parser), 11185.5f));
+	parser_expect(parser, ' ');
+	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 1.2));
+	parser_expect(parser, ' ');
+	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.02));
+	mu_assert(parser_finished(parser));
 
 	mu::log_debug("test_parser: all tests pass");
 }

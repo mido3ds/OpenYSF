@@ -76,7 +76,7 @@ constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
 }
 
 void memset_u16(void* dst, uint16_t val, size_t len) {
-	my_assert(len % 2 == 0);
+	mu_assert(len % 2 == 0);
 	uint16_t* dst_as_16 = (uint16_t*) dst;
 	const size_t len_as_16 = len / 2;
 	for (size_t i = 0; i < len_as_16; i++) {
@@ -99,7 +99,7 @@ void audio_device_init(AudioDevice* self) {
 
 			// one shot
 			for (auto& playback : dev->playbacks) {
-				my_assert(playback.pos < playback.audio->len);
+				mu_assert(playback.pos < playback.audio->len);
 
 				const uint32_t min_len = min_u32(stream_len, playback.audio->len - playback.pos);
 				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
@@ -108,7 +108,7 @@ void audio_device_init(AudioDevice* self) {
 				silence_pos = min_u32(silence_pos + min_len, stream_len);
 			}
 			for (int i = dev->playbacks.size()-1; i >= 0; i--) {
-				my_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
+				mu_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
 				if (dev->playbacks[i].pos == dev->playbacks[i].audio->len) {
 					mu::vec_remove_unordered(dev->playbacks, i);
 				}
@@ -116,7 +116,7 @@ void audio_device_init(AudioDevice* self) {
 
 			// looped
 			for (auto& playback : dev->looped_playbacks) {
-				my_assert(playback.pos < playback.audio->len);
+				mu_assert(playback.pos < playback.audio->len);
 
 				uint32_t stream_pos = 0;
 				while (stream_pos < stream_len) {
@@ -157,14 +157,14 @@ void audio_device_free(AudioDevice& self) {
 
 // `audio` must be alive as long as it's played
 void audio_device_play(AudioDevice& self, const Audio& audio) {
-    SDL_LockAudioDevice(self.id);
+	SDL_LockAudioDevice(self.id);
 	self.playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
 void audio_device_play_looped(AudioDevice& self, const Audio& audio) {
-    SDL_LockAudioDevice(self.id);
+	SDL_LockAudioDevice(self.id);
 	self.looped_playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
