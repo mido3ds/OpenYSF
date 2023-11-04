@@ -2279,18 +2279,18 @@ struct ImGuiWindowLogger : public mu::ILogger {
 };
 
 // paths of files of one single aircraft
-struct AircraftFiles {
+struct AircraftTemplate {
 	mu::Str short_name; // a4.dat -> a4
 	mu::Str dat, dnm, collision, cockpit;
 	mu::Str coarse; // optional
 };
 
-mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_path) {
-	mu::Map<mu::Str, AircraftFiles> aircrafts_map {};
+mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_lst_file(mu::StrView lst_file_path) {
+	mu::Map<mu::Str, AircraftTemplate> aircraft_templates {};
 	auto parser = parser_from_file(lst_file_path);
 
 	while (!parser_finished(parser)) {
-		AircraftFiles aircraft {};
+		AircraftTemplate aircraft {};
 
 		aircraft.dat = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
 		parser_expect(parser, ' ');
@@ -2314,10 +2314,10 @@ mu::Map<mu::Str, AircraftFiles> aircrafts_from_lst_file(mu::StrView lst_file_pat
 		auto j = aircraft.dat.size() - 4;
 		aircraft.short_name = aircraft.dat.substr(i, j-i);
 
-		aircrafts_map[aircraft.short_name] = aircraft;
+		aircraft_templates[aircraft.short_name] = aircraft;
 	}
 
-	return aircrafts_map;
+	return aircraft_templates;
 }
 
 struct Events {
@@ -2997,7 +2997,7 @@ struct World {
 	LoopTimer loop_timer;
 
 	// aircraft short name -> files
-	mu::Map<mu::Str, AircraftFiles> aircrafts_map;
+	mu::Map<mu::Str, AircraftTemplate> aircraft_templates;
 
 	AudioDevice audio_device;
 	Sounds sounds;
@@ -3300,8 +3300,8 @@ namespace sys {
 				const bool should_add_aircraft = ImGui::Button("Add");
 				static mu::Str aircraft_to_add;
 				ImGui::SameLine();
-				if (ImGui::BeginCombo("##new_aircraft", world.aircrafts_map[aircraft_to_add].short_name.c_str())) {
-					for (const auto& [name, aircraft] : world.aircrafts_map) {
+				if (ImGui::BeginCombo("##new_aircraft", world.aircraft_templates[aircraft_to_add].short_name.c_str())) {
+					for (const auto& [name, aircraft] : world.aircraft_templates) {
 						if (ImGui::Selectable(name.c_str(), name == aircraft_to_add)) {
 							aircraft_to_add = name;
 						}
@@ -3320,7 +3320,7 @@ namespace sys {
 					}
 
 					world.models.push_back(Model {
-						.file_abs_path = world.aircrafts_map[aircraft_to_add].dnm,
+						.file_abs_path = world.aircraft_templates[aircraft_to_add].dnm,
 						.should_load_file = true,
 					});
 
@@ -3333,8 +3333,8 @@ namespace sys {
 			for (int i = 0; i < world.models.size(); i++) {
 				Model& model = world.models[i];
 
-				AircraftFiles* aircraft = nullptr;
-				for (auto& [_k, a] : world.aircrafts_map) {
+				AircraftTemplate* aircraft = nullptr;
+				for (auto& [_k, a] : world.aircraft_templates) {
 					if (a.dnm == model.file_abs_path) {
 						aircraft = &a;
 						break;
@@ -3346,7 +3346,7 @@ namespace sys {
 					world.models[i].should_load_file = ImGui::Button("Reload");
 					ImGui::SameLine();
 					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(world.models[i].file_abs_path), mu::memory::tmp()).c_str())) {
-						for (const auto& [name, aircraft] : world.aircrafts_map) {
+						for (const auto& [name, aircraft] : world.aircraft_templates) {
 							if (ImGui::Selectable(name.c_str(), aircraft.dnm == world.models[i].file_abs_path)) {
 								world.models[i].file_abs_path = aircraft.dnm;
 								world.models[i].should_load_file = true;
@@ -3887,11 +3887,11 @@ namespace sys {
 	}
 
 	void models_init(World& world) {
-		auto model = model_from_dnm_file(world.aircrafts_map["ys11"].dnm);
+		auto model = model_from_dnm_file(world.aircraft_templates["ys11"].dnm);
 		model_load_to_gpu(model);
 		world.models.push_back(model);
 
-		auto dat = datmap_from_dat_file(world.aircrafts_map["ys11"].dat);
+		auto dat = datmap_from_dat_file(world.aircraft_templates["ys11"].dat);
 		// we don't use dat values yet
 	}
 
@@ -4607,7 +4607,7 @@ int main() {
 	defer(sounds_free(world.sounds));
 
 	// aircrafts list
-	world.aircrafts_map = aircrafts_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
+	world.aircraft_templates = aircraft_templates_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
 
 	// models
 	sys::models_init(world);
