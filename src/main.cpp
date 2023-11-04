@@ -783,27 +783,29 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		parser_expect(parser, "FIL ");
 		auto fil = parser_token_str(parser, mu::memory::tmp());
 		parser_expect(parser, '\n');
-		auto surf = meshes.find(fil);
-		if (surf == meshes.end()) {
+		auto it = meshes.find(fil);
+		if (it == meshes.end()) {
 			mu::panic("'{}': line referenced undeclared surf={}", name, fil);
 		}
-		surf->second.name = name;
+		auto& [_k, surf] = *it;
+
+		surf.name = name;
 
 		parser_expect(parser, "CLA ");
 		auto animation_type = parser_token_u8(parser);
-		surf->second.animation_type = (AnimationClass) animation_type;
-		if (surf->second.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER || surf->second.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
+		surf.animation_type = (AnimationClass) animation_type;
+		if (surf.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER || surf.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
 			model.has_propellers = true;
-		} else if (surf->second.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
+		} else if (surf.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
 			model.has_afterburner = true;
-		} else if (surf->second.animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE) {
+		} else if (surf.animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE) {
 			model.has_high_throttle_mesh = true;
 		}
 		parser_expect(parser, '\n');
 
 		parser_expect(parser, "NST ");
 		auto num_stas = parser_token_u64(parser);
-		surf->second.animation_states.reserve(num_stas);
+		surf.animation_states.reserve(num_stas);
 		parser_expect(parser, '\n');
 
 		for (size_t i = 0; i < num_stas; i++) {
@@ -833,7 +835,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 			}
 			parser_expect(parser, '\n');
 
-			surf->second.animation_states.push_back(sta);
+			surf.animation_states.push_back(sta);
 		}
 
 		bool read_pos = false, read_cnt = false, read_rel_dep = false, read_nch = false;
@@ -841,43 +843,43 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 			if (parser_accept(parser, "POS ")) {
 				read_pos = true;
 
-				surf->second.initial_state.translation.x = parser_token_float(parser);
+				surf.initial_state.translation.x = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->second.initial_state.translation.y = -parser_token_float(parser);
+				surf.initial_state.translation.y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->second.initial_state.translation.z = parser_token_float(parser);
+				surf.initial_state.translation.z = parser_token_float(parser);
 				parser_expect(parser, ' ');
 
 				// aircraft/cessna172r.dnm is the only one with float rotations (all 0)
-				surf->second.initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf.initial_state.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 				parser_expect(parser, ' ');
-				surf->second.initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf.initial_state.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 				parser_expect(parser, ' ');
-				surf->second.initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+				surf.initial_state.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
 
 				// aircraft/cessna172r.dnm is the only file with no visibility
 				if (parser_accept(parser, ' ')) {
 					uint8_t visible = parser_token_u8(parser);
 					if (visible == 1 || visible == 0) {
-						surf->second.initial_state.visible = (visible == 1);
+						surf.initial_state.visible = (visible == 1);
 					} else {
 						mu::log_error("'{}':{} invalid visible token, found {} expected either 1 or 0", name, parser.curr_line+1, visible);
 					}
 				} else {
-					surf->second.initial_state.visible = true;
+					surf.initial_state.visible = true;
 				}
 
 				parser_expect(parser, '\n');
 
-				surf->second.state = surf->second.initial_state;
+				surf.state = surf.initial_state;
 			} else if (parser_accept(parser, "CNT ")) {
 				read_cnt = true;
 
-				surf->second.cnt.x = parser_token_float(parser);
+				surf.cnt.x = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->second.cnt.y = -parser_token_float(parser);
+				surf.cnt.y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
-				surf->second.cnt.z = parser_token_float(parser);
+				surf.cnt.z = parser_token_float(parser);
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "PAX")) {
 				parser_skip_after(parser, '\n');
@@ -888,7 +890,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 
 				const auto num_children = parser_token_u64(parser);
 				parser_expect(parser, '\n');
-				surf->second.children.reserve(num_children);
+				surf.children.reserve(num_children);
 
 				for (size_t i = 0; i < num_children; i++) {
 					parser_expect(parser, "CLD ");
@@ -897,7 +899,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 						mu::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					_str_unquote(child_name);
-					surf->second.children.push_back(child_name);
+					surf.children.push_back(child_name);
 					parser_expect(parser, '\n');
 				}
 			} else {
@@ -920,7 +922,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		}
 
 		// reinsert with name instead of FIL
-		meshes[name] = surf->second;
+		meshes[name] = surf;
 		if (meshes.erase(fil) == 0) {
 			parser_panic(parser, "must be able to remove {} from meshes", name, fil);
 		}
@@ -955,6 +957,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 			model.root_meshes_names.push_back(name);
 		}
 	}
+	mu::log_debug("count={}", model.root_meshes_names.size());
 
 	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
 	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
