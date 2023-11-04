@@ -73,7 +73,6 @@
 - all rotations as quaternions
 - view normals (geometry shader)
 - strict integers tokenization
-- Mesh contains mu::Vec<Mesh> instead of names
 - dnm hot realod per model
 
 - optimization:

@@ -267,7 +267,7 @@ struct Mesh {
 	mu::Vec<uint64_t> gfs; // ???
 	mu::Vec<uint64_t> zls; // ids of faces to create a light sprite at the center of them
 	mu::Vec<uint64_t> zzs; // ???
-	mu::Vec<mu::Str> children;
+	mu::Vec<Mesh> children;
 	mu::Vec<MeshState> animation_states; // STA
 
 	// POS
@@ -347,6 +347,10 @@ void mesh_load_to_gpu(Mesh& self) {
 	glBindVertexArray(0);
 
 	gl_process_errors();
+
+	for (auto& child : self.children) {
+		mesh_load_to_gpu(child);
+	}
 }
 
 void mesh_unload_from_gpu(Mesh& self) {
@@ -354,6 +358,10 @@ void mesh_unload_from_gpu(Mesh& self) {
 	glBindVertexArray(0);
 	glDeleteVertexArrays(1, &self.gpu.vao);
 	self.gpu = {};
+
+	for (auto& child : self.children) {
+		mesh_unload_from_gpu(child);
+	}
 }
 
 struct StartInfo {
@@ -452,8 +460,7 @@ struct Model {
 	mu::Str file_abs_path;
 	bool should_load_file, should_be_removed;
 
-	mu::Map<mu::Str, Mesh> meshes;
-	mu::Vec<mu::Str> root_meshes_names;
+	mu::Vec<Mesh> meshes;
 
 	AABB initial_aabb;
 	AABB current_aabb;
@@ -483,13 +490,13 @@ struct Model {
 };
 
 void model_load_to_gpu(Model& self) {
-	for (auto& [_, mesh] : self.meshes) {
+	for (auto& mesh : self.meshes) {
 		mesh_load_to_gpu(mesh);
 	}
 }
 
 void model_unload_from_gpu(Model& self) {
-	for (auto& [_, mesh] : self.meshes) {
+	for (auto& mesh : self.meshes) {
 		mesh_unload_from_gpu(mesh);
 	}
 }
@@ -772,6 +779,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		meshes[name] = mesh;
 	}
 
+	mu::Map<mu::Str, mu::Vec<mu::Str>> mesh_name_to_children_names(mu::memory::tmp());
 	while (parser_accept(parser, "SRF ")) {
 		auto name = parser_token_str(parser);
 		if (!(name.starts_with("\"") && name.ends_with("\""))) {
@@ -839,6 +847,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		}
 
 		bool read_pos = false, read_cnt = false, read_rel_dep = false, read_nch = false;
+		mu::Vec<mu::Str> children_names(mu::memory::tmp());
 		while (true) {
 			if (parser_accept(parser, "POS ")) {
 				read_pos = true;
@@ -890,7 +899,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 
 				const auto num_children = parser_token_u64(parser);
 				parser_expect(parser, '\n');
-				surf.children.reserve(num_children);
+				children_names.reserve(num_children);
 
 				for (size_t i = 0; i < num_children; i++) {
 					parser_expect(parser, "CLD ");
@@ -899,13 +908,14 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 						mu::panic("'{}': child_name must be in \"\" found={}", name, child_name);
 					}
 					_str_unquote(child_name);
-					surf.children.push_back(child_name);
+					children_names.push_back(child_name);
 					parser_expect(parser, '\n');
 				}
 			} else {
 				break;
 			}
 		}
+		mesh_name_to_children_names[name] = children_names;
 
 		if (read_pos == false) {
 			parser_panic(parser, "failed to find POS");
@@ -922,7 +932,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		}
 
 		// reinsert with name instead of FIL
-		meshes[name] = surf;
+		meshes[name] = std::move(surf);
 		if (meshes.erase(fil) == 0) {
 			parser_panic(parser, "must be able to remove {} from meshes", name, fil);
 		}
@@ -934,34 +944,29 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		parser_expect(parser, "END\n");
 	}
 
-	// check children exist
-	for (const auto [_, srf] : meshes) {
-		for (const auto child : srf.children) {
-			if (meshes.at(child).name == srf.name) {
-				mu::log_warning("SURF {} references itself", child);
+	// add children to their parents
+	for (auto& [name, parent] : meshes) {
+		for (auto& child_name : mesh_name_to_children_names.at(name)) {
+			auto& child = meshes.at(child_name);
+
+			if (child.name == parent.name) {
+				mu::log_warning("SURF {} references itself", child_name);
+			} else {
+				parent.children.push_back(std::move(child));
 			}
+
+			meshes.erase(child_name);
 		}
 	}
-
-	model.meshes = meshes;
 
 	// top level nodes = nodes without parents
-	mu::Set<mu::StrView> surfs_with_parents(mu::memory::tmp());
-	for (const auto& [_, surf] : meshes) {
-		for (const auto& child : surf.children) {
-			surfs_with_parents.insert(child);
-		}
-	}
-	for (const auto& [name, mesh] : meshes) {
-		if (surfs_with_parents.find(name) == surfs_with_parents.end()) {
-			model.root_meshes_names.push_back(name);
-		}
+	for (auto& [_, mesh] : meshes) {
+		model.meshes.push_back(std::move(mesh));
 	}
 
 	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
 	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-	for (const auto& name : model.root_meshes_names) {
-		Mesh& mesh = model.meshes.at(name);
+	for (auto& mesh : model.meshes) {
 		mesh.transformation = glm::identity<glm::mat4>();
 		meshes_stack.push_back(&mesh);
 	}
@@ -990,10 +995,9 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 			}
 		}
 
-		for (const mu::Str& child_name : mesh->children) {
-			auto& child_mesh = model.meshes.at(child_name);
-			child_mesh.cnt += mesh->cnt;
-			meshes_stack.push_back(&child_mesh);
+		for (auto& child : mesh->children) {
+			child.cnt += mesh->cnt;
+			meshes_stack.push_back(&child);
 		}
 	}
 
@@ -3359,7 +3363,7 @@ namespace sys {
 					}
 					if (ImGui::Button("Reset All")) {
 						model.state = {};
-						for (auto& [_, mesh] : model.meshes) {
+						for (auto& mesh : model.meshes) {
 							mesh.state = mesh.initial_state;
 						}
 					}
@@ -3420,14 +3424,13 @@ namespace sys {
 					}
 
 					size_t light_sources_count = 0;
-					for (const auto& [_, mesh] : model.meshes) {
+					for (const auto& mesh : model.meshes) {
 						if (mesh.is_light_source) {
 							light_sources_count++;
 						}
 					}
 
-					ImGui::BulletText(mu::str_tmpf("Meshes: (total: {}, root: {}, light: {})", model.meshes.size(),
-						model.root_meshes_names.size(), light_sources_count).c_str());
+					ImGui::BulletText(mu::str_tmpf("Meshes: (root: {}, light: {})", model.meshes.size(), light_sources_count).c_str());
 
 					std::function<void(Mesh&)> render_mesh_ui;
 					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max=world.settings.current_angle_max](Mesh& mesh) {
@@ -3453,8 +3456,8 @@ namespace sys {
 
 							ImGui::BulletText(mu::str_tmpf("Children: ({})", mesh.children.size()).c_str());
 							ImGui::Indent();
-							for (const auto& child_name : mesh.children) {
-								render_mesh_ui(model.meshes.at(child_name.c_str()));
+							for (auto& child : mesh.children) {
+								render_mesh_ui(child);
 							}
 							ImGui::Unindent();
 
@@ -3484,8 +3487,8 @@ namespace sys {
 					};
 
 					ImGui::Indent();
-					for (const auto& name : model.root_meshes_names) {
-						render_mesh_ui(model.meshes.at(name));
+					for (auto& child : model.meshes) {
+						render_mesh_ui(child);
 					}
 					ImGui::Unindent();
 
@@ -4075,8 +4078,7 @@ namespace sys {
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-			for (const auto& name : model.root_meshes_names) {
-				auto& mesh = model.meshes.at(name);
+			for (auto& mesh : model.meshes) {
 				mesh.transformation = model_transformation;
 				meshes_stack.push_back(&mesh);
 			}
@@ -4116,10 +4118,9 @@ namespace sys {
 				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[0], glm::vec3{0, -1, 0});
 
 				// push children
-				for (const mu::Str& child_name : mesh->children) {
-					auto& child_mesh = model.meshes.at(child_name);
-					child_mesh.transformation = mesh->transformation;
-					meshes_stack.push_back(&child_mesh);
+				for (auto& child : mesh->children) {
+					child.transformation = mesh->transformation;
+					meshes_stack.push_back(&child);
 				}
 			}
 		}
@@ -4217,8 +4218,8 @@ namespace sys {
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-			for (const auto& name : model.root_meshes_names) {
-				meshes_stack.push_back(&model.meshes.at(name));
+			for (auto& mesh : model.meshes) {
+				meshes_stack.push_back(&mesh);
 			}
 
 			while (meshes_stack.empty() == false) {
@@ -4273,8 +4274,8 @@ namespace sys {
 				}
 
 				// push children
-				for (const mu::Str& child_name : mesh->children) {
-					meshes_stack.push_back(&model.meshes.at(child_name));
+				for (auto& child : mesh->children) {
+					meshes_stack.push_back(&child);
 				}
 			}
 		}
