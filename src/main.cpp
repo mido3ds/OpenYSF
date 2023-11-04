@@ -4087,17 +4087,6 @@ namespace sys {
 				Mesh* mesh = *meshes_stack.rbegin();
 				meshes_stack.pop_back();
 
-				if (mesh->state.visible == false) {
-					continue;
-				}
-
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->state.rotation.x += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
-				}
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->state.rotation.z += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
-				}
-
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_LANDING_GEAR && mesh->animation_states.size() > 1) {
 					// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
 					const MeshState& state_up   = mesh->animation_states[0];
@@ -4108,7 +4097,18 @@ namespace sys {
 					mesh->state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
 
 					float visibilty = (float) state_down.visible * (1-alpha) + (float) state_up.visible * alpha;
-					mesh->state.visible = visibilty > 0.05;;
+					mesh->state.visible = visibilty > 0.05;
+				}
+
+				if (mesh->state.visible == false) {
+					continue;
+				}
+
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
+					mesh->state.rotation.x += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
+				}
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
+					mesh->state.rotation.z += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 
 				// apply mesh transformation
