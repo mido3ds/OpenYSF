@@ -6,10 +6,9 @@
 	- total power
 	- velocity
 	- render names of each line
-- struct Model -> struct Aircraft
 - when switch tracking of aircraft, turn off the audio for current aircraft
-- hear nearby models' sounds
-- calculate camera distance based on model size
+- hear nearby aircrafts' sounds
+- calculate camera distance based on aircraft size
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r has a hidden beacon

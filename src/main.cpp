@@ -457,33 +457,12 @@ mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
 
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
-	mu::Str file_abs_path;
-	bool should_load_file, should_be_removed;
-
 	mu::Vec<Mesh> meshes;
 
 	AABB initial_aabb;
 	AABB current_aabb;
 	bool render_aabb;
 
-	struct {
-		glm::vec3 translation;
-		LocalEulerAngles angles;
-		bool visible = true;
-		float speed;
-
-		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
-		float throttle = 0;
-		float engine_speed;
-		bool afterburner_reheat_enabled = false;
-	} state;
-
-	struct {
-		bool visible = true;
-		double time_left_secs = ANTI_COLL_LIGHT_PERIOD;
-	} anti_coll_lights;
-
-	Audio* engine_sound;
 	bool has_propellers;
 	bool has_afterburner;
 	bool has_high_throttle_mesh;
@@ -499,14 +478,6 @@ void model_unload_from_gpu(Model& self) {
 	for (auto& mesh : self.meshes) {
 		mesh_unload_from_gpu(mesh);
 	}
-}
-
-void model_set_start(Model& self, StartInfo& start_info) {
-	self.state.translation = start_info.position;
-	self.state.angles = local_euler_angles_from_attitude(start_info.attitude);
-	self.state.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
-	self.state.throttle = start_info.throttle;
-	self.state.speed = start_info.speed;
 }
 
 Mesh mesh_from_srf_str(Parser& parser, mu::StrView name, size_t dnm_version = 1) {
@@ -743,7 +714,6 @@ _str_unquote(mu::Str& s) {
 Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 	auto parser = parser_from_file(dnm_file_abs_path, mu::memory::tmp());
 	Model model {
-		.file_abs_path = mu::Str(dnm_file_abs_path),
 		.initial_aabb = AABB {
 			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
 			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
@@ -1156,6 +1126,90 @@ mu::Vec<ExternalCameraLocation> datmap_get_excameras(const DATMap& self,
 	return out;
 }
 
+// paths of files of one single aircraft
+struct AircraftTemplate {
+	mu::Str short_name; // a4.dat -> a4
+	mu::Str dat, dnm, collision, cockpit;
+	mu::Str coarse; // optional
+};
+
+mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_lst_file(mu::StrView lst_file_path) {
+	mu::Map<mu::Str, AircraftTemplate> aircraft_templates {};
+	auto parser = parser_from_file(lst_file_path);
+
+	while (!parser_finished(parser)) {
+		AircraftTemplate aircraft {};
+
+		aircraft.dat = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		parser_expect(parser, ' ');
+
+		aircraft.dnm = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		parser_expect(parser, ' ');
+
+		aircraft.collision = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		parser_expect(parser, ' ');
+
+		aircraft.cockpit = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+
+		if (parser_accept(parser, ' ')) {
+			aircraft.coarse = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
+		}
+		parser_expect(parser, '\n');
+
+		while (parser_accept(parser, '\n')) { }
+
+		auto i = aircraft.dat.find_last_of('/') + 1;
+		auto j = aircraft.dat.size() - 4;
+		aircraft.short_name = aircraft.dat.substr(i, j-i);
+
+		aircraft_templates[aircraft.short_name] = aircraft;
+	}
+
+	return aircraft_templates;
+}
+
+struct Aircraft {
+	AircraftTemplate aircraft_template;
+	Model model;
+	DATMap dat;
+	Audio* engine_sound;
+
+	struct {
+		glm::vec3 translation;
+		LocalEulerAngles angles;
+		bool visible = true;
+		float speed;
+
+		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
+		float throttle = 0;
+		float engine_speed;
+		bool afterburner_reheat_enabled = false;
+	} state;
+
+	struct {
+		bool visible = true;
+		double time_left_secs = ANTI_COLL_LIGHT_PERIOD;
+	} anti_coll_lights;
+
+	bool should_be_loaded;
+	bool should_be_removed;
+};
+
+void aircraft_set_start(Aircraft& self, StartInfo& start_info) {
+	self.state.translation = start_info.position;
+	self.state.angles = local_euler_angles_from_attitude(start_info.attitude);
+	self.state.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
+	self.state.throttle = start_info.throttle;
+	self.state.speed = start_info.speed;
+}
+
+Aircraft aircraft_new(AircraftTemplate aircraft_template) {
+	return Aircraft {
+		.aircraft_template = aircraft_template,
+		.should_be_loaded = true,
+	};
+}
+
 struct PerspectiveProjection {
 	float near         = 0.1f;
 	float far          = 100000;
@@ -1168,7 +1222,7 @@ glm::mat4 projection_calc_mat(PerspectiveProjection& self) {
 }
 
 struct Camera {
-	Model* model;
+	Aircraft* aircraft;
 	float distance_from_model = 50;
 
 	float movement_speed    = 1000.0f;
@@ -1189,8 +1243,8 @@ struct Camera {
 };
 
 glm::mat4 camera_calc_view(const Camera& self) {
-	if (self.model) {
-		return glm::lookAt(self.position, self.model->state.translation, self.model->state.angles.up);
+	if (self.aircraft) {
+		return glm::lookAt(self.position, self.aircraft->state.translation, self.aircraft->state.angles.up);
 	}
 
 	return glm::lookAt(self.position, self.position + self.front, self.up);
@@ -2278,48 +2332,6 @@ struct ImGuiWindowLogger : public mu::ILogger {
 	}
 };
 
-// paths of files of one single aircraft
-struct AircraftTemplate {
-	mu::Str short_name; // a4.dat -> a4
-	mu::Str dat, dnm, collision, cockpit;
-	mu::Str coarse; // optional
-};
-
-mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_lst_file(mu::StrView lst_file_path) {
-	mu::Map<mu::Str, AircraftTemplate> aircraft_templates {};
-	auto parser = parser_from_file(lst_file_path);
-
-	while (!parser_finished(parser)) {
-		AircraftTemplate aircraft {};
-
-		aircraft.dat = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-		parser_expect(parser, ' ');
-
-		aircraft.dnm = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-		parser_expect(parser, ' ');
-
-		aircraft.collision = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-		parser_expect(parser, ' ');
-
-		aircraft.cockpit = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-
-		if (parser_accept(parser, ' ')) {
-			aircraft.coarse = mu::str_format(ASSETS_DIR "/{}", parser_token_str(parser, mu::memory::tmp()));
-		}
-		parser_expect(parser, '\n');
-
-		while (parser_accept(parser, '\n')) { }
-
-		auto i = aircraft.dat.find_last_of('/') + 1;
-		auto j = aircraft.dat.size() - 4;
-		aircraft.short_name = aircraft.dat.substr(i, j-i);
-
-		aircraft_templates[aircraft.short_name] = aircraft;
-	}
-
-	return aircraft_templates;
-}
-
 struct Events {
 	bool quit;
 	bool wnd_size_changed;
@@ -3002,7 +3014,7 @@ struct World {
 	AudioDevice audio_device;
 	Sounds sounds;
 
-	mu::Vec<Model> models;
+	mu::Vec<Aircraft> aircrafts;
 	Field field;
 	mu::Vec<StartInfo> start_infos;
 
@@ -3136,30 +3148,30 @@ namespace sys {
 
 			if (ImGui::TreeNode("Camera")) {
 				if (ImGui::Button("Reset")) {
-					world.camera = { .model=world.camera.model };
+					world.camera = { .aircraft=world.camera.aircraft };
 				}
 
 				int tracked_model_index = -1;
-				for (int i = 0; i < world.models.size(); i++) {
-					if (world.camera.model == &world.models[i]) {
+				for (int i = 0; i < world.aircrafts.size(); i++) {
+					if (world.camera.aircraft == &world.aircrafts[i]) {
 						tracked_model_index = i;
 						break;
 					}
 				}
-				if (ImGui::BeginCombo("Tracked Model", world.camera.model ? mu::str_tmpf("Model[{}]", tracked_model_index).c_str() : "-NULL-")) {
-					if (ImGui::Selectable("-NULL-", world.camera.model == nullptr)) {
-						world.camera.model = nullptr;
+				if (ImGui::BeginCombo("Tracked Model", world.camera.aircraft ? mu::str_tmpf("Model[{}]", tracked_model_index).c_str() : "-NULL-")) {
+					if (ImGui::Selectable("-NULL-", world.camera.aircraft == nullptr)) {
+						world.camera.aircraft = nullptr;
 					}
-					for (size_t j = 0; j < world.models.size(); j++) {
+					for (size_t j = 0; j < world.aircrafts.size(); j++) {
 						if (ImGui::Selectable(mu::str_tmpf("Model[{}]", j).c_str(), j == tracked_model_index)) {
-							world.camera.model = &world.models[j];
+							world.camera.aircraft = &world.aircrafts[j];
 						}
 					}
 
 					ImGui::EndCombo();
 				}
 
-				if (world.camera.model) {
+				if (world.camera.aircraft) {
 					ImGui::DragFloat("distance", &world.camera.distance_from_model, 1, 0);
 
 					ImGui::Checkbox("Rotate Around", &world.camera.enable_rotating_around);
@@ -3294,7 +3306,7 @@ namespace sys {
 			}
 
 			ImGui::Separator();
-			ImGui::Text(mu::str_tmpf("Aircrafts {}:", world.models.size()).c_str());
+			ImGui::Text(mu::str_tmpf("Aircrafts {}:", world.aircrafts.size()).c_str());
 
 			{
 				const bool should_add_aircraft = ImGui::Button("Add");
@@ -3312,58 +3324,58 @@ namespace sys {
 
 				if (should_add_aircraft) {
 					int tracked_model_index = -1;
-					for (int i = 0; i < world.models.size(); i++) {
-						if (world.camera.model == &world.models[i]) {
+					for (int i = 0; i < world.aircrafts.size(); i++) {
+						if (world.camera.aircraft == &world.aircrafts[i]) {
 							tracked_model_index = i;
 							break;
 						}
 					}
 
-					world.models.push_back(Model {
-						.file_abs_path = world.aircraft_templates[aircraft_to_add].dnm,
-						.should_load_file = true,
+					world.aircrafts.push_back(Aircraft {
+						.aircraft_template = world.aircraft_templates[aircraft_to_add],
+						.should_be_loaded = true,
 					});
 
 					if (tracked_model_index != -1) {
-						world.camera.model = &world.models[tracked_model_index];
+						world.camera.aircraft = &world.aircrafts[tracked_model_index];
 					}
 				}
 			}
 
-			for (int i = 0; i < world.models.size(); i++) {
-				Model& model = world.models[i];
+			for (int i = 0; i < world.aircrafts.size(); i++) {
+				Aircraft& aircraft = world.aircrafts[i];
 
-				AircraftTemplate* aircraft = nullptr;
+				AircraftTemplate* aircraft_template = nullptr;
 				for (auto& [_k, a] : world.aircraft_templates) {
-					if (a.dnm == model.file_abs_path) {
-						aircraft = &a;
+					if (a.short_name == aircraft.aircraft_template.short_name) {
+						aircraft_template = &a;
 						break;
 					}
 				}
-				mu_assert(aircraft);
+				mu_assert(aircraft_template);
 
-				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, aircraft->short_name).c_str())) {
-					world.models[i].should_load_file = ImGui::Button("Reload");
+				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, aircraft_template->short_name).c_str())) {
+					world.aircrafts[i].should_be_loaded = ImGui::Button("Reload");
 					ImGui::SameLine();
-					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(world.models[i].file_abs_path), mu::memory::tmp()).c_str())) {
-						for (const auto& [name, aircraft] : world.aircraft_templates) {
-							if (ImGui::Selectable(name.c_str(), aircraft.dnm == world.models[i].file_abs_path)) {
-								world.models[i].file_abs_path = aircraft.dnm;
-								world.models[i].should_load_file = true;
+					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(world.aircrafts[i].aircraft_template.dnm), mu::memory::tmp()).c_str())) {
+						for (const auto& [name, aircraft_template] : world.aircraft_templates) {
+							if (ImGui::Selectable(name.c_str(), aircraft_template.short_name == world.aircrafts[i].aircraft_template.short_name)) {
+								world.aircrafts[i].aircraft_template = aircraft_template;
+								world.aircrafts[i].should_be_loaded = true;
 							}
 						}
 
 						ImGui::EndCombo();
 					}
 
-					world.models[i].should_be_removed = ImGui::Button("Remove");
+					world.aircrafts[i].should_be_removed = ImGui::Button("Remove");
 
 					if (ImGui::Button("Reset State")) {
-						model.state = {};
+						aircraft.state = {};
 					}
 					if (ImGui::Button("Reset All")) {
-						model.state = {};
-						for (auto& mesh : model.meshes) {
+						aircraft.state = {};
+						for (auto& mesh : aircraft.model.meshes) {
 							mesh.state = mesh.initial_state;
 						}
 					}
@@ -3373,67 +3385,67 @@ namespace sys {
 						for (size_t j = 0; j < world.start_infos.size(); j++) {
 							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								model_set_start(world.models[i], world.start_infos[start_info_index]);
+								aircraft_set_start(world.aircrafts[i], world.start_infos[start_info_index]);
 							}
 						}
 
 						ImGui::EndCombo();
 					}
 
-					ImGui::Checkbox("visible", &model.state.visible);
-					ImGui::DragFloat3("translation", glm::value_ptr(model.state.translation));
+					ImGui::Checkbox("visible", &aircraft.state.visible);
+					ImGui::DragFloat3("translation", glm::value_ptr(aircraft.state.translation));
 
 					glm::vec3 now_rotation {
-						model.state.angles.roll,
-						model.state.angles.pitch,
-						model.state.angles.yaw,
+						aircraft.state.angles.roll,
+						aircraft.state.angles.pitch,
+						aircraft.state.angles.yaw,
 					};
 					if (MyImGui::SliderAngle3("rotation", &now_rotation, world.settings.current_angle_max)) {
 						local_euler_angles_rotate(
-							model.state.angles,
-							now_rotation.z - model.state.angles.yaw,
-							now_rotation.y - model.state.angles.pitch,
-							now_rotation.x - model.state.angles.roll
+							aircraft.state.angles,
+							now_rotation.z - aircraft.state.angles.yaw,
+							now_rotation.y - aircraft.state.angles.pitch,
+							now_rotation.x - aircraft.state.angles.roll
 						);
 					}
 
 					ImGui::BeginDisabled();
-					auto x = glm::cross(model.state.angles.up, model.state.angles.front);
+					auto x = glm::cross(aircraft.state.angles.up, aircraft.state.angles.front);
 					ImGui::DragFloat3("right", glm::value_ptr(x));
-					ImGui::DragFloat3("up", glm::value_ptr(model.state.angles.up));
-					ImGui::DragFloat3("front", glm::value_ptr(model.state.angles.front));
+					ImGui::DragFloat3("up", glm::value_ptr(aircraft.state.angles.up));
+					ImGui::DragFloat3("front", glm::value_ptr(aircraft.state.angles.front));
 					ImGui::EndDisabled();
 
-					ImGui::DragFloat("Speed", &model.state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
+					ImGui::DragFloat("Speed", &aircraft.state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
 
-					ImGui::Checkbox("Render AABB", &model.render_aabb);
-					ImGui::DragFloat3("AABB.min", glm::value_ptr(model.current_aabb.min));
-					ImGui::DragFloat3("AABB.max", glm::value_ptr(model.current_aabb.max));
+					ImGui::Checkbox("Render AABB", &aircraft.model.render_aabb);
+					ImGui::DragFloat3("AABB.min", glm::value_ptr(aircraft.model.current_aabb.min));
+					ImGui::DragFloat3("AABB.max", glm::value_ptr(aircraft.model.current_aabb.max));
 
 					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
-						ImGui::DragFloat("Landing Gear", &model.state.landing_gear_alpha, 0.01, 0, 1);
-						ImGui::SliderFloat("Throttle", &model.state.throttle, 0.0f, 1.0f);
+						ImGui::DragFloat("Landing Gear", &aircraft.state.landing_gear_alpha, 0.01, 0, 1);
+						ImGui::SliderFloat("Throttle", &aircraft.state.throttle, 0.0f, 1.0f);
 
 						ImGui::BeginDisabled();
-						ImGui::SliderFloat("Engine Speed %%", &model.state.engine_speed, 0.0f, 1.0f);
+						ImGui::SliderFloat("Engine Speed %%", &aircraft.state.engine_speed, 0.0f, 1.0f);
 						ImGui::EndDisabled();
 
-						ImGui::Checkbox("Afterburner Reheat", &model.state.afterburner_reheat_enabled);
+						ImGui::Checkbox("Afterburner Reheat", &aircraft.state.afterburner_reheat_enabled);
 
 						ImGui::TreePop();
 					}
 
 					size_t light_sources_count = 0;
-					for (const auto& mesh : model.meshes) {
+					for (const auto& mesh : aircraft.model.meshes) {
 						if (mesh.is_light_source) {
 							light_sources_count++;
 						}
 					}
 
-					ImGui::BulletText(mu::str_tmpf("Meshes: (root: {}, light: {})", model.meshes.size(), light_sources_count).c_str());
+					ImGui::BulletText(mu::str_tmpf("Meshes: (root: {}, light: {})", aircraft.model.meshes.size(), light_sources_count).c_str());
 
 					std::function<void(Mesh&)> render_mesh_ui;
-					render_mesh_ui = [&model, &render_mesh_ui, current_angle_max=world.settings.current_angle_max](Mesh& mesh) {
+					render_mesh_ui = [&aircraft, &render_mesh_ui, current_angle_max=world.settings.current_angle_max](Mesh& mesh) {
 						if (ImGui::TreeNode(mu::str_tmpf("{}", mesh.name).c_str())) {
 							if (ImGui::Button("Reset")) {
 								mesh.state = mesh.initial_state;
@@ -3471,8 +3483,8 @@ namespace sys {
 										changed = changed || ImGui::DragFloat3("normal", glm::value_ptr(mesh.faces[i].normal), 0.1, -1, 1);
 										changed = changed || ImGui::ColorEdit4("color", glm::value_ptr(mesh.faces[i].color));
 										if (changed) {
-											model_unload_from_gpu(model);
-											model_load_to_gpu(model);
+											model_unload_from_gpu(aircraft.model);
+											model_load_to_gpu(aircraft.model);
 										}
 
 										ImGui::TreePop();
@@ -3487,7 +3499,7 @@ namespace sys {
 					};
 
 					ImGui::Indent();
-					for (auto& child : model.meshes) {
+					for (auto& child : aircraft.model.meshes) {
 						render_mesh_ui(child);
 					}
 					ImGui::Unindent();
@@ -3737,7 +3749,7 @@ namespace sys {
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
 		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
 
-		auto model_transformation = local_euler_angles_matrix(self.model->state.angles, self.model->state.translation);
+		auto model_transformation = local_euler_angles_matrix(self.aircraft->state.angles, self.aircraft->state.translation);
 
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
@@ -3787,7 +3799,7 @@ namespace sys {
 	}
 
 	void camera_update(World& world) {
-		if (world.camera.model) {
+		if (world.camera.aircraft) {
 			_camera_update_model_tracking_mode(world);
 		} else {
 			_camera_update_flying_mode(world);
@@ -3886,30 +3898,26 @@ namespace sys {
 		}
 	}
 
-	void models_init(World& world) {
-		auto model = model_from_dnm_file(world.aircraft_templates["ys11"].dnm);
-		model_load_to_gpu(model);
-		world.models.push_back(model);
-
-		auto dat = datmap_from_dat_file(world.aircraft_templates["ys11"].dat);
-		// we don't use dat values yet
+	void aircrafts_init(World& world) {
+		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
+		world.aircrafts.push_back(ys11);
 	}
 
 	void models_free(World& world) {
-		for (auto& model : world.models) {
-			if (model.engine_sound) {
-				audio_device_stop(world.audio_device, *model.engine_sound);
+		for (auto& aircraft : world.aircrafts) {
+			if (aircraft.engine_sound) {
+				audio_device_stop(world.audio_device, *aircraft.engine_sound);
 			}
-			model_unload_from_gpu(model);
+			model_unload_from_gpu(aircraft.model);
 		}
 	}
 
-	// allow user control over camera tracked model
-	void _tracked_model_control(World& world) {
-		if (world.camera.model == nullptr) {
+	// allow user control over camera tracked aircraft
+	void _tracked_aircraft_control(World& world) {
+		if (world.camera.aircraft == nullptr) {
 			return;
 		}
-		auto& self = *world.camera.model;
+		auto& self = *world.camera.aircraft;
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3951,9 +3959,9 @@ namespace sys {
 		int audio_index = self.state.engine_speed * (world.sounds.props.size()-1);
 
 		Audio* audio;
-		if (self.has_propellers) {
+		if (self.model.has_propellers) {
 			audio = &world.sounds.props[audio_index];
-		} else if (self.state.afterburner_reheat_enabled && self.has_afterburner) {
+		} else if (self.state.afterburner_reheat_enabled && self.model.has_afterburner) {
 			audio = &world.sounds.burner;
 		} else {
 			audio = &world.sounds.engines[audio_index];
@@ -3968,43 +3976,38 @@ namespace sys {
 		}
 	}
 
-	void _models_load_from_files(World& world) {
-		for (int i = 0; i < world.models.size(); i++) {
-			if (world.models[i].should_load_file) {
-				auto model = model_from_dnm_file(world.models[i].file_abs_path);
-				model_load_to_gpu(model);
+	void _aircrafts_load_from_files(World& world) {
+		for (int i = 0; i < world.aircrafts.size(); i++) {
+			if (world.aircrafts[i].should_be_loaded) {
+				model_unload_from_gpu(world.aircrafts[i].model);
+				world.aircrafts[i].model = model_from_dnm_file(world.aircrafts[i].aircraft_template.dnm);
+				model_load_to_gpu(world.aircrafts[i].model);
 
-				if (world.models[i].engine_sound) {
-					audio_device_stop(world.audio_device, *world.models[i].engine_sound);
-				}
-				model_unload_from_gpu(world.models[i]);
+				world.aircrafts[i].dat = datmap_from_dat_file(world.aircrafts[i].aircraft_template.dat);
 
-				model.state = world.models[i].state;
-				world.models[i] = model;
-
-				mu::log_debug("loaded '{}'", world.models[i].file_abs_path);
-				world.models[i].should_load_file = false;
+				mu::log_debug("loaded '{}'", world.aircrafts[i].aircraft_template.dnm);
+				world.aircrafts[i].should_be_loaded = false;
 			}
 		}
 	}
 
-	void _models_autoremove(World& world) {
-		for (int i = 0; i < world.models.size(); i++) {
-			if (world.models[i].should_be_removed) {
+	void _aircrafts_autoremove(World& world) {
+		for (int i = 0; i < world.aircrafts.size(); i++) {
+			if (world.aircrafts[i].should_be_removed) {
 				int tracked_model_index = -1;
-				for (int i = 0; i < world.models.size(); i++) {
-					if (world.camera.model == &world.models[i]) {
+				for (int i = 0; i < world.aircrafts.size(); i++) {
+					if (world.camera.aircraft == &world.aircrafts[i]) {
 						tracked_model_index = i;
 						break;
 					}
 				}
 
-				world.models.erase(world.models.begin()+i);
+				world.aircrafts.erase(world.aircrafts.begin()+i);
 
 				if (tracked_model_index > 0 && tracked_model_index >= i) {
-					world.camera.model = &world.models[tracked_model_index-1];
+					world.camera.aircraft = &world.aircrafts[tracked_model_index-1];
 				} else if (tracked_model_index == 0 && i == 0) {
-					world.camera.model = world.models.empty()? nullptr : &world.models[0];
+					world.camera.aircraft = world.aircrafts.empty()? nullptr : &world.aircrafts[0];
 				}
 
 				i--;
@@ -4012,48 +4015,48 @@ namespace sys {
 		}
 	}
 
-	void _models_apply_physics(World& world) {
-		for (int i = 0; i < world.models.size(); i++) {
-			Model& model = world.models[i];
+	void _aircrafts_apply_physics(World& world) {
+		for (int i = 0; i < world.aircrafts.size(); i++) {
+			Aircraft& aircraft = world.aircrafts[i];
 
-			if (!model.state.visible) {
+			if (!aircraft.state.visible) {
 				continue;
 			}
 
-			model.anti_coll_lights.time_left_secs -= world.loop_timer.delta_time;
-			if (model.anti_coll_lights.time_left_secs < 0) {
-				model.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
-				model.anti_coll_lights.visible = ! model.anti_coll_lights.visible;
+			aircraft.anti_coll_lights.time_left_secs -= world.loop_timer.delta_time;
+			if (aircraft.anti_coll_lights.time_left_secs < 0) {
+				aircraft.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
+				aircraft.anti_coll_lights.visible = ! aircraft.anti_coll_lights.visible;
 			}
 
 			// apply model transformation
-			const auto model_transformation = local_euler_angles_matrix(model.state.angles, model.state.translation);
+			const auto model_transformation = local_euler_angles_matrix(aircraft.state.angles, aircraft.state.translation);
 
-			model.state.throttle = clamp(model.state.throttle, 0.0f, 1.0f);
-			if (model.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-				model.state.afterburner_reheat_enabled = false;
+			aircraft.state.throttle = clamp(aircraft.state.throttle, 0.0f, 1.0f);
+			if (aircraft.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+				aircraft.state.afterburner_reheat_enabled = false;
 			}
 
-			if (model.state.engine_speed < model.state.throttle) {
-				model.state.engine_speed += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				model.state.engine_speed = clamp(model.state.engine_speed, 0.0f, model.state.throttle);
-			} else if (model.state.engine_speed > model.state.throttle) {
-				model.state.engine_speed -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				model.state.engine_speed = clamp(model.state.engine_speed, model.state.throttle, 1.0f);
+			if (aircraft.state.engine_speed < aircraft.state.throttle) {
+				aircraft.state.engine_speed += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				aircraft.state.engine_speed = clamp(aircraft.state.engine_speed, 0.0f, aircraft.state.throttle);
+			} else if (aircraft.state.engine_speed > aircraft.state.throttle) {
+				aircraft.state.engine_speed -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				aircraft.state.engine_speed = clamp(aircraft.state.engine_speed, aircraft.state.throttle, 1.0f);
 			}
-			model.state.speed = model.state.engine_speed * MAX_SPEED + MIN_SPEED;
+			aircraft.state.speed = aircraft.state.engine_speed * MAX_SPEED + MIN_SPEED;
 
-			model.state.translation += ((float)world.loop_timer.delta_time * model.state.speed) * model.state.angles.front;
+			aircraft.state.translation += ((float)world.loop_timer.delta_time * aircraft.state.speed) * aircraft.state.angles.front;
 
 			// transform AABB (estimate new AABB after rotation)
 			{
 				// translate AABB
-				model.current_aabb.min = model.current_aabb.max = model.state.translation;
+				aircraft.model.current_aabb.min = aircraft.model.current_aabb.max = aircraft.state.translation;
 
 				// new rotated AABB (no translation)
 				const auto model_rotation = glm::mat3(model_transformation);
-				const auto rotated_min = model_rotation * model.initial_aabb.min;
-				const auto rotated_max = model_rotation * model.initial_aabb.max;
+				const auto rotated_min = model_rotation * aircraft.model.initial_aabb.min;
+				const auto rotated_max = model_rotation * aircraft.model.initial_aabb.max;
 				const AABB rotated_aabb {
 					.min = glm::min(rotated_min, rotated_max),
 					.max = glm::max(rotated_min, rotated_max),
@@ -4066,11 +4069,11 @@ namespace sys {
 						const float e = model_rotation[j][i] * rotated_aabb.min[j];
 						const float f = model_rotation[j][i] * rotated_aabb.max[j];
 						if (e < f) {
-							model.current_aabb.min[i] += e;
-							model.current_aabb.max[i] += f;
+							aircraft.model.current_aabb.min[i] += e;
+							aircraft.model.current_aabb.max[i] += f;
 						} else {
-							model.current_aabb.min[i] += f;
-							model.current_aabb.max[i] += e;
+							aircraft.model.current_aabb.min[i] += f;
+							aircraft.model.current_aabb.max[i] += e;
 						}
 					}
 				}
@@ -4078,7 +4081,7 @@ namespace sys {
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-			for (auto& mesh : model.meshes) {
+			for (auto& mesh : aircraft.model.meshes) {
 				mesh.transformation = model_transformation;
 				meshes_stack.push_back(&mesh);
 			}
@@ -4091,7 +4094,7 @@ namespace sys {
 					// ignore 3rd STA, it should always be 0 (TODO are they always 0??)
 					const MeshState& state_up   = mesh->animation_states[0];
 					const MeshState& state_down = mesh->animation_states[1];
-					const auto& alpha = model.state.landing_gear_alpha;
+					const auto& alpha = aircraft.state.landing_gear_alpha;
 
 					mesh->state.translation = mesh->initial_state.translation + state_down.translation * (1-alpha) +  state_up.translation * alpha;
 					mesh->state.rotation = glm::eulerAngles(glm::slerp(glm::quat(mesh->initial_state.rotation), glm::quat(state_up.rotation), alpha));// ???
@@ -4105,10 +4108,10 @@ namespace sys {
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->state.rotation.x += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
+					mesh->state.rotation.x += aircraft.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->state.rotation.z += model.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
+					mesh->state.rotation.z += aircraft.state.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 
 				// apply mesh transformation
@@ -4126,33 +4129,33 @@ namespace sys {
 		}
 	}
 
-	void _models_handle_collision(World& world) {
-		// between models
-		for (int i = 0; i < world.models.size()-1; i++) {
-			if (world.models[i].state.visible == false) {
+	void _aircrafts_handle_collision(World& world) {
+		// between aircrafts
+		for (int i = 0; i < world.aircrafts.size()-1; i++) {
+			if (world.aircrafts[i].state.visible == false) {
 				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 				continue;
 			}
 
 			glm::vec3 i_color {0, 0, 1};
 
-			for (int j = i+1; j < world.models.size(); j++) {
-				if (world.models[j].state.visible == false) {
+			for (int j = i+1; j < world.aircrafts.size(); j++) {
+				if (world.aircrafts[j].state.visible == false) {
 					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
 					continue;
 				}
 
 				glm::vec3 j_color {0, 0, 1};
 
-				if (aabbs_intersect(world.models[i].current_aabb, world.models[j].current_aabb)) {
+				if (aabbs_intersect(world.aircrafts[i].model.current_aabb, world.aircrafts[j].model.current_aabb)) {
 					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
 					j_color = i_color = {1, 0, 0};
 				} else {
 					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
 				}
 
-				if (world.models[j].render_aabb) {
-					auto aabb = world.models[j].current_aabb;
+				if (world.aircrafts[j].model.render_aabb) {
+					auto aabb = world.aircrafts[j].model.current_aabb;
 					world.canvas.boxes_list.push_back(Box {
 						.translation = aabb.min,
 						.scale = aabb.max - aabb.min,
@@ -4161,8 +4164,8 @@ namespace sys {
 				}
 			}
 
-			if (world.models[i].render_aabb) {
-				auto aabb = world.models[i].current_aabb;
+			if (world.aircrafts[i].model.render_aabb) {
+				auto aabb = world.aircrafts[i].model.current_aabb;
 				world.canvas.boxes_list.push_back(Box {
 					.translation = aabb.min,
 					.scale = aabb.max - aabb.min,
@@ -4172,8 +4175,8 @@ namespace sys {
 		}
 
 		// if one single model, just add its aabb for debugging
-		if (world.models.size() == 1 && world.models[0].render_aabb) {
-			auto aabb = world.models[0].current_aabb;
+		if (world.aircrafts.size() == 1 && world.aircrafts[0].model.render_aabb) {
+			auto aabb = world.aircrafts[0].model.current_aabb;
 			world.canvas.boxes_list.push_back(Box {
 				.translation = aabb.min,
 				.scale = aabb.max - aabb.min,
@@ -4181,44 +4184,44 @@ namespace sys {
 			});
 		}
 
-		// models and ground
-		for (auto& model : world.models) {
-			float model_y = model.current_aabb.max.y;
+		// aircrafts and ground
+		for (auto& aircraft : world.aircrafts) {
+			float model_y = aircraft.model.current_aabb.max.y;
 			if (model_y > 0) {
-				model.state.translation.y -= model_y;
+				aircraft.state.translation.y -= model_y;
 			}
 		}
 	}
 
-	void models_update(World& world) {
-		if (world.models.empty()) {
+	void aircrafts_update(World& world) {
+		if (world.aircrafts.empty()) {
 			return;
 		}
 
-		_models_load_from_files(world);
-		_models_autoremove(world);
+		_aircrafts_load_from_files(world);
+		_aircrafts_autoremove(world);
 
-		_tracked_model_control(world);
+		_tracked_aircraft_control(world);
 
-		_models_apply_physics(world);
-		_models_handle_collision(world);
+		_aircrafts_apply_physics(world);
+		_aircrafts_handle_collision(world);
 	}
 
-	void models_render(World& world) {
+	void aircrafts_render(World& world) {
 		gl_program_use(world.canvas.meshes_program);
 
-		for (int i = 0; i < world.models.size(); i++) {
-			Model& model = world.models[i];
+		for (int i = 0; i < world.aircrafts.size(); i++) {
+			Aircraft& aircraft = world.aircrafts[i];
 
-			if (!model.state.visible) {
+			if (!aircraft.state.visible) {
 				continue;
 			}
 
-			const auto model_transformation = local_euler_angles_matrix(model.state.angles, model.state.translation);
+			const auto model_transformation = local_euler_angles_matrix(aircraft.state.angles, aircraft.state.translation);
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-			for (auto& mesh : model.meshes) {
+			for (auto& mesh : aircraft.model.meshes) {
 				meshes_stack.push_back(&mesh);
 			}
 
@@ -4226,20 +4229,20 @@ namespace sys {
 				Mesh* mesh = *meshes_stack.rbegin();
 				meshes_stack.pop_back();
 
-				const bool enable_high_throttle = almost_equal(model.state.throttle, 1.0f);
+				const bool enable_high_throttle = almost_equal(aircraft.state.throttle, 1.0f);
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
 					continue;
 				}
-				if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && model.has_high_throttle_mesh) {
+				if (mesh->animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && aircraft.model.has_high_throttle_mesh) {
 					continue;
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-					if (model.state.afterburner_reheat_enabled == false) {
+					if (aircraft.state.afterburner_reheat_enabled == false) {
 						continue;
 					}
 
-					if (model.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+					if (aircraft.state.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 						continue;
 					}
 				}
@@ -4263,7 +4266,7 @@ namespace sys {
 				glDrawArrays(mesh->is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh->gpu.array_count);
 
 				// ZL
-				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || model.anti_coll_lights.visible) {
+				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || aircraft.anti_coll_lights.visible) {
 					for (size_t zlid : mesh->zls) {
 						Face& face = mesh->faces[zlid];
 						world.canvas.zlpoints_list.push_back(ZLPoint {
@@ -4610,7 +4613,7 @@ int main() {
 	world.aircraft_templates = aircraft_templates_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
 
 	// models
-	sys::models_init(world);
+	sys::aircrafts_init(world);
 	defer(sys::models_free(world));
 
 	// field
@@ -4623,14 +4626,13 @@ int main() {
 	world.start_infos.insert(world.start_infos.begin(), StartInfo {
 		.name="-NULL-"
 	});
-	for (int i = 0; i < world.models.size(); i++) {
-		model_set_start(world.models[i], world.start_infos[mod(i+1, world.start_infos.size())]);
+	for (int i = 0; i < world.aircrafts.size(); i++) {
+		aircraft_set_start(world.aircrafts[i], world.start_infos[mod(i+1, world.start_infos.size())]);
 	}
 
 	// camera
 	world.camera = Camera {
-		.model = &world.models[0],
-		.position = world.start_infos[1].position
+		.aircraft = &world.aircrafts[0]
 	};
 
 	world.loop_timer = loop_timer_new(time_now_millis());
@@ -4661,11 +4663,11 @@ int main() {
 		sys::cached_matrices_recalc(world);
 
 		sys::fields_update(world);
-		sys::models_update(world);
+		sys::aircrafts_update(world);
 
 		// render objects
 		sys::fields_render(world);
-		sys::models_render(world);
+		sys::aircrafts_render(world);
 		sys::zlpoints_render(world);
 		sys::axis_render(world);
 		sys::boxes_render(world);
