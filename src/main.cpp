@@ -260,14 +260,14 @@ struct Mesh {
 	// Flaps and ailerons and the like are also easily made (in the wing) and they move much better.
 	glm::vec3 cnt;
 
-	mu::Str name; // name in SRF not FIL
+	mu::Str name; // name in SRF (not FIL)
 	mu::Vec<glm::vec3> vertices;
 	mu::Vec<bool> vertices_has_smooth_shading; // ???
 	mu::Vec<Face> faces;
 	mu::Vec<uint64_t> gfs; // ???
 	mu::Vec<uint64_t> zls; // ids of faces to create a light sprite at the center of them
 	mu::Vec<uint64_t> zzs; // ???
-	mu::Vec<mu::Str> children; // refers to FIL name not SRF (don't compare against Mesh::name)
+	mu::Vec<mu::Str> children;
 	mu::Vec<MeshState> animation_states; // STA
 
 	// POS
@@ -957,7 +957,6 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 			model.root_meshes_names.push_back(name);
 		}
 	}
-	mu::log_debug("count={}", model.root_meshes_names.size());
 
 	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
 	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
