@@ -3083,7 +3083,7 @@ namespace sys {
 
 			{
 				const bool should_add_aircraft = ImGui::Button("Add");
-				static mu::Str aircraft_to_add;
+				static mu::Str aircraft_to_add = world.aircraft_templates.begin()->first;
 				ImGui::SameLine();
 				if (ImGui::BeginCombo("##new_aircraft", world.aircraft_templates[aircraft_to_add].short_name.c_str())) {
 					for (const auto& [name, aircraft] : world.aircraft_templates) {
