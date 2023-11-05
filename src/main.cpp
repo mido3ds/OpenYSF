@@ -2339,9 +2339,78 @@ Scenery scenery_new(SceneryTemplate& scenery_template) {
 	};
 }
 
-struct ZLPoint {
-	glm::vec3 center, color;
+// paths of files of one single scenery
+struct GroundObjTemplate {
+	mu::Str short_name; // ground/castle.dat -> castle
+	mu::Str dat, main_srf;
+	mu::Str coll_srf, cockpit_srf, coarse_srf; // optional
 };
+
+void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str, GroundObjTemplate>& map) {
+	auto parser = parser_from_file(file_abs_path, mu::memory::tmp());
+
+	while (!parser_finished(parser)) {
+		if (parser_accept(parser, ' ')) {
+			parser_skip_after(parser, '\n');
+		} else if (parser_accept(parser, '\n')) {
+		} else {
+			GroundObjTemplate tmpl{};
+
+			tmpl.dat = parser_token_str(parser, mu::memory::tmp());
+			_str_unquote(tmpl.dat);
+			tmpl.dat = mu::str_format(ASSETS_DIR "/{}", tmpl.dat);
+			while (parser_accept(parser, ' ')) { }
+
+			tmpl.main_srf = parser_token_str(parser, mu::memory::tmp());
+			_str_unquote(tmpl.main_srf);
+			tmpl.main_srf = mu::str_format(ASSETS_DIR "/{}", tmpl.main_srf);
+			while (parser_accept(parser, ' ')) { }
+
+			tmpl.coll_srf = parser_token_str(parser, mu::memory::tmp());
+			_str_unquote(tmpl.coll_srf);
+			tmpl.coll_srf = mu::str_format(ASSETS_DIR "/{}", tmpl.coll_srf);
+			while (parser_accept(parser, ' ')) { }
+
+			if (!parser_accept(parser, '\n')) {
+				tmpl.cockpit_srf = parser_token_str(parser, mu::memory::tmp());
+				_str_unquote(tmpl.cockpit_srf);
+				if (tmpl.cockpit_srf.size() > 0) {
+					tmpl.cockpit_srf = mu::str_format(ASSETS_DIR "/{}", tmpl.cockpit_srf);
+				}
+				while (parser_accept(parser, ' ')) { }
+
+				if (!parser_accept(parser, '\n')) {
+					tmpl.coarse_srf = parser_token_str(parser, mu::memory::tmp());
+					_str_unquote(tmpl.coarse_srf);
+					if (tmpl.coarse_srf.size() > 0) {
+						tmpl.coarse_srf = mu::str_format(ASSETS_DIR "/{}", tmpl.coarse_srf);
+					}
+					while (parser_accept(parser, ' ')) { }
+
+					parser_expect(parser, '\n');
+				}
+			}
+
+			auto i = tmpl.dat.find_last_of('/') + 1;
+			auto j = tmpl.dat.size() - 4;
+			tmpl.short_name = tmpl.dat.substr(i, j-i);
+
+			map[tmpl.short_name] = std::move(tmpl);
+		}
+	}
+}
+
+mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates_from_dir(mu::StrView dir_abs_path) {
+	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
+		return filename.starts_with("gro") && filename.ends_with(".lst");
+	}, mu::memory::tmp());
+
+	mu::Map<mu::Str, GroundObjTemplate> scenery_templates;
+	for (const auto& file : sce_lst_files) {
+		_ground_obj_templates_from_lst_file(file, scenery_templates);
+	}
+	return scenery_templates;
+}
 
 struct Sounds {
 	Audio bang, blast, blast2, bombsaway, burner, damage;
@@ -2480,6 +2549,10 @@ struct Settings {
 	} world_axis;
 };
 
+struct ZLPoint {
+	glm::vec3 center, color;
+};
+
 struct Box { glm::vec3 translation, scale, color; };
 
 struct TextRenderReq {
@@ -2583,6 +2656,7 @@ struct World {
 	// name -> templates
 	mu::Map<mu::Str, AircraftTemplate> aircraft_templates;
 	mu::Map<mu::Str, SceneryTemplate> scenery_templates;
+	mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates;
 
 	AudioDevice audio_device;
 	Sounds sounds;
@@ -4037,6 +4111,10 @@ namespace sys {
 		}
 	}
 
+	void ground_objects_init(World& world) {
+		world.ground_obj_templates = ground_obj_templates_from_dir(ASSETS_DIR "/ground");
+	}
+
 	void aircrafts_init(World& world) {
 		world.aircraft_templates = aircraft_templates_from_dir(ASSETS_DIR "/aircraft");
 
@@ -4761,6 +4839,8 @@ int main() {
 
 	sys::aircrafts_init(world);
 	defer(sys::aircrafts_free(world));
+
+	sys::ground_objects_init(world);
 
 	while (!world.signals.quit) {
 		sys::loop_timer_update(world);
