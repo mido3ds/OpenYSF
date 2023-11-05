@@ -9,11 +9,14 @@
 #undef near
 #undef far
 
+#include <filesystem>
+
 #include "imgui.h"
 #include "graphics.h"
 #include "parser.h"
 #include "math.h"
 #include "audio.h"
+
 #include <mu/utils.h>
 
 #include <ft2build.h>
@@ -2264,9 +2267,7 @@ struct SceneryTemplate {
 	bool is_airrace;
 };
 
-mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_lst(mu::StrView file_abs_path) {
-	mu::Map<mu::Str, SceneryTemplate> map {};
-
+void _scenery_templates_from_lst(mu::StrView file_abs_path, mu::Map<mu::Str, SceneryTemplate>& map) {
 	auto parser = parser_from_file(file_abs_path, mu::memory::tmp());
 
 	while (!parser_finished(parser)) {
@@ -2306,8 +2307,36 @@ mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_lst(mu::StrView file_ab
 			map[tmpl.name] = std::move(tmpl);
 		}
 	}
+}
 
-	return map;
+template<typename Function>
+mu::Vec<mu::Str> _dir_list_files_with(mu::StrView dir_abs_path, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	mu::Vec<mu::Str> out;
+
+	for (const auto & entry : std::filesystem::directory_iterator(dir_abs_path)) {
+		if (entry.is_regular_file()) {
+			auto filename = entry.path().filename().string();
+			auto path = entry.path().string();
+
+			if (predicate(filename)) {
+				out.push_back(mu::Str(path, allocator));
+			}
+		}
+	}
+
+	return out;
+}
+
+mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs_path) {
+	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
+		return filename.starts_with("sce") && filename.ends_with(".lst");
+	}, mu::memory::tmp());
+
+	mu::Map<mu::Str, SceneryTemplate> scenery_templates;
+	for (const auto& file : sce_lst_files) {
+		_scenery_templates_from_lst(file, scenery_templates);
+	}
+	return scenery_templates;
 }
 
 struct ZLPoint {
@@ -3994,7 +4023,7 @@ namespace sys {
 
 		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
 		if (world.start_infos.size() > 0) {
-			aircraft_set_start(ys11, world.start_infos[1]);
+			aircraft_set_start(ys11, world.start_infos[0]);
 		}
 		world.aircrafts.push_back(ys11);
 
@@ -4383,7 +4412,7 @@ namespace sys {
 	}
 
 	void fields_init(World& world) {
-		world.scenery_templates = scenery_templates_from_lst(ASSETS_DIR "/scenery/scenery.lst");
+		world.scenery_templates = scenery_templates_from_dir(ASSETS_DIR "/scenery");
 
 		const auto& default_scenery = world.scenery_templates["SMALL_MAP"];
 		world.field = field_new(default_scenery.fld);
