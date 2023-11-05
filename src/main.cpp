@@ -1136,8 +1136,7 @@ struct AircraftTemplate {
 	mu::Str coarse; // optional
 };
 
-mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_lst_file(mu::StrView lst_file_path) {
-	mu::Map<mu::Str, AircraftTemplate> aircraft_templates {};
+void _aircraft_templates_from_lst_file(mu::StrView lst_file_path, mu::Map<mu::Str, AircraftTemplate>& aircraft_templates) {
 	auto parser = parser_from_file(lst_file_path);
 
 	while (!parser_finished(parser)) {
@@ -1167,7 +1166,35 @@ mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_lst_file(mu::StrView 
 
 		aircraft_templates[aircraft.short_name] = aircraft;
 	}
+}
 
+template<typename Function>
+mu::Vec<mu::Str> _dir_list_files_with(mu::StrView dir_abs_path, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	mu::Vec<mu::Str> out;
+
+	for (const auto & entry : std::filesystem::directory_iterator(dir_abs_path)) {
+		if (entry.is_regular_file()) {
+			auto filename = entry.path().filename().string();
+			auto path = entry.path().string();
+
+			if (predicate(filename)) {
+				out.push_back(mu::Str(path, allocator));
+			}
+		}
+	}
+
+	return out;
+}
+
+mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_dir(mu::StrView dir_abs_path) {
+	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
+		return filename.starts_with("air") && filename.ends_with(".lst");
+	}, mu::memory::tmp());
+
+	mu::Map<mu::Str, AircraftTemplate> aircraft_templates;
+	for (const auto& file : sce_lst_files) {
+		_aircraft_templates_from_lst_file(file, aircraft_templates);
+	}
 	return aircraft_templates;
 }
 
@@ -2267,7 +2294,7 @@ struct SceneryTemplate {
 	bool is_airrace;
 };
 
-void _scenery_templates_from_lst(mu::StrView file_abs_path, mu::Map<mu::Str, SceneryTemplate>& map) {
+void _scenery_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str, SceneryTemplate>& map) {
 	auto parser = parser_from_file(file_abs_path, mu::memory::tmp());
 
 	while (!parser_finished(parser)) {
@@ -2309,24 +2336,6 @@ void _scenery_templates_from_lst(mu::StrView file_abs_path, mu::Map<mu::Str, Sce
 	}
 }
 
-template<typename Function>
-mu::Vec<mu::Str> _dir_list_files_with(mu::StrView dir_abs_path, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
-	mu::Vec<mu::Str> out;
-
-	for (const auto & entry : std::filesystem::directory_iterator(dir_abs_path)) {
-		if (entry.is_regular_file()) {
-			auto filename = entry.path().filename().string();
-			auto path = entry.path().string();
-
-			if (predicate(filename)) {
-				out.push_back(mu::Str(path, allocator));
-			}
-		}
-	}
-
-	return out;
-}
-
 mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs_path) {
 	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("sce") && filename.ends_with(".lst");
@@ -2334,7 +2343,7 @@ mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs
 
 	mu::Map<mu::Str, SceneryTemplate> scenery_templates;
 	for (const auto& file : sce_lst_files) {
-		_scenery_templates_from_lst(file, scenery_templates);
+		_scenery_templates_from_lst_file(file, scenery_templates);
 	}
 	return scenery_templates;
 }
@@ -4019,7 +4028,7 @@ namespace sys {
 	}
 
 	void aircrafts_init(World& world) {
-		world.aircraft_templates = aircraft_templates_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
+		world.aircraft_templates = aircraft_templates_from_dir(ASSETS_DIR "/aircraft");
 
 		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
 		if (world.start_infos.size() > 0) {
