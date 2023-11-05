@@ -95,6 +95,7 @@ double parser_accept_unit(Parser& self) {
 	// accept those units to avoid crashing on them later
 	if (parser_accept(self, "deg"))  { return 1;    }
 	if (parser_accept(self, "m^2"))  { return 1;    }
+	if (parser_accept(self, "m/s"))  { return 1;    }
 	if (parser_accept(self, "m"))    { return 1;    }
 
 	return 1;

@@ -376,25 +376,6 @@ struct StartInfo {
 	bool landing_gear_is_out = true;
 };
 
-float _token_distance(Parser& parser) {
-	const float x = parser_token_float(parser);
-
-	if (parser_accept(parser, 'm')) {
-		return x;
-	} else if (parser_accept(parser, "ft")) {
-		return x / 3.281f;
-	}
-
-	parser_panic(parser, "expected either m or ft");
-	return x;
-}
-
-float _token_angle(Parser& parser) {
-	const float x = parser_token_float(parser);
-	parser_expect(parser, "deg");
-	return x / DEGREES_MAX * RADIANS_MAX;
-}
-
 bool _token_bool(Parser& parser) {
 	const auto x = parser_token_str(parser, mu::memory::tmp());
 	if (x == "TRUE") {
@@ -418,24 +399,29 @@ mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
 		start_info.name = parser_token_str(parser);
 		parser_expect(parser, '\n');
 
+		while (parser_accept(parser, 'P')) {
+			mu::log_warning("found P line, ignoring it");
+			parser_skip_after(parser, '\n');
+		}
+
 		while (parser_accept(parser, "C ")) {
 			if (parser_accept(parser, "POSITION ")) {
-				start_info.position.x = _token_distance(parser);
+				start_info.position.x = parser_token_float(parser) * parser_accept_unit(parser);
 				parser_expect(parser, ' ');
-				start_info.position.y = -_token_distance(parser);
+				start_info.position.y = -parser_token_float(parser) * parser_accept_unit(parser);
 				parser_expect(parser, ' ');
-				start_info.position.z = _token_distance(parser);
+				start_info.position.z = parser_token_float(parser) * parser_accept_unit(parser);
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "ATTITUDE ")) {
-				start_info.attitude.x = _token_angle(parser);
+				start_info.attitude.x = parser_token_float(parser) * parser_accept_unit(parser);
 				parser_expect(parser, ' ');
-				start_info.attitude.y = _token_angle(parser);
+				start_info.attitude.y = parser_token_float(parser) * parser_accept_unit(parser);
 				parser_expect(parser, ' ');
-				start_info.attitude.z = _token_angle(parser);
+				start_info.attitude.z = parser_token_float(parser) * parser_accept_unit(parser);
 				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "INITSPED ")) {
-				start_info.speed = parser_token_float(parser);
-				parser_expect(parser, "MACH\n");
+				start_info.speed = parser_token_float(parser) * parser_accept_unit(parser);
+				parser_expect(parser, '\n');
 			} else if (parser_accept(parser, "CTLTHROT ")) {
 				start_info.throttle = parser_token_float(parser);
 				parser_expect(parser, '\n');
@@ -2897,6 +2883,127 @@ namespace sys {
 				ImGui::TreePop();
 			}
 
+			if (ImGui::TreeNode("Scenery")) {
+				world.scenery.should_be_loaded = ImGui::Button("Reload");
+				ImGui::SameLine();
+				if (ImGui::BeginCombo("##scenery.name", world.scenery.scenery_template.name.c_str())) {
+					for (const auto& [name, scenery_template] : world.scenery_templates) {
+						if (ImGui::Selectable(name.c_str(), scenery_template.name == world.scenery.scenery_template.name)) {
+							world.scenery.scenery_template = scenery_template;
+							world.scenery.should_be_loaded = true;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				std::function<void(Field&,bool)> render_field_imgui;
+				render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
+					if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
+
+						if (ImGui::Button("Reset State")) {
+							field.state = field.initial_state;
+						}
+
+						MyImGui::EnumsCombo("ID", &field.id, {
+							{FieldID::NONE, "NONE"},
+							{FieldID::RUNWAY, "RUNWAY"},
+							{FieldID::TAXIWAY, "TAXIWAY"},
+							{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+							{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+							{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+							{FieldID::TOWER, "TOWER"},
+							{FieldID::VIEW_POINT, "VIEW_POINT"},
+						});
+
+						MyImGui::EnumsCombo("Default Area", &field.default_area, {
+							{AreaKind::LAND, "LAND"},
+							{AreaKind::WATER, "WATER"},
+							{AreaKind::NOAREA, "NOAREA"},
+						});
+						ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
+						ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
+						ImGui::Checkbox("GND Specular", &field.ground_specular);
+
+						ImGui::Checkbox("Visible", &field.state.visible);
+
+						ImGui::DragFloat3("Translation", glm::value_ptr(field.state.translation));
+						MyImGui::SliderAngle3("Rotation", &field.state.rotation, current_angle_max);
+
+						ImGui::BulletText("Sub Fields:");
+						for (auto& subfield : field.subfields) {
+							render_field_imgui(subfield, false);
+						}
+
+						ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.size());
+						for (auto& terr_mesh : field.terr_meshes) {
+							if (ImGui::TreeNode(terr_mesh.name.c_str())) {
+								if (ImGui::Button("Reset State")) {
+									terr_mesh.state = terr_mesh.initial_state;
+								}
+
+								ImGui::Text("Tag: %s", terr_mesh.tag.c_str());
+
+								MyImGui::EnumsCombo("ID", &terr_mesh.id, {
+									{FieldID::NONE, "NONE"},
+									{FieldID::RUNWAY, "RUNWAY"},
+									{FieldID::TAXIWAY, "TAXIWAY"},
+									{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+									{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+									{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+									{FieldID::TOWER, "TOWER"},
+									{FieldID::VIEW_POINT, "VIEW_POINT"},
+								});
+
+								ImGui::Checkbox("Visible", &terr_mesh.state.visible);
+
+								ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.state.translation));
+								MyImGui::SliderAngle3("Rotation", &terr_mesh.state.rotation, current_angle_max);
+
+								ImGui::TreePop();
+							}
+						}
+
+						ImGui::BulletText("Pict2: %d", (int)field.pictures.size());
+						for (auto& picture : field.pictures) {
+							if (ImGui::TreeNode(picture.name.c_str())) {
+								if (ImGui::Button("Reset State")) {
+									picture.state = picture.initial_state;
+								}
+
+								MyImGui::EnumsCombo("ID", &picture.id, {
+									{FieldID::NONE, "NONE"},
+									{FieldID::RUNWAY, "RUNWAY"},
+									{FieldID::TAXIWAY, "TAXIWAY"},
+									{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+									{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+									{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+									{FieldID::TOWER, "TOWER"},
+									{FieldID::VIEW_POINT, "VIEW_POINT"},
+								});
+
+								ImGui::Checkbox("Visible", &picture.state.visible);
+
+								ImGui::DragFloat3("Translation", glm::value_ptr(picture.state.translation));
+								MyImGui::SliderAngle3("Rotation", &picture.state.rotation, current_angle_max);
+
+								ImGui::TreePop();
+							}
+						}
+
+						ImGui::BulletText("Meshes: %d", (int)field.meshes.size());
+						for (auto& mesh : field.meshes) {
+							ImGui::Text("%s", mesh.name.c_str());
+						}
+
+						ImGui::TreePop();
+					}
+				};
+				render_field_imgui(world.scenery.root_fld, true);
+
+				ImGui::TreePop();
+			}
+
 			ImGui::Separator();
 			ImGui::Text(mu::str_tmpf("Aircrafts {}:", world.aircrafts.size()).c_str());
 
@@ -3104,114 +3211,6 @@ namespace sys {
 					ImGui::TreePop();
 				}
 			}
-
-			ImGui::Separator();
-
-			world.scenery.should_be_loaded = ImGui::Button("Reload");
-
-			std::function<void(Field&,bool)> render_field_imgui;
-			render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
-				if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
-
-					if (ImGui::Button("Reset State")) {
-						field.state = field.initial_state;
-					}
-
-					MyImGui::EnumsCombo("ID", &field.id, {
-						{FieldID::NONE, "NONE"},
-						{FieldID::RUNWAY, "RUNWAY"},
-						{FieldID::TAXIWAY, "TAXIWAY"},
-						{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
-						{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
-						{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
-						{FieldID::TOWER, "TOWER"},
-						{FieldID::VIEW_POINT, "VIEW_POINT"},
-					});
-
-					MyImGui::EnumsCombo("Default Area", &field.default_area, {
-						{AreaKind::LAND, "LAND"},
-						{AreaKind::WATER, "WATER"},
-						{AreaKind::NOAREA, "NOAREA"},
-					});
-					ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
-					ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
-					ImGui::Checkbox("GND Specular", &field.ground_specular);
-
-					ImGui::Checkbox("Visible", &field.state.visible);
-
-					ImGui::DragFloat3("Translation", glm::value_ptr(field.state.translation));
-					MyImGui::SliderAngle3("Rotation", &field.state.rotation, current_angle_max);
-
-					ImGui::BulletText("Sub Fields:");
-					for (auto& subfield : field.subfields) {
-						render_field_imgui(subfield, false);
-					}
-
-					ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.size());
-					for (auto& terr_mesh : field.terr_meshes) {
-						if (ImGui::TreeNode(terr_mesh.name.c_str())) {
-							if (ImGui::Button("Reset State")) {
-								terr_mesh.state = terr_mesh.initial_state;
-							}
-
-							ImGui::Text("Tag: %s", terr_mesh.tag.c_str());
-
-							MyImGui::EnumsCombo("ID", &terr_mesh.id, {
-								{FieldID::NONE, "NONE"},
-								{FieldID::RUNWAY, "RUNWAY"},
-								{FieldID::TAXIWAY, "TAXIWAY"},
-								{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
-								{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
-								{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
-								{FieldID::TOWER, "TOWER"},
-								{FieldID::VIEW_POINT, "VIEW_POINT"},
-							});
-
-							ImGui::Checkbox("Visible", &terr_mesh.state.visible);
-
-							ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.state.translation));
-							MyImGui::SliderAngle3("Rotation", &terr_mesh.state.rotation, current_angle_max);
-
-							ImGui::TreePop();
-						}
-					}
-
-					ImGui::BulletText("Pict2: %d", (int)field.pictures.size());
-					for (auto& picture : field.pictures) {
-						if (ImGui::TreeNode(picture.name.c_str())) {
-							if (ImGui::Button("Reset State")) {
-								picture.state = picture.initial_state;
-							}
-
-							MyImGui::EnumsCombo("ID", &picture.id, {
-								{FieldID::NONE, "NONE"},
-								{FieldID::RUNWAY, "RUNWAY"},
-								{FieldID::TAXIWAY, "TAXIWAY"},
-								{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
-								{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
-								{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
-								{FieldID::TOWER, "TOWER"},
-								{FieldID::VIEW_POINT, "VIEW_POINT"},
-							});
-
-							ImGui::Checkbox("Visible", &picture.state.visible);
-
-							ImGui::DragFloat3("Translation", glm::value_ptr(picture.state.translation));
-							MyImGui::SliderAngle3("Rotation", &picture.state.rotation, current_angle_max);
-
-							ImGui::TreePop();
-						}
-					}
-
-					ImGui::BulletText("Meshes: %d", (int)field.meshes.size());
-					for (auto& mesh : field.meshes) {
-						ImGui::Text("%s", mesh.name.c_str());
-					}
-
-					ImGui::TreePop();
-				}
-			};
-			render_field_imgui(world.scenery.root_fld, true);
 		}
 		ImGui::End();
 
