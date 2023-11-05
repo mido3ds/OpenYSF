@@ -1617,9 +1617,7 @@ struct Field {
 	mu::Vec<Field> subfields;
 	mu::Vec<Mesh> meshes;
 
-	mu::Str file_abs_path;
-	bool should_select_file, should_load_file, should_transform = true;
-
+	bool should_be_transformed = true;
 	glm::mat4 transformation;
 
 	struct {
@@ -1628,13 +1626,6 @@ struct Field {
 		bool visible = true;
 	} state, initial_state;
 };
-
-Field field_new(mu::Str file_abs_path) {
-	return Field {
-		.file_abs_path = file_abs_path,
-		.should_load_file = true,
-	};
-}
 
 Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, "FIELD\n");
@@ -2235,7 +2226,6 @@ Field field_from_fld_file(mu::StrView fld_file_abs_path) {
 	auto parser = parser_from_file(fld_file_abs_path, mu::memory::tmp());
 
 	auto field = _field_from_fld_str(parser);
-	field.file_abs_path = mu::Str(fld_file_abs_path);
 	if (field.name.size() == 0) {
 		field.name += mu::file_get_base_name(fld_file_abs_path);
 	}
@@ -2348,6 +2338,21 @@ mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs
 	return scenery_templates;
 }
 
+struct Scenery {
+	SceneryTemplate scenery_template;
+	Field root_fld;
+	mu::Vec<StartInfo> start_infos;
+
+	bool should_be_loaded;
+};
+
+Scenery scenery_new(SceneryTemplate& scenery_template) {
+	return Scenery {
+		.scenery_template = scenery_template,
+		.should_be_loaded = true
+	};
+}
+
 struct ZLPoint {
 	glm::vec3 center, color;
 };
@@ -2433,10 +2438,7 @@ struct ImGuiWindowLogger : public mu::ILogger {
 };
 
 struct Events {
-	bool quit;
-	bool wnd_size_changed;
-
-	// model
+	// aircraft control
 	bool afterburner_toggle;
 	bool stick_right;
 	bool stick_left;
@@ -2447,7 +2449,7 @@ struct Events {
 	bool throttle_increase;
 	bool throttle_decrease;
 
-	// camera
+	// camera control
 	bool camera_tracking_up;
 	bool camera_tracking_down;
 	bool camera_tracking_right;
@@ -2459,6 +2461,13 @@ struct Events {
 	bool camera_flying_rotate_enabled;
 
 	glm::ivec2 mouse_pos;
+};
+
+// same as Events but don't get reset each frame (to be able to handle at any frame)
+struct Signals {
+	bool quit;
+	bool wnd_size_changed;
+	bool scenery_loaded;
 };
 
 struct Settings {
@@ -2593,13 +2602,13 @@ struct World {
 	Sounds sounds;
 
 	mu::Vec<Aircraft> aircrafts;
-	Field field;
-	mu::Vec<StartInfo> start_infos;
+	Scenery scenery;
 
 	Camera camera;
 	PerspectiveProjection projection;
 	CachedMatrices mats;
 
+	Signals signals;
 	Events events;
 	Settings settings;
 
@@ -2691,7 +2700,7 @@ namespace sys {
 				const bool width_changed = ImGui::InputInt("Width", &size[0]);
 				const bool height_changed = ImGui::InputInt("Height", &size[1]);
 				if (width_changed || height_changed) {
-					world.events.wnd_size_changed = true;
+					world.signals.wnd_size_changed = true;
 					SDL_SetWindowSize(world.sdl_window, size[0], size[1]);
 				}
 
@@ -2707,7 +2716,7 @@ namespace sys {
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
 					world.projection = {};
-					world.events.wnd_size_changed = true;
+					world.signals.wnd_size_changed = true;
 				}
 
 				ImGui::InputFloat("near", &world.projection.near, 1, 10);
@@ -2715,7 +2724,7 @@ namespace sys {
 				ImGui::DragFloat("fovy (1/zoom)", &world.projection.fovy, 1, 1, 45);
 
 				if (ImGui::Checkbox("custom aspect", &world.settings.custom_aspect_ratio) && !world.settings.custom_aspect_ratio) {
-					world.events.wnd_size_changed = true;
+					world.signals.wnd_size_changed = true;
 				}
 				ImGui::BeginDisabled(!world.settings.custom_aspect_ratio);
 					ImGui::InputFloat("aspect", &world.projection.aspect, 1, 10);
@@ -2755,15 +2764,16 @@ namespace sys {
 					ImGui::Checkbox("Rotate Around", &world.camera.enable_rotating_around);
 				} else {
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : world.start_infos[start_info_index].name.c_str())) {
+					const auto& start_infos = world.scenery.start_infos;
+					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : start_infos[start_info_index].name.c_str())) {
 						if (ImGui::Selectable("-NULL-", -1 == start_info_index)) {
 							start_info_index = -1;
 							world.camera.position = {};
 						}
-						for (size_t j = 0; j < world.start_infos.size(); j++) {
-							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
+						for (size_t j = 0; j < start_infos.size(); j++) {
+							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								world.camera.position = world.start_infos[j].position;
+								world.camera.position = start_infos[j].position;
 							}
 						}
 
@@ -2963,15 +2973,16 @@ namespace sys {
 					}
 
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : world.start_infos[start_info_index].name.c_str())) {
+					const auto& start_infos = world.scenery.start_infos;
+					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : start_infos[start_info_index].name.c_str())) {
 						if (ImGui::Selectable("-NULL-", -1 == start_info_index)) {
 							start_info_index = -1;
 							aircraft_set_start(world.aircrafts[i], StartInfo { .name="-NULL-" });
 						}
-						for (size_t j = 0; j < world.start_infos.size(); j++) {
-							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
+						for (size_t j = 0; j < start_infos.size(); j++) {
+							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
-								aircraft_set_start(world.aircrafts[i], world.start_infos[start_info_index]);
+								aircraft_set_start(world.aircrafts[i], start_infos[start_info_index]);
 							}
 						}
 
@@ -3096,13 +3107,11 @@ namespace sys {
 
 			ImGui::Separator();
 
+			world.scenery.should_be_loaded = ImGui::Button("Reload");
+
 			std::function<void(Field&,bool)> render_field_imgui;
 			render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
 				if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
-					if (is_root) {
-						field.should_select_file = ImGui::Button("Open FLD");
-						field.should_load_file = ImGui::Button("Reload");
-					}
 
 					if (ImGui::Button("Reset State")) {
 						field.state = field.initial_state;
@@ -3202,7 +3211,7 @@ namespace sys {
 					ImGui::TreePop();
 				}
 			};
-			render_field_imgui(world.field, true);
+			render_field_imgui(world.scenery.root_fld, true);
 		}
 		ImGui::End();
 
@@ -3813,7 +3822,9 @@ namespace sys {
 	void canvas_rendering_begin(World& world) {
 		auto& self = world.canvas;
 
-		if (world.events.wnd_size_changed) {
+		if (world.signals.wnd_size_changed) {
+			world.signals.wnd_size_changed = false;
+
 			int w, h;
 			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
 			glViewport(0, 0, w, h);
@@ -3821,7 +3832,7 @@ namespace sys {
 
 		glEnable(GL_DEPTH_TEST);
 		glClearDepth(1);
-		glClearColor(world.field.sky_color.x, world.field.sky_color.y, world.field.sky_color.z, 0.0f);
+		glClearColor(world.scenery.root_fld.sky_color.x, world.scenery.root_fld.sky_color.y, world.scenery.root_fld.sky_color.z, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glEnable(GL_BLEND);
@@ -3938,7 +3949,7 @@ namespace sys {
 	void projection_update(World& world) {
 		auto& self = world.projection;
 
-		if (world.events.wnd_size_changed) {
+		if (world.signals.wnd_size_changed) {
 			int w, h;
 			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
 
@@ -3963,7 +3974,7 @@ namespace sys {
 		self.proj_inv_view_inv = self.view_inverse * self.projection_inverse;
 	}
 
-	void events_update(World& world) {
+	void events_collect(World& world) {
 		auto& self = world.events;
 
 		self = {};
@@ -3998,14 +4009,14 @@ namespace sys {
 			if (event.type == SDL_KEYDOWN) {
 				switch (event.key.keysym.sym) {
 				case SDLK_ESCAPE:
-					self.quit = true;
+					world.signals.quit = true;
 					break;
 				case SDLK_TAB:
 					self.afterburner_toggle = true;
 					break;
 				case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
-					self.wnd_size_changed = true;
+					world.signals.wnd_size_changed = true;
 					if (world.settings.fullscreen) {
 						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
 							mu::panic(SDL_GetError());
@@ -4020,9 +4031,9 @@ namespace sys {
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				self.wnd_size_changed = true;
+				world.signals.wnd_size_changed = true;
 			} else if (event.type == SDL_QUIT) {
-				self.quit = true;
+				world.signals.quit = true;
 			}
 		}
 	}
@@ -4031,9 +4042,6 @@ namespace sys {
 		world.aircraft_templates = aircraft_templates_from_dir(ASSETS_DIR "/aircraft");
 
 		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
-		if (world.start_infos.size() > 0) {
-			aircraft_set_start(ys11, world.start_infos[0]);
-		}
 		world.aircrafts.push_back(ys11);
 
 		world.camera.aircraft = &world.aircrafts[0];
@@ -4334,6 +4342,14 @@ namespace sys {
 			return;
 		}
 
+		if (world.signals.scenery_loaded) {
+			world.signals.scenery_loaded = false;
+
+			for (int i = 0; i < world.aircrafts.size(); i++) {
+				aircraft_set_start(world.aircrafts[i], world.scenery.start_infos[i]);
+			}
+		}
+
 		_aircrafts_load_from_files(world);
 		_aircrafts_autoremove(world);
 
@@ -4420,50 +4436,36 @@ namespace sys {
 		}
 	}
 
-	void fields_init(World& world) {
+	void scenery_init(World& world) {
 		world.scenery_templates = scenery_templates_from_dir(ASSETS_DIR "/scenery");
-
-		const auto& default_scenery = world.scenery_templates["SMALL_MAP"];
-		world.field = field_new(default_scenery.fld);
-		world.start_infos = start_info_from_stp_file(default_scenery.stp);
+		world.scenery = scenery_new(world.scenery_templates["SMALL_MAP"]);
 	}
 
-	void fields_free(World& world) {
-		field_unload_from_gpu(world.field);
+	void scenery_free(World& world) {
+		field_unload_from_gpu(world.scenery.root_fld);
 	}
 
-	void fields_update(World& world) {
-		if (world.field.should_select_file) {
-			world.field.should_select_file = false;
+	void scenery_update(World& world) {
+		auto& self = world.scenery;
 
-			auto result = pfd::open_file("Select FLD", "", {"FLD Files", "*.fld", "All Files", "*"}).result();
-			if (result.size() == 1) {
-				world.field.file_abs_path = result[0];
-				mu::log_debug("loading '{}'", world.field.file_abs_path);
-				world.field.should_load_file = true;
-			}
-		}
+		if (self.should_be_loaded) {
+			self.should_be_loaded = false;
+			world.signals.scenery_loaded = true;
 
-		if (world.field.should_load_file) {
-			world.field.should_load_file = false;
+			field_unload_from_gpu(self.root_fld);
+			self.root_fld = field_from_fld_file(self.scenery_template.fld);
+			field_load_to_gpu(self.root_fld);
 
-			Field new_field {};
-			if (world.field.file_abs_path.empty() == false) {
-				new_field = field_from_fld_file(world.field.file_abs_path);
-				field_load_to_gpu(new_field);
-			}
-
-			field_unload_from_gpu(world.field);
-			world.field = new_field;
+			self.start_infos = start_info_from_stp_file(self.scenery_template.stp);
 		}
 
 		// transform subfields
-		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
-		if (world.field.should_transform) {
-			world.field.should_transform = false;
+		const auto all_fields = field_list_recursively(self.root_fld, mu::memory::tmp());
+		if (self.root_fld.should_be_transformed) {
+			self.root_fld.should_be_transformed = false;
 
 			// transform fields
-			world.field.transformation = glm::identity<glm::mat4>();
+			self.root_fld.transformation = glm::identity<glm::mat4>();
 			for (Field* fld : all_fields) {
 				if (fld->state.visible == false) {
 					continue;
@@ -4498,8 +4500,8 @@ namespace sys {
 		}
 	}
 
-	void fields_render(World& world) {
-		const auto all_fields = field_list_recursively(world.field, mu::memory::tmp());
+	void scenery_render(World& world) {
+		const auto all_fields = field_list_recursively(world.scenery.root_fld, mu::memory::tmp());
 
 		// render last ground
 		gl_program_use(world.canvas.ground_program);
@@ -4755,26 +4757,26 @@ int main() {
 	sys::audio_init(world);
 	defer(sys::audio_free(world));
 
-	sys::fields_init(world);
-	defer(sys::fields_free(world));
+	sys::scenery_init(world);
+	defer(sys::scenery_free(world));
 
 	sys::aircrafts_init(world);
 	defer(sys::aircrafts_free(world));
 
-	while (!world.events.quit) {
+	while (!world.signals.quit) {
 		sys::loop_timer_update(world);
 		if (!world.loop_timer.ready) {
 			time_delay_millis(2);
 			continue;
 		}
 
-		sys::events_update(world);
+		sys::events_collect(world);
 
 		sys::projection_update(world);
 		sys::camera_update(world);
 		sys::cached_matrices_recalc(world);
 
-		sys::fields_update(world);
+		sys::scenery_update(world);
 		sys::aircrafts_update(world);
 
 		// sample text
@@ -4788,7 +4790,7 @@ int main() {
 		world.canvas.overlay_text_list.push_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.loop_timer.delta_time));
 
 		sys::canvas_rendering_begin(world); {
-			sys::fields_render(world);
+			sys::scenery_render(world);
 
 			sys::aircrafts_render(world);
 			sys::zlpoints_render(world);
