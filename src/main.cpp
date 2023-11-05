@@ -2256,6 +2256,60 @@ mu::Vec<Field*> field_list_recursively(Field& self, mu::memory::Allocator* alloc
 	return buf;
 }
 
+// paths of files of one single scenery
+struct SceneryTemplate {
+	mu::Str name;
+	mu::Str fld, stp;
+	mu::Str yfs; // optional, may be empty
+	bool is_airrace;
+};
+
+mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_lst(mu::StrView file_abs_path) {
+	mu::Map<mu::Str, SceneryTemplate> map {};
+
+	auto parser = parser_from_file(file_abs_path, mu::memory::tmp());
+
+	while (!parser_finished(parser)) {
+		if (parser_accept(parser, ' ')) {
+			parser_skip_after(parser, '\n');
+		} else if (parser_accept(parser, '\n')) {
+		} else {
+			SceneryTemplate tmpl{};
+
+			tmpl.name = parser_token_str(parser);
+			while (parser_accept(parser, ' ')) { }
+
+			tmpl.fld = parser_token_str(parser, mu::memory::tmp());
+			_str_unquote(tmpl.fld);
+			tmpl.fld = mu::str_format(ASSETS_DIR "/{}", tmpl.fld);
+			while (parser_accept(parser, ' ')) { }
+
+			tmpl.stp = parser_token_str(parser, mu::memory::tmp());
+			_str_unquote(tmpl.stp);
+			tmpl.stp = mu::str_format(ASSETS_DIR "/{}", tmpl.stp);
+			while (parser_accept(parser, ' ')) { }
+
+			if (!parser_accept(parser, '\n')) {
+				tmpl.yfs = parser_token_str(parser, mu::memory::tmp());
+				_str_unquote(tmpl.yfs);
+				if (tmpl.yfs.size() > 0) {
+					tmpl.yfs = mu::str_format(ASSETS_DIR "/{}", tmpl.yfs);
+				}
+				while (parser_accept(parser, ' ')) { }
+
+				tmpl.is_airrace = parser_accept(parser, "AIRRACE");
+				while (parser_accept(parser, ' ')) { }
+
+				parser_expect(parser, '\n');
+			}
+
+			map[tmpl.name] = std::move(tmpl);
+		}
+	}
+
+	return map;
+}
+
 struct ZLPoint {
 	glm::vec3 center, color;
 };
@@ -2493,8 +2547,9 @@ struct World {
 
 	LoopTimer loop_timer;
 
-	// aircraft short name -> files
+	// name -> templates
 	mu::Map<mu::Str, AircraftTemplate> aircraft_templates;
+	mu::Map<mu::Str, SceneryTemplate> scenery_templates;
 
 	AudioDevice audio_device;
 	Sounds sounds;
@@ -4328,8 +4383,11 @@ namespace sys {
 	}
 
 	void fields_init(World& world) {
-		world.field = field_new(ASSETS_DIR "/scenery/small.fld");
-		world.start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
+		world.scenery_templates = scenery_templates_from_lst(ASSETS_DIR "/scenery/scenery.lst");
+
+		const auto& default_scenery = world.scenery_templates["SMALL_MAP"];
+		world.field = field_new(default_scenery.fld);
+		world.start_infos = start_info_from_stp_file(default_scenery.stp);
 	}
 
 	void fields_free(World& world) {
