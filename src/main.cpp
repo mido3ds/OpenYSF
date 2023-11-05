@@ -1182,7 +1182,7 @@ struct Aircraft {
 
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 		float throttle = 0;
-		float engine_speed;
+		float engine_speed; // 0 -> 1
 		bool afterburner_reheat_enabled = false;
 	} state;
 
@@ -1195,19 +1195,20 @@ struct Aircraft {
 	bool should_be_removed;
 };
 
-void aircraft_set_start(Aircraft& self, StartInfo& start_info) {
-	self.state.translation = start_info.position;
-	self.state.angles = local_euler_angles_from_attitude(start_info.attitude);
-	self.state.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
-	self.state.throttle = start_info.throttle;
-	self.state.speed = start_info.speed;
-}
-
 Aircraft aircraft_new(AircraftTemplate aircraft_template) {
 	return Aircraft {
 		.aircraft_template = aircraft_template,
 		.should_be_loaded = true,
 	};
+}
+
+void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
+	self.state.translation = start_info.position;
+	self.state.angles = local_euler_angles_from_attitude(start_info.attitude);
+	self.state.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
+	self.state.throttle = start_info.throttle;
+	self.state.engine_speed = start_info.throttle;
+	self.state.speed = start_info.speed;
 }
 
 struct PerspectiveProjection {
@@ -1597,6 +1598,13 @@ struct Field {
 		bool visible = true;
 	} state, initial_state;
 };
+
+Field field_new(mu::Str file_abs_path) {
+	return Field {
+		.file_abs_path = file_abs_path,
+		.should_load_file = true,
+	};
+}
 
 Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, "FIELD\n");
@@ -2446,499 +2454,6 @@ struct Canvas {
 	} text_rendering;
 };
 
-void canvas_init(Canvas& self) {
-	self.meshes_program = gl_program_new(
-		// vertex shader
-		R"GLSL(
-			#version 330 core
-			layout (location = 0) in vec3 attr_position;
-			layout (location = 1) in vec4 attr_color;
-			// layout (location = 2) in vec3 attr_normal;
-
-			uniform mat4 projection_view_model;
-
-			out float vs_vertex_y;
-			out vec4 vs_color;
-			// out vec3 vs_normal;
-
-			void main() {
-				gl_Position = projection_view_model * vec4(attr_position, 1.0);
-				vs_color = attr_color;
-				// vs_normal = attr_normal;
-				vs_vertex_y = attr_position.y;
-			}
-		)GLSL",
-
-		// fragment shader
-		R"GLSL(
-			#version 330 core
-			in float vs_vertex_y;
-			in vec4 vs_color;
-			// in vec3 vs_normal;
-
-			out vec4 out_fragcolor;
-
-			uniform bool is_light_source;
-
-			uniform bool gradient_enabled;
-			uniform float gradient_bottom_y, gradient_top_y;
-			uniform vec3 gradient_bottom_color, gradient_top_color;
-
-			void main() {
-				if (vs_color.a == 0) {
-					discard;
-				} else if (gradient_enabled) {
-					float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
-					out_fragcolor = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
-				} else {
-					out_fragcolor = vs_color;
-				}
-			}
-		)GLSL"
-	);
-
-	{
-		struct Stride {
-			glm::vec3 vertex;
-			glm::vec4 color;
-		};
-		const mu::Vec<Stride> buffer {
-			Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
-			Stride {{1, 0, 0}, {1, 0, 0, 1}},
-			Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
-			Stride {{0, 1, 0}, {0, 1, 0, 1}},
-			Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
-			Stride {{0, 0, 1}, {0, 0, 1, 1}},
-		};
-		self.axis_rendering.points_count = buffer.size();
-
-		glGenVertexArrays(1, &self.axis_rendering.vao);
-		glBindVertexArray(self.axis_rendering.vao);
-			glGenBuffers(1, &self.axis_rendering.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, self.axis_rendering.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
-
-			size_t offset = 0;
-
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(
-				0,              /*index*/
-				3,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::vertex);
-
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(
-				1,              /*index*/
-				4,              /*#components*/
-				GL_FLOAT,       /*type*/
-				GL_FALSE,       /*normalize*/
-				sizeof(Stride), /*stride bytes*/
-				(void*)offset   /*offset*/
-			);
-			offset += sizeof(Stride::color);
-		glBindVertexArray(0);
-
-		gl_process_errors();
-	}
-
-	self.lines_program = gl_program_new(
-		// vertex shader
-		R"GLSL(
-			#version 330 core
-			layout (location = 0) in vec3 attr_position;
-			uniform mat4 projection_view_model;
-			void main() {
-				gl_Position = projection_view_model * vec4(attr_position, 1.0);
-			}
-		)GLSL",
-
-		// fragment shader
-		R"GLSL(
-			#version 330 core
-			uniform vec3 color;
-			out vec4 out_fragcolor;
-			void main() {
-				out_fragcolor = vec4(color, 1.0f);
-			}
-		)GLSL"
-	);
-
-	{
-		const mu::Vec<glm::vec3> buffer {
-			{0, 0, 0}, // face x0
-			{0, 1, 0},
-			{0, 1, 1},
-			{0, 0, 1},
-			{0, 0, 0},
-			{1, 0, 0}, // face x1
-			{1, 1, 0},
-			{1, 1, 1},
-			{1, 0, 1},
-			{1, 0, 0},
-			{0, 0, 0}, // face y0
-			{1, 0, 0},
-			{1, 0, 1},
-			{0, 0, 1},
-			{0, 0, 0},
-			{0, 1, 0}, // face y1
-			{1, 1, 0},
-			{1, 1, 1},
-			{0, 1, 1},
-			{0, 1, 0},
-			{0, 0, 0}, // face z0
-			{1, 0, 0},
-			{1, 1, 0},
-			{0, 1, 0},
-			{0, 0, 0},
-			{0, 0, 1}, // face z1
-			{1, 0, 1},
-			{1, 1, 1},
-			{0, 1, 1},
-			{0, 0, 1},
-		};
-		self.box_rendering.points_count = buffer.size();
-
-		glGenVertexArrays(1, &self.box_rendering.vao);
-		glBindVertexArray(self.box_rendering.vao);
-			glGenBuffers(1, &self.box_rendering.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, self.box_rendering.vbo);
-			glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(glm::vec3), buffer.data(), GL_STATIC_DRAW);
-
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(
-				0,                 /*index*/
-				3,                 /*#components*/
-				GL_FLOAT,          /*type*/
-				GL_FALSE,          /*normalize*/
-				sizeof(glm::vec3), /*stride bytes*/
-				(void*)0           /*offset*/
-			);
-		glBindVertexArray(0);
-
-		gl_process_errors();
-	}
-
-	self.picture2d_program = gl_program_new(
-		// vertex shader
-		R"GLSL(
-			#version 330 core
-			layout (location = 0) in vec2 attr_position;
-
-			uniform mat4 projection_view_model;
-
-			out float vs_vertex_id;
-
-			void main() {
-				gl_Position = projection_view_model * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
-				vs_vertex_id = gl_VertexID % 6;
-			}
-		)GLSL",
-
-		// fragment shader
-		R"GLSL(
-			#version 330 core
-
-			in float vs_vertex_id;
-
-			uniform vec3 primitive_color[2];
-			uniform bool gradation_enabled;
-			uniform sampler2D groundtile;
-
-			out vec4 out_fragcolor;
-
-			const int color_indices[6] = int[] (
-				0, 1, 1,
-				0, 0, 1
-			);
-
-			const vec2 tex_coords[3] = vec2[] (
-				vec2(0, 0), vec2(1, 0), vec2(1, 1)
-			);
-
-			void main() {
-				int color_index = 0;
-				if (gradation_enabled) {
-					color_index = color_indices[int(vs_vertex_id)];
-				}
-				out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).r * vec4(primitive_color[color_index], 1.0);
-			}
-		)GLSL"
-	);
-
-	// https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
-	self.ground_program = gl_program_new(
-		// vertex shader
-		R"GLSL(
-			#version 330 core
-			uniform mat4 proj_inv_view_inv;
-
-			out vec3 vs_near_point;
-			out vec3 vs_far_point;
-
-			// grid position are in clipped space
-			const vec2 grid_plane[6] = vec2[] (
-				vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
-				vec2(-1, -1), vec2(1, -1), vec2(1, 1)
-			);
-
-			vec3 unproject_point(float x, float y, float z) {
-				vec4 unprojectedPoint = proj_inv_view_inv * vec4(x, y, z, 1.0);
-				return unprojectedPoint.xyz / unprojectedPoint.w;
-			}
-
-			void main() {
-				vec2 p        = grid_plane[gl_VertexID];
-
-				vs_near_point = unproject_point(p.x, p.y, 0.0); // unprojecting on the near plane
-				vs_far_point  = unproject_point(p.x, p.y, 1.0); // unprojecting on the far plane
-				gl_Position   = vec4(p.x, p.y, 0.0, 1.0);       // using directly the clipped coordinates
-			}
-		)GLSL",
-
-		// fragment shader
-		R"GLSL(
-			#version 330 core
-			in vec3 vs_near_point;
-			in vec3 vs_far_point;
-
-			out vec4 out_fragcolor;
-
-			uniform vec3 color;
-			uniform sampler2D groundtile;
-			uniform mat4 projection;
-
-			void main() {
-				float t = -vs_near_point.y / (vs_far_point.y - vs_near_point.y);
-				if (t <= 0) {
-					discard;
-				} else {
-					vec3 frag_pos_3d = vs_near_point + t * (vs_far_point - vs_near_point);
-					vec4 clip_space_pos = projection * vec4(frag_pos_3d, 1.0);
-
-					out_fragcolor = vec4(texture(groundtile, clip_space_pos.xz / 600).x * color, 1.0);
-				}
-			}
-		)GLSL"
-	);
-
-	glGenVertexArrays(1, &self.dummy_vao);
-
-	// groundtile
-	self.groundtile_surface = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
-	if (self.groundtile_surface == nullptr || self.groundtile_surface->pixels == nullptr) {
-		mu::panic("failed to load groundtile.png");
-	}
-	glGenTextures(1, &self.groundtile_texture);
-	glBindTexture(GL_TEXTURE_2D, self.groundtile_texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, self.groundtile_surface->w, self.groundtile_surface->h, 0, GL_RED, GL_UNSIGNED_BYTE, self.groundtile_surface->pixels);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	self.sprite_program = gl_program_new(
-		// vertex shader
-		R"GLSL(
-			#version 330 core
-			uniform mat4 projection_view_model;
-
-			out vec2 vs_tex_coord;
-
-			const vec2 quad[6] = vec2[] (
-				vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
-				vec2(-1, -1), vec2(1, -1), vec2(1, 1)
-			);
-
-			const vec2 tex_coords[6] = vec2[] (
-				vec2(1, 1), vec2(0, 1), vec2(0, 0),
-				vec2(0, 0), vec2(1, 0), vec2(1, 1)
-			);
-
-			void main() {
-				gl_Position = projection_view_model * vec4(quad[gl_VertexID], 0, 1);
-				vs_tex_coord = tex_coords[gl_VertexID];
-			}
-		)GLSL",
-
-		// fragment shader
-		R"GLSL(
-			#version 330 core
-			in vec2 vs_tex_coord;
-
-			out vec4 out_fragcolor;
-
-			uniform sampler2D quad_texture;
-			uniform vec3 color;
-
-			void main() {
-				// out_fragcolor = vec4(1, 0, 0, 1);
-				out_fragcolor = texture(quad_texture, vs_tex_coord).r * vec4(color, 1);
-			}
-		)GLSL"
-	);
-
-	// zl_sprite
-	self.zl_sprite_surface = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
-	if (self.zl_sprite_surface == nullptr || self.zl_sprite_surface->pixels == nullptr) {
-		mu::panic("failed to load rwlight.png");
-	}
-	glGenTextures(1, &self.zl_sprite_texture);
-	glBindTexture(GL_TEXTURE_2D, self.zl_sprite_texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, self.zl_sprite_surface->w, self.zl_sprite_surface->h, 0, GL_RED, GL_UNSIGNED_INT, self.zl_sprite_surface->pixels);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-	// text
-	self.text_rendering.program = gl_program_new(
-		// vertex shader
-		R"GLSL(
-			#version 330 core
-			layout (location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
-			out vec2 vs_tex_coord;
-
-			uniform mat4 projection;
-
-			void main() {
-				gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
-				vs_tex_coord = vertex.zw;
-			}
-		)GLSL",
-		// fragment shader
-		R"GLSL(
-			#version 330 core
-			in vec2 vs_tex_coord;
-			out vec4 color;
-
-			uniform sampler2D text_texture;
-			uniform vec3 text_color;
-
-			void main() {
-				vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text_texture, vs_tex_coord).r);
-				color = vec4(text_color, 1.0) * sampled;
-			}
-		)GLSL"
-	);
-
-	// texture quads
-	glGenVertexArrays(1, &self.text_rendering.vao);
-	glGenBuffers(1, &self.text_rendering.vbo);
-	glBindVertexArray(self.text_rendering.vao);
-		glBindBuffer(GL_ARRAY_BUFFER, self.text_rendering.vbo);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindVertexArray(0);
-
-	// disable byte-alignment restriction
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-	// freetype
-	FT_Library ft;
-	if (FT_Init_FreeType(&ft)) {
-		mu::panic("could not init FreeType Library");
-	}
-	defer(FT_Done_FreeType(ft));
-
-	FT_Face face;
-	if (FT_New_Face(ft, ASSETS_DIR "/fonts/zig.ttf", 0, &face)) {
-		mu::panic("failed to load font");
-	}
-	defer(FT_Done_Face(face));
-
-	uint16_t face_height = 48;
-	uint16_t face_width = 0; // auto
-	if (FT_Set_Pixel_Sizes(face, face_width, face_height)) {
-		mu::panic("failed to set pixel size of font face");
-	}
-
-	if (FT_Load_Char(face, 'X', FT_LOAD_RENDER)) {
-		mu::panic("failed to load glyph");
-	}
-
-	// generate textures
-	for (uint8_t c = 0; c < self.text_rendering.glyphs.size(); c++) {
-		if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
-			mu::panic("failed to load glyph");
-		}
-
-		GLuint text_texture;
-		glGenTextures(1, &text_texture);
-		glBindTexture(GL_TEXTURE_2D, text_texture);
-		glTexImage2D(
-			GL_TEXTURE_2D,
-			0,
-			GL_RED,
-			face->glyph->bitmap.width,
-			face->glyph->bitmap.rows,
-			0,
-			GL_RED,
-			GL_UNSIGNED_BYTE,
-			face->glyph->bitmap.buffer
-		);
-
-		// texture options
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		self.text_rendering.glyphs[c] = Glyph {
-			.texture = text_texture,
-			.size = glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
-			.bearing = glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
-			.advance = uint32_t(face->glyph->advance.x)
-		};
-	}
-
-	gl_process_errors();
-}
-
-void canvas_free(Canvas& self) {
-	glUseProgram(0);
-	glBindVertexArray(0);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	// text rendering
-	gl_program_free(self.text_rendering.program);
-	glDeleteBuffers(1, &self.text_rendering.vbo);
-	glDeleteVertexArrays(1, &self.text_rendering.vao);
-	for (auto& g : self.text_rendering.glyphs) {
-		glDeleteTextures(1, &g.texture);
-	}
-
-	// zl sprite
-	SDL_FreeSurface(self.zl_sprite_surface);
-	glDeleteTextures(1, &self.zl_sprite_texture);
-
-	// groundtile
-	SDL_FreeSurface(self.groundtile_surface);
-	glDeleteTextures(1, &self.groundtile_texture);
-
-	glDeleteVertexArrays(1, &self.dummy_vao);
-
-	// box rendering
-	glDeleteBuffers(1, &self.box_rendering.vbo);
-	glDeleteVertexArrays(1, &self.box_rendering.vao);
-
-	// axis rendering
-	glDeleteBuffers(1, &self.axis_rendering.vbo);
-	glDeleteVertexArrays(1, &self.axis_rendering.vao);
-
-	gl_program_free(self.meshes_program);
-	gl_program_free(self.lines_program);
-	gl_program_free(self.picture2d_program);
-	gl_program_free(self.ground_program);
-	gl_program_free(self.sprite_program);
-}
-
 // precalculated matrices
 struct CachedMatrices {
 	glm::mat4 view;
@@ -2957,6 +2472,8 @@ struct LoopTimer {
 
 	// seconds since previous frame
 	double delta_time;
+
+	bool ready;
 };
 
 uint64_t time_now_millis() {
@@ -2965,38 +2482,6 @@ uint64_t time_now_millis() {
 
 void time_delay_millis(uint32_t millis) {
 	SDL_Delay(millis);
-}
-
-LoopTimer loop_timer_new(uint64_t now_millis) {
-	return LoopTimer {
-		._last_time_millis = now_millis,
-		._millis_till_render = 0
-	};
-}
-
-// call in a loop as long it's true
-bool loop_timer_update(LoopTimer& self, Settings& settings, uint64_t now_millis) {
-	const uint64_t delta_time_millis = now_millis - self._last_time_millis;
-	self._last_time_millis = now_millis;
-
-	if (settings.should_limit_fps) {
-		int millis_diff = (1000 / settings.fps_limit) - delta_time_millis;
-		self._millis_till_render = clamp<int64_t>(self._millis_till_render - millis_diff, 0, 1000);
-		if (self._millis_till_render > 0) {
-			return true;
-		} else {
-			self._millis_till_render = 1000 / settings.fps_limit;
-			self.delta_time = 1.0f/ settings.fps_limit;
-		}
-	} else {
-		self.delta_time = (double) delta_time_millis / 1000;
-	}
-
-	if (self.delta_time < 0.0001f) {
-		self.delta_time = 0.0001f;
-	}
-
-	return false;
 }
 
 struct World {
@@ -3177,7 +2662,11 @@ namespace sys {
 					ImGui::Checkbox("Rotate Around", &world.camera.enable_rotating_around);
 				} else {
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", world.start_infos[start_info_index].name.c_str())) {
+					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : world.start_infos[start_info_index].name.c_str())) {
+						if (ImGui::Selectable("-NULL-", -1 == start_info_index)) {
+							start_info_index = -1;
+							world.camera.position = {};
+						}
 						for (size_t j = 0; j < world.start_infos.size(); j++) {
 							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
@@ -3381,7 +2870,11 @@ namespace sys {
 					}
 
 					static size_t start_info_index = 0;
-					if (ImGui::BeginCombo("Start Pos", world.start_infos[start_info_index].name.c_str())) {
+					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : world.start_infos[start_info_index].name.c_str())) {
+						if (ImGui::Selectable("-NULL-", -1 == start_info_index)) {
+							start_info_index = -1;
+							aircraft_set_start(world.aircrafts[i], StartInfo { .name="-NULL-" });
+						}
 						for (size_t j = 0; j < world.start_infos.size(); j++) {
 							if (ImGui::Selectable(world.start_infos[j].name.c_str(), j == start_info_index)) {
 								start_info_index = j;
@@ -3688,15 +3181,544 @@ namespace sys {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
 
-	void canvas_reset(World& world) {
+	void loop_timer_update(World& world) {
+		auto& self = world.loop_timer;
+		auto& settings = world.settings;
+
+		auto now_millis = time_now_millis();
+		const uint64_t delta_time_millis = now_millis - self._last_time_millis;
+		self._last_time_millis = now_millis;
+
+		if (settings.should_limit_fps) {
+			int millis_diff = (1000 / settings.fps_limit) - delta_time_millis;
+			self._millis_till_render = clamp<int64_t>(self._millis_till_render - millis_diff, 0, 1000);
+			if (self._millis_till_render > 0) {
+				self.ready = false;
+				return;
+			} else {
+				self._millis_till_render = 1000 / settings.fps_limit;
+				self.delta_time = 1.0f/ settings.fps_limit;
+			}
+		} else {
+			self.delta_time = (double) delta_time_millis / 1000;
+		}
+
+		if (self.delta_time < 0.0001f) {
+			self.delta_time = 0.0001f;
+		}
+
+		self.ready = true;
+	}
+
+	void audio_init(World& world) {
+		audio_device_init(&world.audio_device);
+		sounds_load(world.sounds);
+	}
+
+	void audio_free(World& world) {
+		sounds_free(world.sounds);
+		audio_device_free(world.audio_device);
+	}
+
+	void canvas_init(World& world) {
 		auto& self = world.canvas;
 
-		self._arena = {};
-		self.overlay_text_list = mu::Vec<mu::Str>(&self._arena);
-		self.text_list         = mu::Vec<TextRenderReq>(&self._arena);
-		self.axis_list         = mu::Vec<glm::mat4>(&self._arena);
-		self.boxes_list        = mu::Vec<Box>(&self._arena);
-		self.zlpoints_list     = mu::Vec<ZLPoint>(&self._arena);
+		self.meshes_program = gl_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				layout (location = 0) in vec3 attr_position;
+				layout (location = 1) in vec4 attr_color;
+				// layout (location = 2) in vec3 attr_normal;
+
+				uniform mat4 projection_view_model;
+
+				out float vs_vertex_y;
+				out vec4 vs_color;
+				// out vec3 vs_normal;
+
+				void main() {
+					gl_Position = projection_view_model * vec4(attr_position, 1.0);
+					vs_color = attr_color;
+					// vs_normal = attr_normal;
+					vs_vertex_y = attr_position.y;
+				}
+			)GLSL",
+
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+				in float vs_vertex_y;
+				in vec4 vs_color;
+				// in vec3 vs_normal;
+
+				out vec4 out_fragcolor;
+
+				uniform bool is_light_source;
+
+				uniform bool gradient_enabled;
+				uniform float gradient_bottom_y, gradient_top_y;
+				uniform vec3 gradient_bottom_color, gradient_top_color;
+
+				void main() {
+					if (vs_color.a == 0) {
+						discard;
+					} else if (gradient_enabled) {
+						float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
+						out_fragcolor = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
+					} else {
+						out_fragcolor = vs_color;
+					}
+				}
+			)GLSL"
+		);
+
+		{
+			struct Stride {
+				glm::vec3 vertex;
+				glm::vec4 color;
+			};
+			const mu::Vec<Stride> buffer {
+				Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
+				Stride {{1, 0, 0}, {1, 0, 0, 1}},
+				Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
+				Stride {{0, 1, 0}, {0, 1, 0, 1}},
+				Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
+				Stride {{0, 0, 1}, {0, 0, 1, 1}},
+			};
+			self.axis_rendering.points_count = buffer.size();
+
+			glGenVertexArrays(1, &self.axis_rendering.vao);
+			glBindVertexArray(self.axis_rendering.vao);
+				glGenBuffers(1, &self.axis_rendering.vbo);
+				glBindBuffer(GL_ARRAY_BUFFER, self.axis_rendering.vbo);
+				glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
+
+				size_t offset = 0;
+
+				glEnableVertexAttribArray(0);
+				glVertexAttribPointer(
+					0,              /*index*/
+					3,              /*#components*/
+					GL_FLOAT,       /*type*/
+					GL_FALSE,       /*normalize*/
+					sizeof(Stride), /*stride bytes*/
+					(void*)offset   /*offset*/
+				);
+				offset += sizeof(Stride::vertex);
+
+				glEnableVertexAttribArray(1);
+				glVertexAttribPointer(
+					1,              /*index*/
+					4,              /*#components*/
+					GL_FLOAT,       /*type*/
+					GL_FALSE,       /*normalize*/
+					sizeof(Stride), /*stride bytes*/
+					(void*)offset   /*offset*/
+				);
+				offset += sizeof(Stride::color);
+			glBindVertexArray(0);
+
+			gl_process_errors();
+		}
+
+		self.lines_program = gl_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				layout (location = 0) in vec3 attr_position;
+				uniform mat4 projection_view_model;
+				void main() {
+					gl_Position = projection_view_model * vec4(attr_position, 1.0);
+				}
+			)GLSL",
+
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+				uniform vec3 color;
+				out vec4 out_fragcolor;
+				void main() {
+					out_fragcolor = vec4(color, 1.0f);
+				}
+			)GLSL"
+		);
+
+		{
+			const mu::Vec<glm::vec3> buffer {
+				{0, 0, 0}, // face x0
+				{0, 1, 0},
+				{0, 1, 1},
+				{0, 0, 1},
+				{0, 0, 0},
+				{1, 0, 0}, // face x1
+				{1, 1, 0},
+				{1, 1, 1},
+				{1, 0, 1},
+				{1, 0, 0},
+				{0, 0, 0}, // face y0
+				{1, 0, 0},
+				{1, 0, 1},
+				{0, 0, 1},
+				{0, 0, 0},
+				{0, 1, 0}, // face y1
+				{1, 1, 0},
+				{1, 1, 1},
+				{0, 1, 1},
+				{0, 1, 0},
+				{0, 0, 0}, // face z0
+				{1, 0, 0},
+				{1, 1, 0},
+				{0, 1, 0},
+				{0, 0, 0},
+				{0, 0, 1}, // face z1
+				{1, 0, 1},
+				{1, 1, 1},
+				{0, 1, 1},
+				{0, 0, 1},
+			};
+			self.box_rendering.points_count = buffer.size();
+
+			glGenVertexArrays(1, &self.box_rendering.vao);
+			glBindVertexArray(self.box_rendering.vao);
+				glGenBuffers(1, &self.box_rendering.vbo);
+				glBindBuffer(GL_ARRAY_BUFFER, self.box_rendering.vbo);
+				glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(glm::vec3), buffer.data(), GL_STATIC_DRAW);
+
+				glEnableVertexAttribArray(0);
+				glVertexAttribPointer(
+					0,                 /*index*/
+					3,                 /*#components*/
+					GL_FLOAT,          /*type*/
+					GL_FALSE,          /*normalize*/
+					sizeof(glm::vec3), /*stride bytes*/
+					(void*)0           /*offset*/
+				);
+			glBindVertexArray(0);
+
+			gl_process_errors();
+		}
+
+		self.picture2d_program = gl_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				layout (location = 0) in vec2 attr_position;
+
+				uniform mat4 projection_view_model;
+
+				out float vs_vertex_id;
+
+				void main() {
+					gl_Position = projection_view_model * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
+					vs_vertex_id = gl_VertexID % 6;
+				}
+			)GLSL",
+
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+
+				in float vs_vertex_id;
+
+				uniform vec3 primitive_color[2];
+				uniform bool gradation_enabled;
+				uniform sampler2D groundtile;
+
+				out vec4 out_fragcolor;
+
+				const int color_indices[6] = int[] (
+					0, 1, 1,
+					0, 0, 1
+				);
+
+				const vec2 tex_coords[3] = vec2[] (
+					vec2(0, 0), vec2(1, 0), vec2(1, 1)
+				);
+
+				void main() {
+					int color_index = 0;
+					if (gradation_enabled) {
+						color_index = color_indices[int(vs_vertex_id)];
+					}
+					out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).r * vec4(primitive_color[color_index], 1.0);
+				}
+			)GLSL"
+		);
+
+		// https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
+		self.ground_program = gl_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				uniform mat4 proj_inv_view_inv;
+
+				out vec3 vs_near_point;
+				out vec3 vs_far_point;
+
+				// grid position are in clipped space
+				const vec2 grid_plane[6] = vec2[] (
+					vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
+					vec2(-1, -1), vec2(1, -1), vec2(1, 1)
+				);
+
+				vec3 unproject_point(float x, float y, float z) {
+					vec4 unprojectedPoint = proj_inv_view_inv * vec4(x, y, z, 1.0);
+					return unprojectedPoint.xyz / unprojectedPoint.w;
+				}
+
+				void main() {
+					vec2 p        = grid_plane[gl_VertexID];
+
+					vs_near_point = unproject_point(p.x, p.y, 0.0); // unprojecting on the near plane
+					vs_far_point  = unproject_point(p.x, p.y, 1.0); // unprojecting on the far plane
+					gl_Position   = vec4(p.x, p.y, 0.0, 1.0);       // using directly the clipped coordinates
+				}
+			)GLSL",
+
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+				in vec3 vs_near_point;
+				in vec3 vs_far_point;
+
+				out vec4 out_fragcolor;
+
+				uniform vec3 color;
+				uniform sampler2D groundtile;
+				uniform mat4 projection;
+
+				void main() {
+					float t = -vs_near_point.y / (vs_far_point.y - vs_near_point.y);
+					if (t <= 0) {
+						discard;
+					} else {
+						vec3 frag_pos_3d = vs_near_point + t * (vs_far_point - vs_near_point);
+						vec4 clip_space_pos = projection * vec4(frag_pos_3d, 1.0);
+
+						out_fragcolor = vec4(texture(groundtile, clip_space_pos.xz / 600).x * color, 1.0);
+					}
+				}
+			)GLSL"
+		);
+
+		glGenVertexArrays(1, &self.dummy_vao);
+
+		// groundtile
+		self.groundtile_surface = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
+		if (self.groundtile_surface == nullptr || self.groundtile_surface->pixels == nullptr) {
+			mu::panic("failed to load groundtile.png");
+		}
+		glGenTextures(1, &self.groundtile_texture);
+		glBindTexture(GL_TEXTURE_2D, self.groundtile_texture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, self.groundtile_surface->w, self.groundtile_surface->h, 0, GL_RED, GL_UNSIGNED_BYTE, self.groundtile_surface->pixels);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		self.sprite_program = gl_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				uniform mat4 projection_view_model;
+
+				out vec2 vs_tex_coord;
+
+				const vec2 quad[6] = vec2[] (
+					vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
+					vec2(-1, -1), vec2(1, -1), vec2(1, 1)
+				);
+
+				const vec2 tex_coords[6] = vec2[] (
+					vec2(1, 1), vec2(0, 1), vec2(0, 0),
+					vec2(0, 0), vec2(1, 0), vec2(1, 1)
+				);
+
+				void main() {
+					gl_Position = projection_view_model * vec4(quad[gl_VertexID], 0, 1);
+					vs_tex_coord = tex_coords[gl_VertexID];
+				}
+			)GLSL",
+
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+				in vec2 vs_tex_coord;
+
+				out vec4 out_fragcolor;
+
+				uniform sampler2D quad_texture;
+				uniform vec3 color;
+
+				void main() {
+					// out_fragcolor = vec4(1, 0, 0, 1);
+					out_fragcolor = texture(quad_texture, vs_tex_coord).r * vec4(color, 1);
+				}
+			)GLSL"
+		);
+
+		// zl_sprite
+		self.zl_sprite_surface = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
+		if (self.zl_sprite_surface == nullptr || self.zl_sprite_surface->pixels == nullptr) {
+			mu::panic("failed to load rwlight.png");
+		}
+		glGenTextures(1, &self.zl_sprite_texture);
+		glBindTexture(GL_TEXTURE_2D, self.zl_sprite_texture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, self.zl_sprite_surface->w, self.zl_sprite_surface->h, 0, GL_RED, GL_UNSIGNED_INT, self.zl_sprite_surface->pixels);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+		// text
+		self.text_rendering.program = gl_program_new(
+			// vertex shader
+			R"GLSL(
+				#version 330 core
+				layout (location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
+				out vec2 vs_tex_coord;
+
+				uniform mat4 projection;
+
+				void main() {
+					gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
+					vs_tex_coord = vertex.zw;
+				}
+			)GLSL",
+			// fragment shader
+			R"GLSL(
+				#version 330 core
+				in vec2 vs_tex_coord;
+				out vec4 color;
+
+				uniform sampler2D text_texture;
+				uniform vec3 text_color;
+
+				void main() {
+					vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text_texture, vs_tex_coord).r);
+					color = vec4(text_color, 1.0) * sampled;
+				}
+			)GLSL"
+		);
+
+		// texture quads
+		glGenVertexArrays(1, &self.text_rendering.vao);
+		glGenBuffers(1, &self.text_rendering.vbo);
+		glBindVertexArray(self.text_rendering.vao);
+			glBindBuffer(GL_ARRAY_BUFFER, self.text_rendering.vbo);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glBindVertexArray(0);
+
+		// disable byte-alignment restriction
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+		// freetype
+		FT_Library ft;
+		if (FT_Init_FreeType(&ft)) {
+			mu::panic("could not init FreeType Library");
+		}
+		defer(FT_Done_FreeType(ft));
+
+		FT_Face face;
+		if (FT_New_Face(ft, ASSETS_DIR "/fonts/zig.ttf", 0, &face)) {
+			mu::panic("failed to load font");
+		}
+		defer(FT_Done_Face(face));
+
+		uint16_t face_height = 48;
+		uint16_t face_width = 0; // auto
+		if (FT_Set_Pixel_Sizes(face, face_width, face_height)) {
+			mu::panic("failed to set pixel size of font face");
+		}
+
+		if (FT_Load_Char(face, 'X', FT_LOAD_RENDER)) {
+			mu::panic("failed to load glyph");
+		}
+
+		// generate textures
+		for (uint8_t c = 0; c < self.text_rendering.glyphs.size(); c++) {
+			if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
+				mu::panic("failed to load glyph");
+			}
+
+			GLuint text_texture;
+			glGenTextures(1, &text_texture);
+			glBindTexture(GL_TEXTURE_2D, text_texture);
+			glTexImage2D(
+				GL_TEXTURE_2D,
+				0,
+				GL_RED,
+				face->glyph->bitmap.width,
+				face->glyph->bitmap.rows,
+				0,
+				GL_RED,
+				GL_UNSIGNED_BYTE,
+				face->glyph->bitmap.buffer
+			);
+
+			// texture options
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			self.text_rendering.glyphs[c] = Glyph {
+				.texture = text_texture,
+				.size = glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+				.bearing = glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+				.advance = uint32_t(face->glyph->advance.x)
+			};
+		}
+
+		gl_process_errors();
+	}
+
+	void canvas_free(World& world) {
+		auto& self = world.canvas;
+
+		glUseProgram(0);
+		glBindVertexArray(0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		// text rendering
+		gl_program_free(self.text_rendering.program);
+		glDeleteBuffers(1, &self.text_rendering.vbo);
+		glDeleteVertexArrays(1, &self.text_rendering.vao);
+		for (auto& g : self.text_rendering.glyphs) {
+			glDeleteTextures(1, &g.texture);
+		}
+
+		// zl sprite
+		SDL_FreeSurface(self.zl_sprite_surface);
+		glDeleteTextures(1, &self.zl_sprite_texture);
+
+		// groundtile
+		SDL_FreeSurface(self.groundtile_surface);
+		glDeleteTextures(1, &self.groundtile_texture);
+
+		glDeleteVertexArrays(1, &self.dummy_vao);
+
+		// box rendering
+		glDeleteBuffers(1, &self.box_rendering.vbo);
+		glDeleteVertexArrays(1, &self.box_rendering.vao);
+
+		// axis rendering
+		glDeleteBuffers(1, &self.axis_rendering.vbo);
+		glDeleteVertexArrays(1, &self.axis_rendering.vao);
+
+		gl_program_free(self.meshes_program);
+		gl_program_free(self.lines_program);
+		gl_program_free(self.picture2d_program);
+		gl_program_free(self.ground_program);
+		gl_program_free(self.sprite_program);
+	}
+
+	void canvas_rendering_begin(World& world) {
+		auto& self = world.canvas;
 
 		if (world.events.wnd_size_changed) {
 			int w, h;
@@ -3722,6 +3744,20 @@ namespace sys {
 		}
 		glPointSize(world.settings.rendering.point_size);
 		glPolygonMode(GL_FRONT_AND_BACK, world.settings.rendering.polygon_mode);
+	}
+
+	void canvas_rendering_end(World& world) {
+		auto& self = world.canvas;
+
+		SDL_GL_SwapWindow(world.sdl_window);
+		gl_process_errors();
+
+		self._arena = {};
+		self.overlay_text_list = mu::Vec<mu::Str>(&self._arena);
+		self.text_list         = mu::Vec<TextRenderReq>(&self._arena);
+		self.axis_list         = mu::Vec<glm::mat4>(&self._arena);
+		self.boxes_list        = mu::Vec<Box>(&self._arena);
+		self.zlpoints_list     = mu::Vec<ZLPoint>(&self._arena);
 	}
 
 	void _camera_update_model_tracking_mode(World& world) {
@@ -3899,11 +3935,18 @@ namespace sys {
 	}
 
 	void aircrafts_init(World& world) {
+		world.aircraft_templates = aircraft_templates_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
+
 		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
+		if (world.start_infos.size() > 0) {
+			aircraft_set_start(ys11, world.start_infos[1]);
+		}
 		world.aircrafts.push_back(ys11);
+
+		world.camera.aircraft = &world.aircrafts[0];
 	}
 
-	void models_free(World& world) {
+	void aircrafts_free(World& world) {
 		for (auto& aircraft : world.aircrafts) {
 			if (aircraft.engine_sound) {
 				audio_device_stop(world.audio_device, *aircraft.engine_sound);
@@ -4284,6 +4327,15 @@ namespace sys {
 		}
 	}
 
+	void fields_init(World& world) {
+		world.field = field_new(ASSETS_DIR "/scenery/small.fld");
+		world.start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
+	}
+
+	void fields_free(World& world) {
+		field_unload_from_gpu(world.field);
+	}
+
 	void fields_update(World& world) {
 		if (world.field.should_select_file) {
 			world.field.should_select_file = false;
@@ -4601,50 +4653,33 @@ int main() {
 	sys::imgui_init(world);
 	defer(sys::imgui_shutdown(world));
 
-	canvas_init(world.canvas);
-	defer(canvas_free(world.canvas));
+	sys::canvas_init(world);
+	defer(sys::canvas_free(world));
 
-	audio_device_init(&world.audio_device);
-	defer(audio_device_free(world.audio_device));
-	sounds_load(world.sounds);
-	defer(sounds_free(world.sounds));
+	sys::audio_init(world);
+	defer(sys::audio_free(world));
 
-	// aircrafts list
-	world.aircraft_templates = aircraft_templates_from_lst_file(ASSETS_DIR "/aircraft/aircraft.lst");
+	sys::fields_init(world);
+	defer(sys::fields_free(world));
 
-	// models
 	sys::aircrafts_init(world);
-	defer(sys::models_free(world));
+	defer(sys::aircrafts_free(world));
 
-	// field
-	world.field = field_from_fld_file(ASSETS_DIR "/scenery/small.fld");
-	field_load_to_gpu(world.field);
-	defer(field_unload_from_gpu(world.field));
-
-	// start infos
-	world.start_infos = start_info_from_stp_file(ASSETS_DIR "/scenery/small.stp");
-	world.start_infos.insert(world.start_infos.begin(), StartInfo {
-		.name="-NULL-"
-	});
-	for (int i = 0; i < world.aircrafts.size(); i++) {
-		aircraft_set_start(world.aircrafts[i], world.start_infos[mod(i+1, world.start_infos.size())]);
-	}
-
-	// camera
-	world.camera = Camera {
-		.aircraft = &world.aircrafts[0]
-	};
-
-	world.loop_timer = loop_timer_new(time_now_millis());
-
-	// main loop
 	while (!world.events.quit) {
-		if (loop_timer_update(world.loop_timer, world.settings, time_now_millis())) {
+		sys::loop_timer_update(world);
+		if (!world.loop_timer.ready) {
 			time_delay_millis(2);
 			continue;
 		}
 
-		sys::canvas_reset(world);
+		sys::events_update(world);
+
+		sys::projection_update(world);
+		sys::camera_update(world);
+		sys::cached_matrices_recalc(world);
+
+		sys::fields_update(world);
+		sys::aircrafts_update(world);
 
 		// sample text
 		world.canvas.text_list.push_back(TextRenderReq {
@@ -4656,28 +4691,20 @@ int main() {
 		});
 		world.canvas.overlay_text_list.push_back(mu::str_tmpf("fps: {:.2f}", 1.0f/world.loop_timer.delta_time));
 
-		sys::events_update(world);
+		sys::canvas_rendering_begin(world); {
+			sys::fields_render(world);
 
-		sys::projection_update(world);
-		sys::camera_update(world);
-		sys::cached_matrices_recalc(world);
+			sys::aircrafts_render(world);
+			sys::zlpoints_render(world);
 
-		sys::fields_update(world);
-		sys::aircrafts_update(world);
+			sys::axis_render(world);
+			sys::boxes_render(world);
+			sys::text_render(world);
 
-		// render objects
-		sys::fields_render(world);
-		sys::aircrafts_render(world);
-		sys::zlpoints_render(world);
-		sys::axis_render(world);
-		sys::boxes_render(world);
-		sys::text_render(world);
+			sys::imgui_render(world);
+		}
+		sys::canvas_rendering_end(world);
 
-		sys::imgui_render(world);
-
-		SDL_GL_SwapWindow(world.sdl_window);
-
-		gl_process_errors();
 		mu::memory::reset_tmp();
 	}
 
