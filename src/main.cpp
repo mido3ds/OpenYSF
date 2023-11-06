@@ -2220,7 +2220,6 @@ Field _field_from_fld_str(Parser& parser) {
 
 			parser_expect(parser, "NAM ");
 			gob.name = parser_token_str(parser);
-			_str_to_lower(gob.name);
 
 			// TODO don't understand yet IFF and FLG, skip them
 			parser_skip_after(parser, "END\n");
@@ -2463,9 +2462,10 @@ void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::
 				}
 			}
 
-			auto i = tmpl.dat.find_last_of('/') + 1;
-			auto j = tmpl.dat.size() - 4;
-			tmpl.short_name = tmpl.dat.substr(i, j-i);
+			// get short_name from dat IDENTIFY
+			auto dat_parser = parser_from_file(tmpl.dat, mu::memory::tmp());
+			parser_skip_after(dat_parser, "IDENTIFY ");
+			tmpl.short_name = parser_token_str(dat_parser);
 
 			map[tmpl.short_name] = std::move(tmpl);
 		}
@@ -4633,6 +4633,8 @@ namespace sys {
 				if (tmpl_it != world.ground_obj_templates.end()) {
 					const auto& [_, gob_tmpl] = *tmpl_it;
 					world.ground_objs.push_back(ground_obj_new(gob_tmpl, gob_s->pos, gob_s->rotation));
+				} else {
+					mu::log_error("tryed to load {} but didn't find it in ground_obj_templates, ignore it", gob_s->name);
 				}
 			}
 		}

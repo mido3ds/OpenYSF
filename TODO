@@ -1,5 +1,4 @@
 - ground objects:
-	- extract name from dat file and use instead of NAM lower case (see londontower)
 	- heathrow: totally broken ground objects rotations
 - mac: fix change line width
 - render aircraft vectors:
