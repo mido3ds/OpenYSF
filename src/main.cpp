@@ -2874,7 +2874,7 @@ namespace sys {
         ImGui::NewFrame();
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
-		if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		if (ImGui::Begin("Debug")) {
 			if (ImGui::TreeNodeEx("Window")) {
 				ImGui::Checkbox("Limit FPS", &world.settings.should_limit_fps);
 				ImGui::BeginDisabled(!world.settings.should_limit_fps); {
@@ -3087,28 +3087,25 @@ namespace sys {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode(mu::str_tmpf("Scenery ({})", world.scenery.scenery_template.name).c_str())) {
-				world.scenery.should_be_loaded = ImGui::Button("Reload");
-				ImGui::SameLine();
-				if (ImGui::BeginCombo("##scenery.name", world.scenery.scenery_template.name.c_str())) {
-					for (const auto& [name, scenery_template] : world.scenery_templates) {
-						if (ImGui::Selectable(name.c_str(), scenery_template.name == world.scenery.scenery_template.name)) {
-							world.scenery.scenery_template = scenery_template;
-							world.scenery.should_be_loaded = true;
-						}
-					}
+			ImGui::Separator();
+			ImGui::Text("Scenery");
 
-					ImGui::EndCombo();
+			if (ImGui::BeginCombo("##scenery.name", world.scenery.scenery_template.name.c_str())) {
+				for (const auto& [name, scenery_template] : world.scenery_templates) {
+					if (ImGui::Selectable(name.c_str(), scenery_template.name == world.scenery.scenery_template.name)) {
+						world.scenery.scenery_template = scenery_template;
+						world.scenery.should_be_loaded = true;
+					}
 				}
 
-				std::function<void(Field&,bool)> render_field_imgui;
-				render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
-					if (!is_root) {
-						if (!ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
-							return;
-						}
-					}
+				ImGui::EndCombo();
+			}
+			ImGui::SameLine();
+			world.scenery.should_be_loaded = ImGui::Button("Reload");
 
+			std::function<void(Field&,bool)> render_field_imgui;
+			render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
+				if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
 					if (ImGui::Button("Reset State")) {
 						field.state = field.initial_state;
 					}
@@ -3209,22 +3206,16 @@ namespace sys {
 						ImGui::Text("%s", gob.name.c_str());
 					}
 
-					if (!is_root) {
-						ImGui::TreePop();
-					}
-				};
-				render_field_imgui(world.scenery.root_fld, true);
-
-				ImGui::TreePop();
-			}
+					ImGui::TreePop();
+				}
+			};
+			render_field_imgui(world.scenery.root_fld, true);
 
 			ImGui::Separator();
 			ImGui::Text(mu::str_tmpf("Aircrafts {}:", world.aircrafts.size()).c_str());
 
 			{
-				const bool should_add_aircraft = ImGui::Button("Add##aircraft");
 				static mu::Str aircraft_to_add = world.aircraft_templates.begin()->first;
-				ImGui::SameLine();
 				if (ImGui::BeginCombo("##new_aircraft", world.aircraft_templates[aircraft_to_add].short_name.c_str())) {
 					for (const auto& [name, aircraft] : world.aircraft_templates) {
 						if (ImGui::Selectable(name.c_str(), name == aircraft_to_add)) {
@@ -3234,8 +3225,8 @@ namespace sys {
 
 					ImGui::EndCombo();
 				}
-
-				if (should_add_aircraft) {
+				ImGui::SameLine();
+				if (ImGui::Button("Add##aircraft")) {
 					int tracked_model_index = -1;
 					for (int i = 0; i < world.aircrafts.size(); i++) {
 						if (world.camera.aircraft == &world.aircrafts[i]) {
@@ -3265,11 +3256,9 @@ namespace sys {
 				mu_assert(aircraft_template);
 
 				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, aircraft_template->short_name).c_str())) {
-					world.aircrafts[i].should_be_loaded = ImGui::Button("Reload");
-					ImGui::SameLine();
-					if (ImGui::BeginCombo("DNM", mu::Str(mu::file_get_base_name(world.aircrafts[i].aircraft_template.dnm), mu::memory::tmp()).c_str())) {
-						for (const auto& [name, aircraft_template] : world.aircraft_templates) {
-							if (ImGui::Selectable(name.c_str(), aircraft_template.short_name == world.aircrafts[i].aircraft_template.short_name)) {
+					if (ImGui::BeginCombo("##aircraft_to_load", aircraft_template->short_name.c_str())) {
+						for (const auto& [_name, aircraft_template] : world.aircraft_templates) {
+							if (ImGui::Selectable(aircraft_template.short_name.c_str(), aircraft_template.short_name == world.aircrafts[i].aircraft_template.short_name)) {
 								world.aircrafts[i].aircraft_template = aircraft_template;
 								world.aircrafts[i].should_be_loaded = true;
 							}
@@ -3277,7 +3266,9 @@ namespace sys {
 
 						ImGui::EndCombo();
 					}
+					ImGui::SameLine();
 
+					world.aircrafts[i].should_be_loaded = ImGui::Button("Reload");
 					world.aircrafts[i].should_be_removed = ImGui::Button("Remove");
 
 					if (ImGui::Button("Reset State")) {
@@ -3427,9 +3418,7 @@ namespace sys {
 			ImGui::Text(mu::str_tmpf("Ground Objs {}:", world.ground_objs.size()).c_str());
 
 			{
-				const bool should_add_gro_obj = ImGui::Button("Add##gro_obj");
 				static mu::Str gro_obj_to_add = world.ground_obj_templates.begin()->first;
-				ImGui::SameLine();
 				if (ImGui::BeginCombo("##new_ground_obj", world.ground_obj_templates[gro_obj_to_add].short_name.c_str())) {
 					for (const auto& [name, _gro] : world.ground_obj_templates) {
 						if (ImGui::Selectable(name.c_str(), name == gro_obj_to_add)) {
@@ -3439,8 +3428,8 @@ namespace sys {
 
 					ImGui::EndCombo();
 				}
-
-				if (should_add_gro_obj) {
+				ImGui::SameLine();
+				if (ImGui::Button("Add##gro_obj")) {
 					world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates[gro_obj_to_add], {}, {}));
 				}
 			}
@@ -3458,8 +3447,6 @@ namespace sys {
 				mu_assert(gro_obj_template);
 
 				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, gro_obj_template->short_name).c_str())) {
-					gro.should_be_loaded = ImGui::Button("Reload");
-					ImGui::SameLine();
 					if (ImGui::BeginCombo("Name", gro.ground_obj_template.short_name.c_str())) {
 						for (const auto& [name, gro_obj_template] : world.ground_obj_templates) {
 							if (ImGui::Selectable(name.c_str(), gro_obj_template.short_name == gro.ground_obj_template.short_name)) {
@@ -3471,6 +3458,7 @@ namespace sys {
 						ImGui::EndCombo();
 					}
 
+					gro.should_be_loaded = ImGui::Button("Reload");
 					gro.should_be_removed = ImGui::Button("Remove");
 
 					if (ImGui::Button("Reset State")) {
