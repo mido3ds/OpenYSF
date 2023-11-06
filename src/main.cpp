@@ -1174,9 +1174,11 @@ void _aircraft_templates_from_lst_file(mu::StrView lst_file_path, mu::Map<mu::St
 
 		while (parser_accept(parser, '\n')) { }
 
-		auto i = aircraft.dat.find_last_of('/') + 1;
-		auto j = aircraft.dat.size() - 4;
-		aircraft.short_name = aircraft.dat.substr(i, j-i);
+		// get short_name from dat IDENTIFY
+		auto dat_parser = parser_from_file(aircraft.dat, mu::memory::tmp());
+		parser_skip_after(dat_parser, "IDENTIFY ");
+		aircraft.short_name = parser_token_str(dat_parser);
+		_str_unquote(aircraft.short_name);
 
 		aircraft_templates[aircraft.short_name] = aircraft;
 	}
@@ -4698,7 +4700,7 @@ namespace sys {
 
 		world.aircraft_templates = aircraft_templates_from_dir(ASSETS_DIR "/aircraft");
 
-		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
+		auto ys11 = aircraft_new(world.aircraft_templates["YS-11"]);
 		world.aircrafts.push_back(ys11);
 
 		world.camera.aircraft = &world.aircrafts[0];
