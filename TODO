@@ -1,3 +1,6 @@
+- ground objects:
+	- extract name from dat file and use instead of NAM lower case (see londontower)
+	- heathrow: totally broken ground objects rotations
 - mac: fix change line width
 - render aircraft vectors:
 	- weight
@@ -21,9 +24,6 @@
 - put lines coords in shader
 - put box coords in shader
 - Scenery files
-	- read GOB at end of fld
-	- add dnm GOBs to field
-	- add srf GOBs to field (turn it into dnm?)
 	- small.fld bugs:
 		- biggest pic doesn't render/(tesselat?) correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)

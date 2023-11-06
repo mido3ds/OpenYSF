@@ -1617,6 +1617,12 @@ struct FieldRegion {
 	mu::Str tag;
 };
 
+struct GroundObjSpawn {
+	mu::Str name;
+	glm::vec3 pos, rotation;
+	FieldID id;
+};
+
 struct Field {
 	mu::Str name;
 	FieldID id;
@@ -1630,6 +1636,7 @@ struct Field {
 	mu::Vec<FieldRegion> regions;
 	mu::Vec<Field> subfields;
 	mu::Vec<Mesh> meshes;
+	mu::Vec<GroundObjSpawn> gobs;
 
 	bool should_be_transformed = true;
 	glm::mat4 transformation;
@@ -1640,6 +1647,10 @@ struct Field {
 		bool visible = true;
 	} state, initial_state;
 };
+
+void _str_to_lower(mu::Str& s) {
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+}
 
 Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, "FIELD\n");
@@ -2180,9 +2191,41 @@ Field _field_from_fld_str(Parser& parser) {
 			mu::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, "END\n");
 		} else if (parser_accept(parser, "GOB\n")) {
-			// TODO
-			mu::log_warning("{}: found GOB, doesn't understand it, skip for now", parser.curr_line+1);
+			GroundObjSpawn gob {};
+
+			parser_expect(parser, "POS ");
+			gob.pos.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			gob.pos.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			gob.pos.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
+
+			gob.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			gob.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			gob.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
+
+			parser_expect(parser, "ID ");
+			gob.id = (FieldID) parser_token_u8(parser);
+			parser_expect(parser, '\n');
+
+			if (parser_accept(parser, "TAG")) {
+				// TODO don't understand yet TAG, skip it
+				parser_skip_after(parser, '\n');
+
+			}
+
+			parser_expect(parser, "NAM ");
+			gob.name = parser_token_str(parser);
+			_str_to_lower(gob.name);
+
+			// TODO don't understand yet IFF and FLG, skip them
 			parser_skip_after(parser, "END\n");
+
+			field.gobs.push_back(std::move(gob));
 		} else if (parser_accept(parser, "AOB\n")) {
 			// TODO
 			mu::log_warning("{}: found AOB, doesn't understand it, skip for now", parser.curr_line+1);
@@ -2457,9 +2500,13 @@ struct GroundObj {
 	bool should_be_removed;
 };
 
-GroundObj ground_obj_new(GroundObjTemplate ground_obj_template) {
+GroundObj ground_obj_new(GroundObjTemplate ground_obj_template, glm::vec3 pos, glm::vec3 attitude) {
 	return GroundObj {
 		.ground_obj_template = ground_obj_template,
+		.state = {
+			.translation = pos,
+			.angles = local_euler_angles_from_attitude(attitude),
+		},
 		.should_be_loaded = true,
 	};
 }
@@ -2570,11 +2617,35 @@ struct Events {
 	glm::ivec2 mouse_pos;
 };
 
+struct Signal {
+	uint16_t _num_listeners, _num_handles;
+};
+
+void signal_listen(Signal& self) {
+	self._num_listeners++;
+}
+
+bool signal_handle(Signal& self) {
+	mu_assert_msg(self._num_listeners > 0, "signal has no registered listeners");
+
+	if (self._num_handles > 0) {
+		self._num_handles--;
+		return true;
+	}
+	return false;
+}
+
+void signal_fire(Signal& self) {
+	mu_assert_msg(self._num_listeners > 0, "signal has no registered listeners");
+
+	self._num_handles = self._num_listeners;
+}
+
 // same as Events but don't get reset each frame (to be able to handle at any frame)
 struct Signals {
-	bool quit;
-	bool wnd_size_changed;
-	int scenery_loaded;
+	Signal quit;
+	Signal wnd_configs_changed;
+	Signal scenery_loaded;
 };
 
 struct Settings {
@@ -2583,6 +2654,7 @@ struct Settings {
 	int fps_limit = 60;
 	bool custom_aspect_ratio = false;
 	float current_angle_max = DEGREES_MAX;
+	bool handle_collision = true;
 
 	struct {
 		bool smooth_lines = true;
@@ -2813,7 +2885,7 @@ namespace sys {
 				const bool width_changed = ImGui::InputInt("Width", &size[0]);
 				const bool height_changed = ImGui::InputInt("Height", &size[1]);
 				if (width_changed || height_changed) {
-					world.signals.wnd_size_changed = true;
+					signal_fire(world.signals.wnd_configs_changed);
 					SDL_SetWindowSize(world.sdl_window, size[0], size[1]);
 				}
 
@@ -2829,7 +2901,7 @@ namespace sys {
 			if (ImGui::TreeNode("Projection")) {
 				if (ImGui::Button("Reset")) {
 					world.projection = {};
-					world.signals.wnd_size_changed = true;
+					signal_fire(world.signals.wnd_configs_changed);
 				}
 
 				ImGui::InputFloat("near", &world.projection.near, 1, 10);
@@ -2837,7 +2909,7 @@ namespace sys {
 				ImGui::DragFloat("fovy (1/zoom)", &world.projection.fovy, 1, 1, 45);
 
 				if (ImGui::Checkbox("custom aspect", &world.settings.custom_aspect_ratio) && !world.settings.custom_aspect_ratio) {
-					world.signals.wnd_size_changed = true;
+					signal_fire(world.signals.wnd_configs_changed);
 				}
 				ImGui::BeginDisabled(!world.settings.custom_aspect_ratio);
 					ImGui::InputFloat("aspect", &world.projection.aspect, 1, 10);
@@ -2972,10 +3044,13 @@ namespace sys {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("AABB Rendering")) {
-                #ifndef OS_MACOS
+			if (ImGui::TreeNode("Physics")) {
+				#ifndef OS_MACOS
+				ImGui::Text("AABB Rendering");
 				ImGui::DragFloat("Line Width", &world.canvas.box_rendering.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
-                #endif
+				#endif
+
+				ImGui::Checkbox("Handle Collision", &world.settings.handle_collision);
 				ImGui::TreePop();
 			}
 
@@ -3010,7 +3085,7 @@ namespace sys {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Scenery")) {
+			if (ImGui::TreeNode(mu::str_tmpf("Scenery ({})", world.scenery.scenery_template.name).c_str())) {
 				world.scenery.should_be_loaded = ImGui::Button("Reload");
 				ImGui::SameLine();
 				if (ImGui::BeginCombo("##scenery.name", world.scenery.scenery_template.name.c_str())) {
@@ -3026,103 +3101,113 @@ namespace sys {
 
 				std::function<void(Field&,bool)> render_field_imgui;
 				render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
-					if (ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
-
-						if (ImGui::Button("Reset State")) {
-							field.state = field.initial_state;
+					if (!is_root) {
+						if (!ImGui::TreeNode(mu::str_tmpf("Field {}", field.name).c_str())) {
+							return;
 						}
+					}
 
-						MyImGui::EnumsCombo("ID", &field.id, {
-							{FieldID::NONE, "NONE"},
-							{FieldID::RUNWAY, "RUNWAY"},
-							{FieldID::TAXIWAY, "TAXIWAY"},
-							{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
-							{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
-							{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
-							{FieldID::TOWER, "TOWER"},
-							{FieldID::VIEW_POINT, "VIEW_POINT"},
-						});
+					if (ImGui::Button("Reset State")) {
+						field.state = field.initial_state;
+					}
 
-						MyImGui::EnumsCombo("Default Area", &field.default_area, {
-							{AreaKind::LAND, "LAND"},
-							{AreaKind::WATER, "WATER"},
-							{AreaKind::NOAREA, "NOAREA"},
-						});
-						ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
-						ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
-						ImGui::Checkbox("GND Specular", &field.ground_specular);
+					MyImGui::EnumsCombo("ID", &field.id, {
+						{FieldID::NONE, "NONE"},
+						{FieldID::RUNWAY, "RUNWAY"},
+						{FieldID::TAXIWAY, "TAXIWAY"},
+						{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+						{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+						{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+						{FieldID::TOWER, "TOWER"},
+						{FieldID::VIEW_POINT, "VIEW_POINT"},
+					});
 
-						ImGui::Checkbox("Visible", &field.state.visible);
+					MyImGui::EnumsCombo("Default Area", &field.default_area, {
+						{AreaKind::LAND, "LAND"},
+						{AreaKind::WATER, "WATER"},
+						{AreaKind::NOAREA, "NOAREA"},
+					});
+					ImGui::ColorEdit3("Sky Color", glm::value_ptr(field.sky_color));
+					ImGui::ColorEdit3("GND Color", glm::value_ptr(field.ground_color));
+					ImGui::Checkbox("GND Specular", &field.ground_specular);
 
-						ImGui::DragFloat3("Translation", glm::value_ptr(field.state.translation));
-						MyImGui::SliderAngle3("Rotation", &field.state.rotation, current_angle_max);
+					ImGui::Checkbox("Visible", &field.state.visible);
 
-						ImGui::BulletText("Sub Fields:");
-						for (auto& subfield : field.subfields) {
-							render_field_imgui(subfield, false);
-						}
+					ImGui::DragFloat3("Translation", glm::value_ptr(field.state.translation));
+					MyImGui::SliderAngle3("Rotation", &field.state.rotation, current_angle_max);
 
-						ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.size());
-						for (auto& terr_mesh : field.terr_meshes) {
-							if (ImGui::TreeNode(terr_mesh.name.c_str())) {
-								if (ImGui::Button("Reset State")) {
-									terr_mesh.state = terr_mesh.initial_state;
-								}
+					ImGui::BulletText("Sub Fields:");
+					for (auto& subfield : field.subfields) {
+						render_field_imgui(subfield, false);
+					}
 
-								ImGui::Text("Tag: %s", terr_mesh.tag.c_str());
-
-								MyImGui::EnumsCombo("ID", &terr_mesh.id, {
-									{FieldID::NONE, "NONE"},
-									{FieldID::RUNWAY, "RUNWAY"},
-									{FieldID::TAXIWAY, "TAXIWAY"},
-									{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
-									{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
-									{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
-									{FieldID::TOWER, "TOWER"},
-									{FieldID::VIEW_POINT, "VIEW_POINT"},
-								});
-
-								ImGui::Checkbox("Visible", &terr_mesh.state.visible);
-
-								ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.state.translation));
-								MyImGui::SliderAngle3("Rotation", &terr_mesh.state.rotation, current_angle_max);
-
-								ImGui::TreePop();
+					ImGui::BulletText("TerrMesh: %d", (int)field.terr_meshes.size());
+					for (auto& terr_mesh : field.terr_meshes) {
+						if (ImGui::TreeNode(terr_mesh.name.c_str())) {
+							if (ImGui::Button("Reset State")) {
+								terr_mesh.state = terr_mesh.initial_state;
 							}
+
+							ImGui::Text("Tag: %s", terr_mesh.tag.c_str());
+
+							MyImGui::EnumsCombo("ID", &terr_mesh.id, {
+								{FieldID::NONE, "NONE"},
+								{FieldID::RUNWAY, "RUNWAY"},
+								{FieldID::TAXIWAY, "TAXIWAY"},
+								{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+								{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+								{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+								{FieldID::TOWER, "TOWER"},
+								{FieldID::VIEW_POINT, "VIEW_POINT"},
+							});
+
+							ImGui::Checkbox("Visible", &terr_mesh.state.visible);
+
+							ImGui::DragFloat3("Translation", glm::value_ptr(terr_mesh.state.translation));
+							MyImGui::SliderAngle3("Rotation", &terr_mesh.state.rotation, current_angle_max);
+
+							ImGui::TreePop();
 						}
+					}
 
-						ImGui::BulletText("Pict2: %d", (int)field.pictures.size());
-						for (auto& picture : field.pictures) {
-							if (ImGui::TreeNode(picture.name.c_str())) {
-								if (ImGui::Button("Reset State")) {
-									picture.state = picture.initial_state;
-								}
-
-								MyImGui::EnumsCombo("ID", &picture.id, {
-									{FieldID::NONE, "NONE"},
-									{FieldID::RUNWAY, "RUNWAY"},
-									{FieldID::TAXIWAY, "TAXIWAY"},
-									{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
-									{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
-									{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
-									{FieldID::TOWER, "TOWER"},
-									{FieldID::VIEW_POINT, "VIEW_POINT"},
-								});
-
-								ImGui::Checkbox("Visible", &picture.state.visible);
-
-								ImGui::DragFloat3("Translation", glm::value_ptr(picture.state.translation));
-								MyImGui::SliderAngle3("Rotation", &picture.state.rotation, current_angle_max);
-
-								ImGui::TreePop();
+					ImGui::BulletText("Pict2: %d", (int)field.pictures.size());
+					for (auto& picture : field.pictures) {
+						if (ImGui::TreeNode(picture.name.c_str())) {
+							if (ImGui::Button("Reset State")) {
+								picture.state = picture.initial_state;
 							}
-						}
 
-						ImGui::BulletText("Meshes: %d", (int)field.meshes.size());
-						for (auto& mesh : field.meshes) {
-							ImGui::Text("%s", mesh.name.c_str());
-						}
+							MyImGui::EnumsCombo("ID", &picture.id, {
+								{FieldID::NONE, "NONE"},
+								{FieldID::RUNWAY, "RUNWAY"},
+								{FieldID::TAXIWAY, "TAXIWAY"},
+								{FieldID::AIRPORT_AREA, "AIRPORT_AREA"},
+								{FieldID::ENEMY_TANK_GENERATOR, "ENEMY_TANK_GENERATOR"},
+								{FieldID::FRIENDLY_TANK_GENERATOR, "FRIENDLY_TANK_GENERATOR"},
+								{FieldID::TOWER, "TOWER"},
+								{FieldID::VIEW_POINT, "VIEW_POINT"},
+							});
 
+							ImGui::Checkbox("Visible", &picture.state.visible);
+
+							ImGui::DragFloat3("Translation", glm::value_ptr(picture.state.translation));
+							MyImGui::SliderAngle3("Rotation", &picture.state.rotation, current_angle_max);
+
+							ImGui::TreePop();
+						}
+					}
+
+					ImGui::BulletText("Meshes: %d", (int)field.meshes.size());
+					for (auto& mesh : field.meshes) {
+						ImGui::Text("%s", mesh.name.c_str());
+					}
+
+					ImGui::BulletText("Ground Objects: %d", (int)field.gobs.size());
+					for (const auto& gob : field.gobs) {
+						ImGui::Text("%s", gob.name.c_str());
+					}
+
+					if (!is_root) {
 						ImGui::TreePop();
 					}
 				};
@@ -3354,7 +3439,7 @@ namespace sys {
 				}
 
 				if (should_add_gro_obj) {
-					world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates[gro_obj_to_add]));
+					world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates[gro_obj_to_add], {}, {}));
 				}
 			}
 
@@ -3625,8 +3710,14 @@ namespace sys {
 		audio_device_free(world.audio_device);
 	}
 
+	void projection_init(World& world) {
+		signal_listen(world.signals.wnd_configs_changed);
+	}
+
 	void canvas_init(World& world) {
 		auto& self = world.canvas;
+
+		signal_listen(world.signals.wnd_configs_changed);
 
 		self.meshes_program = gl_program_new(
 			// vertex shader
@@ -4125,9 +4216,7 @@ namespace sys {
 	void canvas_rendering_begin(World& world) {
 		auto& self = world.canvas;
 
-		if (world.signals.wnd_size_changed) {
-			world.signals.wnd_size_changed = false;
-
+		if (signal_handle(world.signals.wnd_configs_changed)) {
 			int w, h;
 			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
 			glViewport(0, 0, w, h);
@@ -4252,13 +4341,10 @@ namespace sys {
 	void projection_update(World& world) {
 		auto& self = world.projection;
 
-		if (world.signals.wnd_size_changed) {
+		if (signal_handle(world.signals.wnd_configs_changed) && !world.settings.custom_aspect_ratio) {
 			int w, h;
 			SDL_GL_GetDrawableSize(world.sdl_window, &w, &h);
-
-			if (!world.settings.custom_aspect_ratio) {
-				self.aspect = (float) w / h;
-			}
+			self.aspect = (float) w / h;
 		}
 	}
 
@@ -4312,14 +4398,14 @@ namespace sys {
 			if (event.type == SDL_KEYDOWN) {
 				switch (event.key.keysym.sym) {
 				case SDLK_ESCAPE:
-					world.signals.quit = true;
+					signal_fire(world.signals.quit);
 					break;
 				case SDLK_TAB:
 					self.afterburner_toggle = true;
 					break;
 				case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
-					world.signals.wnd_size_changed = true;
+					signal_fire(world.signals.wnd_configs_changed);
 					if (world.settings.fullscreen) {
 						if (SDL_SetWindowFullscreen(world.sdl_window, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP)) {
 							mu::panic(SDL_GetError());
@@ -4334,14 +4420,18 @@ namespace sys {
 					break;
 				}
 			} else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				world.signals.wnd_size_changed = true;
+				signal_fire(world.signals.wnd_configs_changed);
 			} else if (event.type == SDL_QUIT) {
-				world.signals.quit = true;
+				signal_fire(world.signals.quit);
 			}
 		}
 	}
 
 	void models_handle_collision(World& world) {
+		if (!world.settings.handle_collision) {
+			return;
+		}
+
 		mu::Vec<Model*> models(mu::memory::tmp());
 		mu::Vec<bool> visible(mu::memory::tmp());
 		for (auto& a : world.aircrafts) {
@@ -4409,9 +4499,9 @@ namespace sys {
 	}
 
 	void ground_objs_init(World& world) {
+		signal_listen(world.signals.scenery_loaded);
+
 		world.ground_obj_templates = ground_obj_templates_from_dir(ASSETS_DIR "/ground");
-		world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates["truck"]));
-		world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates["t80"]));
 	}
 
 	void ground_objs_free(World& world) {
@@ -4525,15 +4615,25 @@ namespace sys {
 	}
 
 	void ground_objs_update(World& world) {
-		if (world.ground_objs.empty()) {
-			return;
-		}
+		if (signal_handle(world.signals.scenery_loaded)) {
+			for (auto& gob : world.ground_objs) {
+				gob.should_be_removed = true;
+			}
 
-		if (world.signals.scenery_loaded > 0) {
-			world.signals.scenery_loaded--;
+			mu::Vec<GroundObjSpawn*> gob_spawns(mu::memory::tmp());
+			auto fields = field_list_recursively(world.scenery.root_fld);
+			for (auto f : fields) {
+				for (auto& gob : f->gobs) {
+					gob_spawns.push_back(&gob);
+				}
+			}
 
-			for (int i = 0; i < world.ground_objs.size(); i++) {
-				world.ground_objs[i].state.translation = world.scenery.start_infos[i].position;
+			for (auto gob_s : gob_spawns) {
+				auto tmpl_it = world.ground_obj_templates.find(gob_s->name);
+				if (tmpl_it != world.ground_obj_templates.end()) {
+					const auto& [_, gob_tmpl] = *tmpl_it;
+					world.ground_objs.push_back(ground_obj_new(gob_tmpl, gob_s->pos, gob_s->rotation));
+				}
 			}
 		}
 
@@ -4592,6 +4692,8 @@ namespace sys {
 	}
 
 	void aircrafts_init(World& world) {
+		signal_listen(world.signals.scenery_loaded);
+
 		world.aircraft_templates = aircraft_templates_from_dir(ASSETS_DIR "/aircraft");
 
 		auto ys11 = aircraft_new(world.aircraft_templates["ys11"]);
@@ -4827,13 +4929,7 @@ namespace sys {
 	}
 
 	void aircrafts_update(World& world) {
-		if (world.aircrafts.empty()) {
-			return;
-		}
-
-		if (world.signals.scenery_loaded > 0) {
-			world.signals.scenery_loaded--;
-
+		if (signal_handle(world.signals.scenery_loaded)) {
 			for (int i = 0; i < world.aircrafts.size(); i++) {
 				aircraft_set_start(world.aircrafts[i], world.scenery.start_infos[i]);
 			}
@@ -4946,13 +5042,14 @@ namespace sys {
 
 		if (self.should_be_loaded) {
 			self.should_be_loaded = false;
-			world.signals.scenery_loaded = 2; // ground objs and aircrafts
 
 			field_unload_from_gpu(self.root_fld);
 			self.root_fld = field_from_fld_file(self.scenery_template.fld);
 			field_load_to_gpu(self.root_fld);
 
 			self.start_infos = start_info_from_stp_file(self.scenery_template.stp);
+
+			signal_fire(world.signals.scenery_loaded);
 		}
 
 		// transform subfields
@@ -5244,6 +5341,8 @@ int main() {
 	sys::sdl_init(world);
 	defer(sys::sdl_shutdown(world));
 
+	sys::projection_init(world);
+
 	sys::imgui_init(world);
 	defer(sys::imgui_shutdown(world));
 
@@ -5262,7 +5361,8 @@ int main() {
 	sys::ground_objs_init(world);
 	defer(sys::ground_objs_free(world));
 
-	while (!world.signals.quit) {
+	signal_listen(world.signals.quit);
+	while (!signal_handle(world.signals.quit)) {
 		sys::loop_timer_update(world);
 		if (!world.loop_timer.ready) {
 			time_delay_millis(2);
