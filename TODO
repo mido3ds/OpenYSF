@@ -1,5 +1,3 @@
-- ground obj:
-	- load models with dnm instead of srf
 - mac: fix change line width
 - render aircraft vectors:
 	- weight

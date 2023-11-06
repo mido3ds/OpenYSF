@@ -2370,7 +2370,8 @@ Scenery scenery_new(SceneryTemplate& scenery_template) {
 // paths of files of one single scenery
 struct GroundObjTemplate {
 	mu::Str short_name; // ground/castle.dat -> castle
-	mu::Str dat, main_srf;
+	mu::Str dat;
+	mu::Str main; // either .srf or .dnm for model
 	mu::Str coll_srf, cockpit_srf, coarse_srf; // optional
 };
 
@@ -2389,9 +2390,9 @@ void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::
 			tmpl.dat = mu::str_format(ASSETS_DIR "/{}", tmpl.dat);
 			while (parser_accept(parser, ' ')) { }
 
-			tmpl.main_srf = parser_token_str(parser, mu::memory::tmp());
-			_str_unquote(tmpl.main_srf);
-			tmpl.main_srf = mu::str_format(ASSETS_DIR "/{}", tmpl.main_srf);
+			tmpl.main = parser_token_str(parser, mu::memory::tmp());
+			_str_unquote(tmpl.main);
+			tmpl.main = mu::str_format(ASSETS_DIR "/{}", tmpl.main);
 			while (parser_accept(parser, ' ')) { }
 
 			tmpl.coll_srf = parser_token_str(parser, mu::memory::tmp());
@@ -4410,6 +4411,7 @@ namespace sys {
 	void ground_objs_init(World& world) {
 		world.ground_obj_templates = ground_obj_templates_from_dir(ASSETS_DIR "/ground");
 		world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates["truck"]));
+		world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates["t80"]));
 	}
 
 	void ground_objs_free(World& world) {
@@ -4423,12 +4425,17 @@ namespace sys {
 			if (world.ground_objs[i].should_be_loaded) {
 				model_unload_from_gpu(world.ground_objs[i].model);
 
-				world.ground_objs[i].model = model_from_srf_file(world.ground_objs[i].ground_obj_template.main_srf);
+				auto& main = world.ground_objs[i].ground_obj_template.main;
+				if (main.ends_with(".srf")) {
+					world.ground_objs[i].model = model_from_srf_file(world.ground_objs[i].ground_obj_template.main);
+				} else {
+					world.ground_objs[i].model = model_from_dnm_file(world.ground_objs[i].ground_obj_template.main);
+				}
 				model_load_to_gpu(world.ground_objs[i].model);
 
 				world.ground_objs[i].dat = datmap_from_dat_file(world.ground_objs[i].ground_obj_template.dat);
 
-				mu::log_debug("loaded '{}'", world.ground_objs[i].ground_obj_template.main_srf);
+				mu::log_debug("loaded '{}'", world.ground_objs[i].ground_obj_template.main);
 				world.ground_objs[i].should_be_loaded = false;
 			}
 		}
