@@ -469,7 +469,7 @@ void model_unload_from_gpu(Model& self) {
 	}
 }
 
-Mesh mesh_from_srf_str(Parser& parser, mu::StrView name, size_t dnm_version = 1) {
+Mesh mesh_from_srf_str(Parser& parser, mu::StrView name) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
 	if (parser_accept(parser, "SURF\n") == false) {
 		parser_expect(parser, "Surf\n");
@@ -700,6 +700,47 @@ _str_unquote(mu::Str& s) {
 	}
 }
 
+void _model_adjust_after_loading(Model& self) {
+	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
+	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
+	for (auto& mesh : self.meshes) {
+		mesh.transformation = glm::identity<glm::mat4>();
+		meshes_stack.push_back(&mesh);
+	}
+	while (meshes_stack.empty() == false) {
+		Mesh* mesh = *meshes_stack.rbegin();
+		meshes_stack.pop_back();
+
+		for (auto& v : mesh->vertices) {
+			v -= mesh->cnt;
+
+			// apply mesh transformation to get model space vertex
+			mesh->transformation = glm::translate(mesh->transformation, mesh->state.translation);
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[2], glm::vec3{0, 0, 1});
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[1], glm::vec3{1, 0, 0});
+			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[0], glm::vec3{0, 1, 0});
+			const auto model_v = mesh->transformation * glm::vec4(v, 1.0);
+
+			// update AABB
+			for (int i = 0; i < 3; i++) {
+				if (model_v[i] < self.initial_aabb.min[i]) {
+					self.initial_aabb.min[i] = model_v[i];
+				}
+				if (model_v[i] > self.initial_aabb.max[i]) {
+					self.initial_aabb.max[i] = model_v[i];
+				}
+			}
+		}
+
+		for (auto& child : mesh->children) {
+			child.cnt += mesh->cnt;
+			meshes_stack.push_back(&child);
+		}
+	}
+
+	self.current_aabb = self.initial_aabb;
+}
+
 Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 	auto parser = parser_from_file(dnm_file_abs_path, mu::memory::tmp());
 	Model model {
@@ -923,44 +964,31 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		model.meshes.push_back(std::move(mesh));
 	}
 
-	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
-	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
-	for (auto& mesh : model.meshes) {
-		mesh.transformation = glm::identity<glm::mat4>();
-		meshes_stack.push_back(&mesh);
-	}
-	while (meshes_stack.empty() == false) {
-		Mesh* mesh = *meshes_stack.rbegin();
-		meshes_stack.pop_back();
+	_model_adjust_after_loading(model);
 
-		for (auto& v : mesh->vertices) {
-			v -= mesh->cnt;
+	return model;
+}
 
-			// apply mesh transformation to get model space vertex
-			mesh->transformation = glm::translate(mesh->transformation, mesh->state.translation);
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[2], glm::vec3{0, 0, 1});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[1], glm::vec3{1, 0, 0});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[0], glm::vec3{0, 1, 0});
-			const auto model_v = mesh->transformation * glm::vec4(v, 1.0);
+Model model_from_srf_file(mu::StrView srf_file_abs_path) {
+	auto main_srf_parser = parser_from_file(srf_file_abs_path, mu::memory::tmp());
 
-			// update AABB
-			for (int i = 0; i < 3; i++) {
-				if (model_v[i] < model.initial_aabb.min[i]) {
-					model.initial_aabb.min[i] = model_v[i];
-				}
-				if (model_v[i] > model.initial_aabb.max[i]) {
-					model.initial_aabb.max[i] = model_v[i];
-				}
-			}
-		}
+	auto i = srf_file_abs_path.find_last_of('/') + 1;
+	auto j = srf_file_abs_path.size() - 4;
+	auto name = srf_file_abs_path.substr(i, j-i);
 
-		for (auto& child : mesh->children) {
-			child.cnt += mesh->cnt;
-			meshes_stack.push_back(&child);
-		}
-	}
+	auto mesh = mesh_from_srf_str(main_srf_parser, name);
+	mesh.initial_state.visible = true;
+	mesh.state = mesh.initial_state;
 
-	model.current_aabb = model.initial_aabb;
+	Model model {
+		.meshes = {mesh},
+		.initial_aabb = AABB {
+			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
+			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
+		},
+	};
+
+	_model_adjust_after_loading(model);
 
 	return model;
 }
@@ -2412,6 +2440,29 @@ mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates_from_dir(mu::StrView di
 	return scenery_templates;
 }
 
+struct GroundObj {
+	GroundObjTemplate ground_obj_template;
+	Model model;
+	DATMap dat;
+
+	struct {
+		glm::vec3 translation;
+		LocalEulerAngles angles;
+		bool visible = true;
+		float speed;
+	} state;
+
+	bool should_be_loaded;
+	bool should_be_removed;
+};
+
+GroundObj ground_obj_new(GroundObjTemplate ground_obj_template) {
+	return GroundObj {
+		.ground_obj_template = ground_obj_template,
+		.should_be_loaded = true,
+	};
+}
+
 struct Sounds {
 	Audio bang, blast, blast2, bombsaway, burner, damage;
 	Audio extendldg, gearhorn, gun, hit, missile, notice;
@@ -2522,7 +2573,7 @@ struct Events {
 struct Signals {
 	bool quit;
 	bool wnd_size_changed;
-	bool scenery_loaded;
+	int scenery_loaded;
 };
 
 struct Settings {
@@ -2662,6 +2713,7 @@ struct World {
 	Sounds sounds;
 
 	mu::Vec<Aircraft> aircrafts;
+	mu::Vec<GroundObj> ground_objs;
 	Scenery scenery;
 
 	Camera camera;
@@ -3082,7 +3134,7 @@ namespace sys {
 			ImGui::Text(mu::str_tmpf("Aircrafts {}:", world.aircrafts.size()).c_str());
 
 			{
-				const bool should_add_aircraft = ImGui::Button("Add");
+				const bool should_add_aircraft = ImGui::Button("Add##aircraft");
 				static mu::Str aircraft_to_add = world.aircraft_templates.begin()->first;
 				ImGui::SameLine();
 				if (ImGui::BeginCombo("##new_aircraft", world.aircraft_templates[aircraft_to_add].short_name.c_str())) {
@@ -3104,10 +3156,7 @@ namespace sys {
 						}
 					}
 
-					world.aircrafts.push_back(Aircraft {
-						.aircraft_template = world.aircraft_templates[aircraft_to_add],
-						.should_be_loaded = true,
-					});
+					world.aircrafts.push_back(aircraft_new(world.aircraft_templates[aircraft_to_add]));
 
 					if (tracked_model_index != -1) {
 						world.camera.aircraft = &world.aircrafts[tracked_model_index];
@@ -3278,6 +3327,186 @@ namespace sys {
 
 					ImGui::Indent();
 					for (auto& child : aircraft.model.meshes) {
+						render_mesh_ui(child);
+					}
+					ImGui::Unindent();
+
+					ImGui::TreePop();
+				}
+			}
+
+			ImGui::Separator();
+			ImGui::Text(mu::str_tmpf("Ground Objs {}:", world.ground_objs.size()).c_str());
+
+			{
+				const bool should_add_gro_obj = ImGui::Button("Add##gro_obj");
+				static mu::Str gro_obj_to_add = world.ground_obj_templates.begin()->first;
+				ImGui::SameLine();
+				if (ImGui::BeginCombo("##new_ground_obj", world.ground_obj_templates[gro_obj_to_add].short_name.c_str())) {
+					for (const auto& [name, _gro] : world.ground_obj_templates) {
+						if (ImGui::Selectable(name.c_str(), name == gro_obj_to_add)) {
+							gro_obj_to_add = name;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				if (should_add_gro_obj) {
+					world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates[gro_obj_to_add]));
+				}
+			}
+
+			for (int i = 0; i < world.ground_objs.size(); i++) {
+				auto& gro = world.ground_objs[i];
+
+				GroundObjTemplate* gro_obj_template = nullptr;
+				for (auto& [_k, a] : world.ground_obj_templates) {
+					if (a.short_name == gro.ground_obj_template.short_name) {
+						gro_obj_template = &a;
+						break;
+					}
+				}
+				mu_assert(gro_obj_template);
+
+				if (ImGui::TreeNode(mu::str_tmpf("[{}] {}", i, gro_obj_template->short_name).c_str())) {
+					gro.should_be_loaded = ImGui::Button("Reload");
+					ImGui::SameLine();
+					if (ImGui::BeginCombo("Name", gro.ground_obj_template.short_name.c_str())) {
+						for (const auto& [name, gro_obj_template] : world.ground_obj_templates) {
+							if (ImGui::Selectable(name.c_str(), gro_obj_template.short_name == gro.ground_obj_template.short_name)) {
+								gro.ground_obj_template = gro_obj_template;
+								gro.should_be_loaded = true;
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+
+					gro.should_be_removed = ImGui::Button("Remove");
+
+					if (ImGui::Button("Reset State")) {
+						gro.state = {};
+					}
+					if (ImGui::Button("Reset All")) {
+						gro.state = {};
+						for (auto& mesh : gro.model.meshes) {
+							mesh.state = mesh.initial_state;
+						}
+					}
+
+					static size_t start_info_index = 0;
+					const auto& start_infos = world.scenery.start_infos;
+					if (ImGui::BeginCombo("Start Pos", start_info_index == -1? "-NULL-" : start_infos[start_info_index].name.c_str())) {
+						if (ImGui::Selectable("-NULL-", -1 == start_info_index)) {
+							start_info_index = -1;
+							gro.state.translation = {};
+						}
+						for (size_t j = 0; j < start_infos.size(); j++) {
+							if (ImGui::Selectable(start_infos[j].name.c_str(), j == start_info_index)) {
+								start_info_index = j;
+								gro.state.translation = start_infos[start_info_index].position;
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+
+					ImGui::Checkbox("visible", &gro.state.visible);
+					ImGui::DragFloat3("translation", glm::value_ptr(gro.state.translation));
+
+					glm::vec3 now_rotation {
+						gro.state.angles.roll,
+						gro.state.angles.pitch,
+						gro.state.angles.yaw,
+					};
+					if (MyImGui::SliderAngle3("rotation", &now_rotation, world.settings.current_angle_max)) {
+						local_euler_angles_rotate(
+							gro.state.angles,
+							now_rotation.z - gro.state.angles.yaw,
+							now_rotation.y - gro.state.angles.pitch,
+							now_rotation.x - gro.state.angles.roll
+						);
+					}
+
+					ImGui::BeginDisabled();
+					auto x = glm::cross(gro.state.angles.up, gro.state.angles.front);
+					ImGui::DragFloat3("right", glm::value_ptr(x));
+					ImGui::DragFloat3("up", glm::value_ptr(gro.state.angles.up));
+					ImGui::DragFloat3("front", glm::value_ptr(gro.state.angles.front));
+					ImGui::EndDisabled();
+
+					ImGui::DragFloat("Speed", &gro.state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
+
+					ImGui::Checkbox("Render AABB", &gro.model.render_aabb);
+					ImGui::DragFloat3("AABB.min", glm::value_ptr(gro.model.current_aabb.min));
+					ImGui::DragFloat3("AABB.max", glm::value_ptr(gro.model.current_aabb.max));
+
+					size_t light_sources_count = 0;
+					for (const auto& mesh : gro.model.meshes) {
+						if (mesh.is_light_source) {
+							light_sources_count++;
+						}
+					}
+
+					ImGui::BulletText(mu::str_tmpf("Meshes: (root: {}, light: {})", gro.model.meshes.size(), light_sources_count).c_str());
+
+					std::function<void(Mesh&)> render_mesh_ui;
+					render_mesh_ui = [&gro, &render_mesh_ui, current_angle_max=world.settings.current_angle_max](Mesh& mesh) {
+						if (ImGui::TreeNode(mu::str_tmpf("{}", mesh.name).c_str())) {
+							if (ImGui::Button("Reset")) {
+								mesh.state = mesh.initial_state;
+							}
+
+							ImGui::Checkbox("light source", &mesh.is_light_source);
+							ImGui::Checkbox("visible", &mesh.state.visible);
+
+							ImGui::Checkbox("POS Gizmos", &mesh.render_pos_axis);
+							ImGui::Checkbox("CNT Gizmos", &mesh.render_cnt_axis);
+
+							ImGui::BeginDisabled();
+								ImGui::DragFloat3("CNT", glm::value_ptr(mesh.cnt), 5, 0, 180);
+							ImGui::EndDisabled();
+
+							ImGui::DragFloat3("translation", glm::value_ptr(mesh.state.translation));
+							MyImGui::SliderAngle3("rotation", &mesh.state.rotation, current_angle_max);
+
+							ImGui::Text(mu::str_tmpf("{}", mesh.animation_type).c_str());
+
+							ImGui::BulletText(mu::str_tmpf("Children: ({})", mesh.children.size()).c_str());
+							ImGui::Indent();
+							for (auto& child : mesh.children) {
+								render_mesh_ui(child);
+							}
+							ImGui::Unindent();
+
+							if (ImGui::TreeNode(mu::str_tmpf("Faces: ({})", mesh.faces.size()).c_str())) {
+								for (size_t i = 0; i < mesh.faces.size(); i++) {
+									if (ImGui::TreeNode(mu::str_tmpf("{}", i).c_str())) {
+										ImGui::TextWrapped("Vertices: %s", mu::str_tmpf("{}", mesh.faces[i].vertices_ids).c_str());
+
+										bool changed = false;
+										changed = changed || ImGui::DragFloat3("center", glm::value_ptr(mesh.faces[i].center), 0.1, -1, 1);
+										changed = changed || ImGui::DragFloat3("normal", glm::value_ptr(mesh.faces[i].normal), 0.1, -1, 1);
+										changed = changed || ImGui::ColorEdit4("color", glm::value_ptr(mesh.faces[i].color));
+										if (changed) {
+											model_unload_from_gpu(gro.model);
+											model_load_to_gpu(gro.model);
+										}
+
+										ImGui::TreePop();
+									}
+								}
+
+								ImGui::TreePop();
+							}
+
+							ImGui::TreePop();
+						}
+					};
+
+					ImGui::Indent();
+					for (auto& child : gro.model.meshes) {
 						render_mesh_ui(child);
 					}
 					ImGui::Unindent();
@@ -4111,8 +4340,248 @@ namespace sys {
 		}
 	}
 
-	void ground_objects_init(World& world) {
+	void models_handle_collision(World& world) {
+		mu::Vec<Model*> models(mu::memory::tmp());
+		mu::Vec<bool> visible(mu::memory::tmp());
+		for (auto& a : world.aircrafts) {
+			models.push_back(&a.model);
+			visible.push_back(a.state.visible);
+		}
+		for (auto& g : world.ground_objs) {
+			models.push_back(&g.model);
+			visible.push_back(g.state.visible);
+		}
+
+		// between models
+		for (int i = 0; i < models.size()-1; i++) {
+			if (visible[i] == false) {
+				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
+				continue;
+			}
+
+			glm::vec3 i_color {0, 0, 1};
+
+			for (int j = i+1; j < models.size(); j++) {
+				if (visible[j] == false) {
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
+					continue;
+				}
+
+				glm::vec3 j_color {0, 0, 1};
+
+				if (aabbs_intersect(models[i]->current_aabb, models[j]->current_aabb)) {
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
+					j_color = i_color = {1, 0, 0};
+				} else {
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
+				}
+
+				if (models[j]->render_aabb) {
+					auto aabb = models[j]->current_aabb;
+					world.canvas.boxes_list.push_back(Box {
+						.translation = aabb.min,
+						.scale = aabb.max - aabb.min,
+						.color = j_color,
+					});
+				}
+			}
+
+			if (models[i]->render_aabb) {
+				auto aabb = models[i]->current_aabb;
+				world.canvas.boxes_list.push_back(Box {
+					.translation = aabb.min,
+					.scale = aabb.max - aabb.min,
+					.color = i_color,
+				});
+			}
+		}
+
+		// if one single model, just add its aabb for debugging
+		if (models.size() == 1 && models[0]->render_aabb) {
+			auto aabb = models[0]->current_aabb;
+			world.canvas.boxes_list.push_back(Box {
+				.translation = aabb.min,
+				.scale = aabb.max - aabb.min,
+				.color = glm::vec3{0, 0, 1.0f},
+			});
+		}
+	}
+
+	void ground_objs_init(World& world) {
 		world.ground_obj_templates = ground_obj_templates_from_dir(ASSETS_DIR "/ground");
+		world.ground_objs.push_back(ground_obj_new(world.ground_obj_templates["truck"]));
+	}
+
+	void ground_objs_free(World& world) {
+		for (auto& gro : world.ground_objs) {
+			model_unload_from_gpu(gro.model);
+		}
+	}
+
+	void _ground_objs_load_from_files(World& world) {
+		for (int i = 0; i < world.ground_objs.size(); i++) {
+			if (world.ground_objs[i].should_be_loaded) {
+				model_unload_from_gpu(world.ground_objs[i].model);
+
+				world.ground_objs[i].model = model_from_srf_file(world.ground_objs[i].ground_obj_template.main_srf);
+				model_load_to_gpu(world.ground_objs[i].model);
+
+				world.ground_objs[i].dat = datmap_from_dat_file(world.ground_objs[i].ground_obj_template.dat);
+
+				mu::log_debug("loaded '{}'", world.ground_objs[i].ground_obj_template.main_srf);
+				world.ground_objs[i].should_be_loaded = false;
+			}
+		}
+	}
+
+	void _ground_objs_autoremove(World& world) {
+		for (int i = 0; i < world.ground_objs.size(); i++) {
+			if (world.ground_objs[i].should_be_removed) {
+				world.ground_objs.erase(world.ground_objs.begin()+i);
+				i--;
+			}
+		}
+	}
+
+	void _ground_objs_apply_physics(World& world) {
+		for (int i = 0; i < world.ground_objs.size(); i++) {
+			GroundObj& gro = world.ground_objs[i];
+
+			if (!gro.state.visible) {
+				continue;
+			}
+
+			// apply model transformation
+			const auto model_transformation = local_euler_angles_matrix(gro.state.angles, gro.state.translation);
+
+			gro.state.translation += ((float)world.loop_timer.delta_time * gro.state.speed) * gro.state.angles.front;
+
+			// transform AABB (estimate new AABB after rotation)
+			{
+				// translate AABB
+				gro.model.current_aabb.min = gro.model.current_aabb.max = gro.state.translation;
+
+				// new rotated AABB (no translation)
+				const auto model_rotation = glm::mat3(model_transformation);
+				const auto rotated_min = model_rotation * gro.model.initial_aabb.min;
+				const auto rotated_max = model_rotation * gro.model.initial_aabb.max;
+				const AABB rotated_aabb {
+					.min = glm::min(rotated_min, rotated_max),
+					.max = glm::max(rotated_min, rotated_max),
+				};
+
+				// for all three axes
+				for (int i = 0; i < 3; i++) {
+					// form extent by summing smaller and larger terms respectively
+					for (int j = 0; j < 3; j++) {
+						const float e = model_rotation[j][i] * rotated_aabb.min[j];
+						const float f = model_rotation[j][i] * rotated_aabb.max[j];
+						if (e < f) {
+							gro.model.current_aabb.min[i] += e;
+							gro.model.current_aabb.max[i] += f;
+						} else {
+							gro.model.current_aabb.min[i] += f;
+							gro.model.current_aabb.max[i] += e;
+						}
+					}
+				}
+			}
+
+			// start with root meshes
+			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
+			for (auto& mesh : gro.model.meshes) {
+				mesh.transformation = model_transformation;
+				meshes_stack.push_back(&mesh);
+			}
+
+			while (meshes_stack.empty() == false) {
+				Mesh* mesh = *meshes_stack.rbegin();
+				meshes_stack.pop_back();
+
+				if (mesh->state.visible == false) {
+					continue;
+				}
+
+				// apply mesh transformation
+				mesh->transformation = glm::translate(mesh->transformation, mesh->state.translation);
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[2], glm::vec3{0, 0, 1});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[1], glm::vec3{1, 0, 0});
+				mesh->transformation = glm::rotate(mesh->transformation, mesh->state.rotation[0], glm::vec3{0, -1, 0});
+
+				// push children
+				for (auto& child : mesh->children) {
+					child.transformation = mesh->transformation;
+					meshes_stack.push_back(&child);
+				}
+			}
+		}
+	}
+
+	void ground_objs_update(World& world) {
+		if (world.ground_objs.empty()) {
+			return;
+		}
+
+		if (world.signals.scenery_loaded > 0) {
+			world.signals.scenery_loaded--;
+
+			for (int i = 0; i < world.ground_objs.size(); i++) {
+				world.ground_objs[i].state.translation = world.scenery.start_infos[i].position;
+			}
+		}
+
+		_ground_objs_load_from_files(world);
+		_ground_objs_autoremove(world);
+
+		_ground_objs_apply_physics(world);
+	}
+
+	void ground_objs_render(World& world) {
+		gl_program_use(world.canvas.meshes_program);
+
+		for (int i = 0; i < world.ground_objs.size(); i++) {
+			GroundObj& gro = world.ground_objs[i];
+
+			if (!gro.state.visible) {
+				continue;
+			}
+
+			const auto model_transformation = local_euler_angles_matrix(gro.state.angles, gro.state.translation);
+
+			// start with root meshes
+			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
+			for (auto& mesh : gro.model.meshes) {
+				meshes_stack.push_back(&mesh);
+			}
+
+			while (meshes_stack.empty() == false) {
+				Mesh* mesh = *meshes_stack.rbegin();
+				meshes_stack.pop_back();
+
+				if (!mesh->state.visible) {
+					continue;
+				}
+
+				if (mesh->render_cnt_axis) {
+					world.canvas.axis_list.push_back(glm::translate(glm::identity<glm::mat4>(), mesh->cnt));
+				}
+
+				if (mesh->render_pos_axis) {
+					world.canvas.axis_list.push_back(mesh->transformation);
+				}
+
+				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * mesh->transformation);
+				gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", mesh->is_light_source);
+
+				glBindVertexArray(mesh->gpu.vao);
+				glDrawArrays(mesh->is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+
+				// push children
+				for (auto& child : mesh->children) {
+					meshes_stack.push_back(&child);
+				}
+			}
+		}
 	}
 
 	void aircrafts_init(World& world) {
@@ -4350,77 +4819,13 @@ namespace sys {
 		}
 	}
 
-	void _aircrafts_handle_collision(World& world) {
-		// between aircrafts
-		for (int i = 0; i < world.aircrafts.size()-1; i++) {
-			if (world.aircrafts[i].state.visible == false) {
-				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
-				continue;
-			}
-
-			glm::vec3 i_color {0, 0, 1};
-
-			for (int j = i+1; j < world.aircrafts.size(); j++) {
-				if (world.aircrafts[j].state.visible == false) {
-					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
-					continue;
-				}
-
-				glm::vec3 j_color {0, 0, 1};
-
-				if (aabbs_intersect(world.aircrafts[i].model.current_aabb, world.aircrafts[j].model.current_aabb)) {
-					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
-					j_color = i_color = {1, 0, 0};
-				} else {
-					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
-				}
-
-				if (world.aircrafts[j].model.render_aabb) {
-					auto aabb = world.aircrafts[j].model.current_aabb;
-					world.canvas.boxes_list.push_back(Box {
-						.translation = aabb.min,
-						.scale = aabb.max - aabb.min,
-						.color = j_color,
-					});
-				}
-			}
-
-			if (world.aircrafts[i].model.render_aabb) {
-				auto aabb = world.aircrafts[i].model.current_aabb;
-				world.canvas.boxes_list.push_back(Box {
-					.translation = aabb.min,
-					.scale = aabb.max - aabb.min,
-					.color = i_color,
-				});
-			}
-		}
-
-		// if one single model, just add its aabb for debugging
-		if (world.aircrafts.size() == 1 && world.aircrafts[0].model.render_aabb) {
-			auto aabb = world.aircrafts[0].model.current_aabb;
-			world.canvas.boxes_list.push_back(Box {
-				.translation = aabb.min,
-				.scale = aabb.max - aabb.min,
-				.color = glm::vec3{0, 0, 1.0f},
-			});
-		}
-
-		// aircrafts and ground
-		for (auto& aircraft : world.aircrafts) {
-			float model_y = aircraft.model.current_aabb.max.y;
-			if (model_y > 0) {
-				aircraft.state.translation.y -= model_y;
-			}
-		}
-	}
-
 	void aircrafts_update(World& world) {
 		if (world.aircrafts.empty()) {
 			return;
 		}
 
-		if (world.signals.scenery_loaded) {
-			world.signals.scenery_loaded = false;
+		if (world.signals.scenery_loaded > 0) {
+			world.signals.scenery_loaded--;
 
 			for (int i = 0; i < world.aircrafts.size(); i++) {
 				aircraft_set_start(world.aircrafts[i], world.scenery.start_infos[i]);
@@ -4433,7 +4838,14 @@ namespace sys {
 		_tracked_aircraft_control(world);
 
 		_aircrafts_apply_physics(world);
-		_aircrafts_handle_collision(world);
+
+		// aircrafts and ground
+		for (auto& aircraft : world.aircrafts) {
+			float model_y = aircraft.model.current_aabb.max.y;
+			if (model_y > 0) {
+				aircraft.state.translation.y -= model_y;
+			}
+		}
 	}
 
 	void aircrafts_render(World& world) {
@@ -4527,7 +4939,7 @@ namespace sys {
 
 		if (self.should_be_loaded) {
 			self.should_be_loaded = false;
-			world.signals.scenery_loaded = true;
+			world.signals.scenery_loaded = 2; // ground objs and aircrafts
 
 			field_unload_from_gpu(self.root_fld);
 			self.root_fld = field_from_fld_file(self.scenery_template.fld);
@@ -4840,7 +5252,8 @@ int main() {
 	sys::aircrafts_init(world);
 	defer(sys::aircrafts_free(world));
 
-	sys::ground_objects_init(world);
+	sys::ground_objs_init(world);
+	defer(sys::ground_objs_free(world));
 
 	while (!world.signals.quit) {
 		sys::loop_timer_update(world);
@@ -4857,6 +5270,9 @@ int main() {
 
 		sys::scenery_update(world);
 		sys::aircrafts_update(world);
+		sys::ground_objs_update(world);
+
+		sys::models_handle_collision(world);
 
 		// sample text
 		world.canvas.text_list.push_back(TextRenderReq {
@@ -4873,6 +5289,8 @@ int main() {
 
 			sys::aircrafts_render(world);
 			sys::zlpoints_render(world);
+
+			sys::ground_objs_render(world);
 
 			sys::axis_render(world);
 			sys::boxes_render(world);
