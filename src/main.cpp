@@ -2770,31 +2770,58 @@ void time_delay_millis(uint32_t millis) {
 	SDL_Delay(millis);
 }
 
+struct SysInfo {
+	mu::Str name;
+	bool enabled;
+	uint64_t latency_micros, latency_micros_min, latency_micros_max, latency_micros_avg;
+	uint64_t num_calls;
+};
+
+// systems performance monitor
+struct SysMon {
+	mu::Vec<SysInfo> systems;
+};
+
 #ifdef DEBUG
-	#define SECTION_PERF(section_name)																									\
-		const auto __watch_perf_start = std::chrono::high_resolution_clock::now();														\
-		constexpr auto __watch_perf_format_str = section_name ": {} µs";																\
-		defer({																															\
-			const auto __watch_perf_micros = std::chrono::duration_cast<std::chrono::microseconds>(										\
-				std::chrono::high_resolution_clock::now() - __watch_perf_start															\
-			).count();																													\
-			world.canvas.overlay_text_list.push_back(																					\
-				mu::str_format(world.canvas.overlay_text_list.get_allocator().resource(), __watch_perf_format_str, __watch_perf_micros)	\
-			);																															\
-		})
+	// called once per system
+	int _sysmon_register_system(SysMon& self, mu::StrView&& system_name) {
+		self.systems.push_back(SysInfo {
+			.name = mu::Str(system_name),
+			.enabled = true,
+			.latency_micros_min = UINT64_MAX,
+			.latency_micros_max = 0,
+		});
+		return self.systems.size()-1;
+	}
 
-#else
-	#define SECTION_PERF(_) void()
-#endif
+	void _sysinfo_update(SysInfo& self, std::chrono::steady_clock::time_point start_time) {
+		self.latency_micros = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - start_time
+		).count();
 
-#ifndef __FUNCTION_NAME__
-	#ifdef WIN32   // WINDOWS
-		#define __FUNCTION_NAME__   __FUNCTION__
-	#else          // OTHER
-		#define __FUNCTION_NAME__   __func__
+		self.latency_micros_avg = double(self.num_calls * self.latency_micros_avg + self.latency_micros) / (self.num_calls+1);
+		self.num_calls++;
+
+		self.latency_micros_max = std::max(self.latency_micros, self.latency_micros_max);
+		self.latency_micros_min = std::min(self.latency_micros, self.latency_micros_min);
+	}
+
+	#ifndef __FUNCTION_NAME__
+		#ifdef WIN32   // WINDOWS
+			#define __FUNCTION_NAME__   __FUNCTION__
+		#else          // OTHER
+			#define __FUNCTION_NAME__   __func__
+		#endif
 	#endif
+
+	#define DEF_SYSTEM																					\
+		static const auto __sysmon_index = _sysmon_register_system(world.sysmon, __FUNCTION_NAME__);	\
+		if (world.sysmon.systems[__sysmon_index].enabled == false) { return; }							\
+		const auto __sysmon_start = std::chrono::high_resolution_clock::now();							\
+		defer(_sysinfo_update(world.sysmon.systems[__sysmon_index], __sysmon_start));
+#else
+	#define DEF_SYSTEM(_) void();
 #endif
-#define FUNC_PERF() SECTION_PERF(__FUNCTION__)
 
 struct World {
 	SDL_Window* sdl_window;
@@ -2826,10 +2853,14 @@ struct World {
 	Settings settings;
 
 	Canvas canvas;
+
+	SysMon sysmon;
 };
 
 namespace sys {
 	void sdl_init(World& world) {
+		DEF_SYSTEM
+
 		SDL_SetMainReady();
 		if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
 			mu::panic(SDL_GetError());
@@ -2864,12 +2895,16 @@ namespace sys {
 	}
 
 	void sdl_shutdown(World& world) {
+		DEF_SYSTEM
+
 		SDL_GL_DeleteContext(world.sdl_gl_context);
 		SDL_DestroyWindow(world.sdl_window);
 		SDL_Quit();
 	}
 
 	void imgui_init(World& world) {
+		DEF_SYSTEM
+
 		IMGUI_CHECKVERSION();
 		if (ImGui::CreateContext() == nullptr) {
 			mu::panic("failed to create imgui context");
@@ -2889,12 +2924,16 @@ namespace sys {
 	}
 
 	void imgui_shutdown(World& world) {
+		DEF_SYSTEM
+
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplSDL2_Shutdown();
 		ImGui::DestroyContext();
 	}
 
 	void imgui_render(World& world) {
+		DEF_SYSTEM
+
 		ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
@@ -3108,6 +3147,36 @@ namespace sys {
 					ImGui::Text(mu::Str(mu::file_get_base_name(sound.file_path), mu::memory::tmp()).c_str());
 
 					ImGui::PopID();
+				}
+
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Systems")) {
+				int enabled_count = 0;
+				uint64_t total_latency = 0;
+				uint64_t max_latency = 0;
+				for (auto& sysinfo : world.sysmon.systems) {
+					if (sysinfo.enabled) {
+						enabled_count++;
+						total_latency += sysinfo.latency_micros;
+						max_latency = std::max(max_latency, sysinfo.latency_micros);
+					}
+				}
+
+				ImGui::Text(mu::str_tmpf("Total Systems: {}", world.sysmon.systems.size()).c_str());
+				ImGui::Text(mu::str_tmpf("Enabled: {}", enabled_count).c_str());
+				ImGui::Text(mu::str_tmpf("Total Latency: {}", total_latency).c_str());
+				ImGui::Text(mu::str_tmpf("Max Latest Avg: {}", max_latency).c_str());
+
+				for (auto& sysinfo : world.sysmon.systems) {
+					if (ImGui::TreeNode(sysinfo.name.c_str())) {
+						ImGui::Text(mu::str_tmpf("latency (micros): last {}, avg {}, min {}, max {}",
+							sysinfo.latency_micros, sysinfo.latency_micros_avg, sysinfo.latency_micros_min, sysinfo.latency_micros_max).c_str());
+						ImGui::Checkbox("enabled", &sysinfo.enabled);
+
+						ImGui::TreePop();
+					}
 				}
 
 				ImGui::TreePop();
@@ -3690,6 +3759,8 @@ namespace sys {
 	}
 
 	void loop_timer_update(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.loop_timer;
 		auto& settings = world.settings;
 
@@ -3719,20 +3790,28 @@ namespace sys {
 	}
 
 	void audio_init(World& world) {
+		DEF_SYSTEM
+
 		audio_device_init(&world.audio_device);
 		sounds_load(world.sounds);
 	}
 
 	void audio_free(World& world) {
+		DEF_SYSTEM
+
 		sounds_free(world.sounds);
 		audio_device_free(world.audio_device);
 	}
 
 	void projection_init(World& world) {
+		DEF_SYSTEM
+
 		signal_listen(world.signals.wnd_configs_changed);
 	}
 
 	void canvas_init(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.canvas;
 
 		signal_listen(world.signals.wnd_configs_changed);
@@ -4192,6 +4271,8 @@ namespace sys {
 	}
 
 	void canvas_free(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.canvas;
 
 		glUseProgram(0);
@@ -4232,6 +4313,8 @@ namespace sys {
 	}
 
 	void canvas_rendering_begin(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.canvas;
 
 		if (signal_handle(world.signals.wnd_configs_changed)) {
@@ -4261,6 +4344,8 @@ namespace sys {
 	}
 
 	void canvas_rendering_end(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.canvas;
 
 		SDL_GL_SwapWindow(world.sdl_window);
@@ -4275,6 +4360,8 @@ namespace sys {
 	}
 
 	void _camera_update_model_tracking_mode(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.camera;
 		auto& events = world.events;
 
@@ -4307,6 +4394,8 @@ namespace sys {
 	}
 
 	void _camera_update_flying_mode(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.camera;
 		auto& events = world.events;
 
@@ -4349,6 +4438,8 @@ namespace sys {
 	}
 
 	void camera_update(World& world) {
+		DEF_SYSTEM
+
 		if (world.camera.aircraft) {
 			_camera_update_model_tracking_mode(world);
 		} else {
@@ -4357,6 +4448,8 @@ namespace sys {
 	}
 
 	void projection_update(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.projection;
 
 		if (signal_handle(world.signals.wnd_configs_changed) && !world.settings.custom_aspect_ratio) {
@@ -4367,6 +4460,8 @@ namespace sys {
 	}
 
 	void cached_matrices_recalc(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.mats;
 		auto& camera = world.camera;
 		auto& proj = world.projection;
@@ -4382,6 +4477,8 @@ namespace sys {
 	}
 
 	void events_collect(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.events;
 
 		self = {};
@@ -4446,7 +4543,7 @@ namespace sys {
 	}
 
 	void models_handle_collision(World& world) {
-		FUNC_PERF();
+		DEF_SYSTEM
 
 		if (!world.settings.handle_collision) {
 			return;
@@ -4501,18 +4598,24 @@ namespace sys {
 	}
 
 	void ground_objs_init(World& world) {
+		DEF_SYSTEM
+
 		signal_listen(world.signals.scenery_loaded);
 
 		world.ground_obj_templates = ground_obj_templates_from_dir(ASSETS_DIR "/ground");
 	}
 
 	void ground_objs_free(World& world) {
+		DEF_SYSTEM
+
 		for (auto& gro : world.ground_objs) {
 			model_unload_from_gpu(gro.model);
 		}
 	}
 
 	void _ground_objs_load_from_files(World& world) {
+		DEF_SYSTEM
+
 		for (int i = 0; i < world.ground_objs.size(); i++) {
 			if (world.ground_objs[i].should_be_loaded) {
 				model_unload_from_gpu(world.ground_objs[i].model);
@@ -4534,6 +4637,8 @@ namespace sys {
 	}
 
 	void _ground_objs_autoremove(World& world) {
+		DEF_SYSTEM
+
 		for (int i = 0; i < world.ground_objs.size(); i++) {
 			if (world.ground_objs[i].should_be_removed) {
 				world.ground_objs.erase(world.ground_objs.begin()+i);
@@ -4543,6 +4648,8 @@ namespace sys {
 	}
 
 	void _ground_objs_apply_physics(World& world) {
+		DEF_SYSTEM
+
 		for (int i = 0; i < world.ground_objs.size(); i++) {
 			GroundObj& gro = world.ground_objs[i];
 
@@ -4617,6 +4724,8 @@ namespace sys {
 	}
 
 	void ground_objs_update(World& world) {
+		DEF_SYSTEM
+
 		if (signal_handle(world.signals.scenery_loaded)) {
 			for (auto& gob : world.ground_objs) {
 				gob.should_be_removed = true;
@@ -4648,6 +4757,8 @@ namespace sys {
 	}
 
 	void ground_objs_render(World& world) {
+		DEF_SYSTEM
+
 		gl_program_use(world.canvas.meshes_program);
 
 		for (int i = 0; i < world.ground_objs.size(); i++) {
@@ -4696,6 +4807,8 @@ namespace sys {
 	}
 
 	void aircrafts_init(World& world) {
+		DEF_SYSTEM
+
 		signal_listen(world.signals.scenery_loaded);
 
 		world.aircraft_templates = aircraft_templates_from_dir(ASSETS_DIR "/aircraft");
@@ -4707,6 +4820,8 @@ namespace sys {
 	}
 
 	void aircrafts_free(World& world) {
+		DEF_SYSTEM
+
 		for (auto& aircraft : world.aircrafts) {
 			if (aircraft.engine_sound) {
 				audio_device_stop(world.audio_device, *aircraft.engine_sound);
@@ -4717,6 +4832,8 @@ namespace sys {
 
 	// allow user control over camera tracked aircraft
 	void _tracked_aircraft_control(World& world) {
+		DEF_SYSTEM
+
 		if (world.camera.aircraft == nullptr) {
 			return;
 		}
@@ -4780,6 +4897,8 @@ namespace sys {
 	}
 
 	void _aircrafts_load_from_files(World& world) {
+		DEF_SYSTEM
+
 		for (int i = 0; i < world.aircrafts.size(); i++) {
 			if (world.aircrafts[i].should_be_loaded) {
 				model_unload_from_gpu(world.aircrafts[i].model);
@@ -4795,6 +4914,8 @@ namespace sys {
 	}
 
 	void _aircrafts_autoremove(World& world) {
+		DEF_SYSTEM
+
 		for (int i = 0; i < world.aircrafts.size(); i++) {
 			if (world.aircrafts[i].should_be_removed) {
 				int tracked_model_index = -1;
@@ -4819,6 +4940,8 @@ namespace sys {
 	}
 
 	void _aircrafts_apply_physics(World& world) {
+		DEF_SYSTEM
+
 		for (int i = 0; i < world.aircrafts.size(); i++) {
 			Aircraft& aircraft = world.aircrafts[i];
 
@@ -4933,6 +5056,8 @@ namespace sys {
 	}
 
 	void aircrafts_update(World& world) {
+		DEF_SYSTEM
+
 		if (signal_handle(world.signals.scenery_loaded)) {
 			for (int i = 0; i < world.aircrafts.size(); i++) {
 				aircraft_set_start(world.aircrafts[i], world.scenery.start_infos[i]);
@@ -4956,6 +5081,8 @@ namespace sys {
 	}
 
 	void aircrafts_render(World& world) {
+		DEF_SYSTEM
+
 		gl_program_use(world.canvas.meshes_program);
 
 		for (int i = 0; i < world.aircrafts.size(); i++) {
@@ -5033,15 +5160,21 @@ namespace sys {
 	}
 
 	void scenery_init(World& world) {
+		DEF_SYSTEM
+
 		world.scenery_templates = scenery_templates_from_dir(ASSETS_DIR "/scenery");
 		world.scenery = scenery_new(world.scenery_templates["SMALL_MAP"]);
 	}
 
 	void scenery_free(World& world) {
+		DEF_SYSTEM
+
 		field_unload_from_gpu(world.scenery.root_fld);
 	}
 
 	void scenery_update(World& world) {
+		DEF_SYSTEM
+
 		auto& self = world.scenery;
 
 		if (self.should_be_loaded) {
@@ -5098,6 +5231,8 @@ namespace sys {
 	}
 
 	void scenery_render(World& world) {
+		DEF_SYSTEM
+
 		const auto all_fields = field_list_recursively(world.scenery.root_fld, mu::memory::tmp());
 
 		// render last ground
@@ -5198,6 +5333,8 @@ namespace sys {
 	}
 
 	void zlpoints_render(World& world) {
+		DEF_SYSTEM
+
 		if (world.canvas.zlpoints_list.empty()) {
 			return;
 		}
@@ -5217,6 +5354,8 @@ namespace sys {
 	}
 
 	void axis_render(World& world) {
+		DEF_SYSTEM
+
 		if (world.canvas.axis_list.empty() == false) {
 			gl_program_use(world.canvas.meshes_program);
 			if (world.canvas.axis_rendering.on_top) {
@@ -5262,6 +5401,8 @@ namespace sys {
 	}
 
 	void boxes_render(World& world) {
+		DEF_SYSTEM
+
 		if (world.canvas.boxes_list.empty()) {
 			return;
 		}
@@ -5286,6 +5427,8 @@ namespace sys {
 	}
 
 	void text_render(World& world) {
+		DEF_SYSTEM
+
 		gl_program_use(world.canvas.text_rendering.program);
 
 		int wnd_width, wnd_height;
