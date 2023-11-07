@@ -2770,6 +2770,32 @@ void time_delay_millis(uint32_t millis) {
 	SDL_Delay(millis);
 }
 
+#ifdef DEBUG
+	#define SECTION_PERF(section_name)																									\
+		const auto __watch_perf_start = std::chrono::high_resolution_clock::now();														\
+		constexpr auto __watch_perf_format_str = section_name ": {} µs";																\
+		defer({																															\
+			const auto __watch_perf_micros = std::chrono::duration_cast<std::chrono::microseconds>(										\
+				std::chrono::high_resolution_clock::now() - __watch_perf_start															\
+			).count();																													\
+			world.canvas.overlay_text_list.push_back(																					\
+				mu::str_format(world.canvas.overlay_text_list.get_allocator().resource(), __watch_perf_format_str, __watch_perf_micros)	\
+			);																															\
+		})
+
+#else
+	#define SECTION_PERF(_) void()
+#endif
+
+#ifndef __FUNCTION_NAME__
+	#ifdef WIN32   // WINDOWS
+		#define __FUNCTION_NAME__   __FUNCTION__
+	#else          // OTHER
+		#define __FUNCTION_NAME__   __func__
+	#endif
+#endif
+#define FUNC_PERF() SECTION_PERF(__FUNCTION__)
+
 struct World {
 	SDL_Window* sdl_window;
 	SDL_GLContext sdl_gl_context;
@@ -4420,6 +4446,8 @@ namespace sys {
 	}
 
 	void models_handle_collision(World& world) {
+		FUNC_PERF();
+
 		if (!world.settings.handle_collision) {
 			return;
 		}
