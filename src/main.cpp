@@ -3101,7 +3101,9 @@ namespace sys {
 				ImGui::EndCombo();
 			}
 			ImGui::SameLine();
-			world.scenery.should_be_loaded = ImGui::Button("Reload");
+			if (ImGui::Button("Reload")) {
+				world.scenery.should_be_loaded = true;
+			}
 
 			std::function<void(Field&,bool)> render_field_imgui;
 			render_field_imgui = [&render_field_imgui, current_angle_max=world.settings.current_angle_max](Field& field, bool is_root) {
@@ -4423,68 +4425,50 @@ namespace sys {
 		}
 
 		mu::Vec<Model*> models(mu::memory::tmp());
+		mu::Vec<const char*> names(mu::memory::tmp());
 		mu::Vec<bool> visible(mu::memory::tmp());
+		mu::Vec<bool> is_aircraft(mu::memory::tmp());
 		for (auto& a : world.aircrafts) {
 			models.push_back(&a.model);
 			visible.push_back(a.state.visible);
+			is_aircraft.push_back(true);
+			names.push_back(a.aircraft_template.short_name.c_str());
 		}
 		for (auto& g : world.ground_objs) {
 			models.push_back(&g.model);
 			visible.push_back(g.state.visible);
+			is_aircraft.push_back(false);
+			names.push_back(g.ground_obj_template.short_name.c_str());
 		}
+		mu::Vec<bool> collided(models.size(), false, mu::memory::tmp());
 
-		// between models
-		for (int i = 0; i < models.size()-1; i++) {
+		// test collision
+		for (int i = 0; i < models.size()-1 && is_aircraft[i]; i++) {
 			if (visible[i] == false) {
-				world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", i));
 				continue;
 			}
 
-			glm::vec3 i_color {0, 0, 1};
-
 			for (int j = i+1; j < models.size(); j++) {
-				if (visible[j] == false) {
-					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] invisible and won't intersect", j));
-					continue;
-				}
-
-				glm::vec3 j_color {0, 0, 1};
-
-				if (aabbs_intersect(models[i]->current_aabb, models[j]->current_aabb)) {
-					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] intersects model[{}]", i, j));
-					j_color = i_color = {1, 0, 0};
-				} else {
-					world.canvas.overlay_text_list.push_back(mu::str_tmpf("model[{}] doesn't intersect model[{}]", i, j));
-				}
-
-				if (models[j]->render_aabb) {
-					auto aabb = models[j]->current_aabb;
-					world.canvas.boxes_list.push_back(Box {
-						.translation = aabb.min,
-						.scale = aabb.max - aabb.min,
-						.color = j_color,
-					});
+				if (visible[j] && aabbs_intersect(models[i]->current_aabb, models[j]->current_aabb)) {
+					collided[i] = true;
+					collided[j] = true;
+					world.canvas.overlay_text_list.push_back(mu::str_tmpf("{}[air] collided with {}[{}]", names[i], names[j], is_aircraft[j] ? "air":"gro"));
 				}
 			}
+		}
 
-			if (models[i]->render_aabb) {
+		// render boxes
+		constexpr glm::vec3 RED {1,0,0};
+		constexpr glm::vec3 BLU {0,0,1};
+		for (int i = 0; i < models.size(); i++) {
+			if (visible[i] && models[i]->render_aabb) {
 				auto aabb = models[i]->current_aabb;
 				world.canvas.boxes_list.push_back(Box {
 					.translation = aabb.min,
 					.scale = aabb.max - aabb.min,
-					.color = i_color,
+					.color = collided[i] ? RED : BLU,
 				});
 			}
-		}
-
-		// if one single model, just add its aabb for debugging
-		if (models.size() == 1 && models[0]->render_aabb) {
-			auto aabb = models[0]->current_aabb;
-			world.canvas.boxes_list.push_back(Box {
-				.translation = aabb.min,
-				.scale = aabb.max - aabb.min,
-				.color = glm::vec3{0, 0, 1.0f},
-			});
 		}
 	}
 

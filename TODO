@@ -1,5 +1,6 @@
 - ground objects:
 	- heathrow: totally broken ground objects rotations
+	- heathrow: STATION has incorrect AABB (always intersects with everything)
 - mac: fix change line width
 - render aircraft vectors:
 	- weight
