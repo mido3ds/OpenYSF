@@ -2894,7 +2894,7 @@ namespace sys {
 		}
 	}
 
-	void sdl_shutdown(World& world) {
+	void sdl_free(World& world) {
 		DEF_SYSTEM
 
 		SDL_GL_DeleteContext(world.sdl_gl_context);
@@ -2923,7 +2923,7 @@ namespace sys {
 		ImGui::GetIO().IniFilename = world.imgui_ini_file_path.c_str();
 	}
 
-	void imgui_shutdown(World& world) {
+	void imgui_free(World& world) {
 		DEF_SYSTEM
 
 		ImGui_ImplOpenGL3_Shutdown();
@@ -2931,16 +2931,95 @@ namespace sys {
 		ImGui::DestroyContext();
 	}
 
-	void imgui_render(World& world) {
+	void imgui_rendering_begin(World& world) {
 		DEF_SYSTEM
 
 		ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+	}
+
+	void imgui_rendering_end(World& world) {
+		DEF_SYSTEM
+
+		ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	}
+
+	void imgui_logs_window(World& world) {
+		DEF_SYSTEM
+
+		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
+		if (ImGui::Begin("Logs")) {
+			ImGui::Checkbox("Auto-Scroll", &world.imgui_window_logger.auto_scrolling);
+			ImGui::SameLine();
+			ImGui::Checkbox("Wrapped", &world.imgui_window_logger.wrapped);
+			ImGui::SameLine();
+			if (ImGui::Button("Clear")) {
+				world.imgui_window_logger = {};
+			}
+
+			if (ImGui::BeginChild("logs child", {}, false, world.imgui_window_logger.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
+				ImGuiListClipper clipper(world.imgui_window_logger.logs.size());
+				while (clipper.Step()) {
+					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+						if (world.imgui_window_logger.wrapped) {
+							ImGui::TextWrapped("%s", world.imgui_window_logger.logs[i].c_str());
+						} else {
+							auto log = world.imgui_window_logger.logs[i];
+							ImGui::TextUnformatted(&log[0], &log[log.size()-1]);
+						}
+					}
+				}
+				ImGui::PopStyleVar();
+
+				// scroll
+				if (world.imgui_window_logger.auto_scrolling) {
+					if (world.imgui_window_logger.last_scrolled_line != world.imgui_window_logger.logs.size()) {
+						world.imgui_window_logger.last_scrolled_line = world.imgui_window_logger.logs.size();
+						ImGui::SetScrollHereY();
+					}
+				}
+			}
+			ImGui::EndChild();
+		}
+		ImGui::End();
+	}
+
+	void imgui_overlay_info(World& world) {
+		DEF_SYSTEM
+
+		const float PAD = 10.0f;
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
+		const ImVec2 window_pos {
+			work_pos.x + viewport->WorkSize.x - PAD,
+			work_pos.y + PAD,
+		};
+		const ImVec2 window_pos_pivot { 1.0f, 0.0f };
+		ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+		ImGui::SetNextWindowSize(ImVec2 {300, 0}, ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.35f);
+
+		if (ImGui::Begin("Overlay Info", nullptr, ImGuiWindowFlags_NoDecoration
+			| ImGuiWindowFlags_NoSavedSettings
+			| ImGuiWindowFlags_NoFocusOnAppearing
+			| ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoMove)) {
+			for (const auto& line : world.canvas.overlay_text_list) {
+				ImGui::TextWrapped(mu::str_tmpf("> {}", line).c_str());
+			}
+		}
+		ImGui::End();
+	}
+
+	void imgui_debug_window(World& world) {
+		DEF_SYSTEM
 
 		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
 		if (ImGui::Begin("Debug")) {
-			if (ImGui::TreeNodeEx("Window")) {
+			if (ImGui::TreeNode("Window")) {
 				ImGui::Checkbox("Limit FPS", &world.settings.should_limit_fps);
 				ImGui::BeginDisabled(!world.settings.should_limit_fps); {
 					ImGui::InputInt("FPS", &world.settings.fps_limit, 1, 5);
@@ -3689,73 +3768,6 @@ namespace sys {
 			}
 		}
 		ImGui::End();
-
-		ImGui::SetNextWindowBgAlpha(IMGUI_WNDS_BG_ALPHA);
-		if (ImGui::Begin("Logs")) {
-			ImGui::Checkbox("Auto-Scroll", &world.imgui_window_logger.auto_scrolling);
-			ImGui::SameLine();
-			ImGui::Checkbox("Wrapped", &world.imgui_window_logger.wrapped);
-			ImGui::SameLine();
-			if (ImGui::Button("Clear")) {
-				world.imgui_window_logger = {};
-			}
-
-			if (ImGui::BeginChild("logs child", {}, false, world.imgui_window_logger.wrapped? 0:ImGuiWindowFlags_HorizontalScrollbar)) {
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2 {0, 0});
-				ImGuiListClipper clipper(world.imgui_window_logger.logs.size());
-				while (clipper.Step()) {
-					for (size_t i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-						if (world.imgui_window_logger.wrapped) {
-							ImGui::TextWrapped("%s", world.imgui_window_logger.logs[i].c_str());
-						} else {
-							auto log = world.imgui_window_logger.logs[i];
-							ImGui::TextUnformatted(&log[0], &log[log.size()-1]);
-						}
-					}
-				}
-				ImGui::PopStyleVar();
-
-				// scroll
-				if (world.imgui_window_logger.auto_scrolling) {
-					if (world.imgui_window_logger.last_scrolled_line != world.imgui_window_logger.logs.size()) {
-						world.imgui_window_logger.last_scrolled_line = world.imgui_window_logger.logs.size();
-						ImGui::SetScrollHereY();
-					}
-				}
-			}
-			ImGui::EndChild();
-		}
-		ImGui::End();
-
-		// render overlay
-		{
-			const float PAD = 10.0f;
-			const ImGuiViewport* viewport = ImGui::GetMainViewport();
-			ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
-			const ImVec2 window_pos {
-				work_pos.x + viewport->WorkSize.x - PAD,
-				work_pos.y + PAD,
-			};
-			const ImVec2 window_pos_pivot { 1.0f, 0.0f };
-			ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-			ImGui::SetNextWindowSize(ImVec2 {300, 0}, ImGuiCond_Always);
-			ImGui::SetNextWindowBgAlpha(0.35f);
-		}
-		if (ImGui::Begin("Overlay Info", nullptr, ImGuiWindowFlags_NoDecoration
-			| ImGuiWindowFlags_NoSavedSettings
-			| ImGuiWindowFlags_NoFocusOnAppearing
-			| ImGuiWindowFlags_NoNav
-			| ImGuiWindowFlags_NoMove)) {
-			for (const auto& line : world.canvas.overlay_text_list) {
-				ImGui::TextWrapped(mu::str_tmpf("> {}", line).c_str());
-			}
-		}
-		ImGui::End();
-
-		// ImGui::ShowDemoWindow();
-
-		ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
 
 	void loop_timer_update(World& world) {
@@ -5486,12 +5498,12 @@ int main() {
 	test_polygons_to_triangles();
 
 	sys::sdl_init(world);
-	defer(sys::sdl_shutdown(world));
+	defer(sys::sdl_free(world));
 
 	sys::projection_init(world);
 
 	sys::imgui_init(world);
-	defer(sys::imgui_shutdown(world));
+	defer(sys::imgui_free(world));
 
 	sys::canvas_init(world);
 	defer(sys::canvas_free(world));
@@ -5550,7 +5562,13 @@ int main() {
 			sys::boxes_render(world);
 			sys::text_render(world);
 
-			sys::imgui_render(world);
+			sys::imgui_rendering_begin(world); {
+				sys::imgui_debug_window(world);
+				sys::imgui_logs_window(world);
+				sys::imgui_overlay_info(world);
+			}
+			sys::imgui_rendering_end(world);
+
 		}
 		sys::canvas_rendering_end(world);
 
