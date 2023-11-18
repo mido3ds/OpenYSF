@@ -1,3 +1,6 @@
+- refactor rendering
+	- meshes primitives
+	- box should be turned into list of lines (remove its shader)
 - ground objects:
 	- heathrow: totally broken ground objects rotations
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
@@ -48,8 +51,6 @@
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
 - shade using normals
-- refactor rendering
-	- primitives?
 - fix render land texture (now it's half-assed)
 - render terrain texture
 - fog
