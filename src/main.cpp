@@ -2780,29 +2780,29 @@ struct Canvas {
 };
 
 void canvas_add(Canvas& self, TextOverlay&& d) {
-	self.text_overlay_list.push_back(d);
+	self.text_overlay_list.push_back(std::move(d));
 }
 
-#define TEXT_OVERLAY(...) canvas_add(world.canvas, TextOverlay { mu::str_tmpf(__VA_ARGS__) })
+#define TEXT_OVERLAY(...) canvas_add(world.canvas, TextOverlay { mu::str_format(&world.canvas._arena, __VA_ARGS__) })
 
 void canvas_add(Canvas& self, Text2D&& t) {
-	self.text2d.list.push_back(t);
+	self.text2d.list.push_back(std::move(t));
 }
 
 void canvas_add(Canvas& self, Axis&& a) {
-	self.axes.list.push_back(a);
+	self.axes.list.push_back(std::move(a));
 }
 
 void canvas_add(Canvas& self, Box&& b) {
-	self.boxes.list.push_back(b);
+	self.boxes.list.push_back(std::move(b));
 }
 
 void canvas_add(Canvas& self, ZLPoint&& z) {
-	self.zlpoints.list.push_back(z);
+	self.zlpoints.list.push_back(std::move(z));
 }
 
 void canvas_add(Canvas& self, Line&& l) {
-	self.lines.list.push_back(l);
+	self.lines.list.push_back(std::move(l));
 }
 
 // precalculated matrices
@@ -5323,7 +5323,7 @@ namespace sys {
 				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || aircraft.anti_coll_lights.visible) {
 					for (size_t zlid : mesh->zls) {
 						Face& face = mesh->faces[zlid];
-						world.canvas.zlpoints.list.push_back(ZLPoint {
+						canvas_add(world.canvas, ZLPoint {
 							.center = mesh->transformation * glm::vec4{face.center.x, face.center.y, face.center.z, 1.0f},
 							.color = face.color
 						});
