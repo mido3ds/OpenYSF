@@ -1,5 +1,4 @@
 - refactor rendering
-	- meshes primitives
 	- box should be turned into list of lines (remove its shader)
 - ground objects:
 	- heathrow: totally broken ground objects rotations

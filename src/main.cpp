@@ -1314,7 +1314,7 @@ struct TerrMesh {
 		bool enabled;
 		float bottom_y, top_y;
 		glm::vec3 bottom_color, top_color;
-	} gradiant;
+	} gradient;
 
 	glm::vec4 top_side_color, bottom_side_color, right_side_color, left_side_color;
 
@@ -1776,25 +1776,25 @@ Field _field_from_fld_str(Parser& parser) {
 			terr_mesh.state = terr_mesh.initial_state;
 
 			if (parser_accept(parser, "CBE ")) {
-				terr_mesh.gradiant.enabled = true;
+				terr_mesh.gradient.enabled = true;
 
-				terr_mesh.gradiant.top_y = parser_token_float(parser);
+				terr_mesh.gradient.top_y = parser_token_float(parser);
 				parser_expect(parser, ' ');
-				terr_mesh.gradiant.bottom_y = -parser_token_float(parser);
-				parser_expect(parser, ' ');
-
-				terr_mesh.gradiant.top_color.r = parser_token_u8(parser) / 255.0f;
-				parser_expect(parser, ' ');
-				terr_mesh.gradiant.top_color.g = parser_token_u8(parser) / 255.0f;
-				parser_expect(parser, ' ');
-				terr_mesh.gradiant.top_color.b = parser_token_u8(parser) / 255.0f;
+				terr_mesh.gradient.bottom_y = -parser_token_float(parser);
 				parser_expect(parser, ' ');
 
-				terr_mesh.gradiant.bottom_color.r = parser_token_u8(parser) / 255.0f;
+				terr_mesh.gradient.top_color.r = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, ' ');
-				terr_mesh.gradiant.bottom_color.g = parser_token_u8(parser) / 255.0f;
+				terr_mesh.gradient.top_color.g = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, ' ');
-				terr_mesh.gradiant.bottom_color.b = parser_token_u8(parser) / 255.0f;
+				terr_mesh.gradient.top_color.b = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+
+				terr_mesh.gradient.bottom_color.r = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				terr_mesh.gradient.bottom_color.g = parser_token_u8(parser) / 255.0f;
+				parser_expect(parser, ' ');
+				terr_mesh.gradient.bottom_color.b = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, '\n');
 			}
 
@@ -2672,56 +2672,90 @@ struct Settings {
 	} world_axis;
 };
 
-// text for debugging, rendered in imgui overlay window
-struct TextOverlay {
-	mu::Str text;
-};
 
-struct ZLPoint {
-	glm::vec3 center, color;
-};
+namespace canvas {
+	// all state of loaded glyph using FreeType
+	// https://learnopengl.com/img/in-practice/glyph_offset.png
+	struct Glyph {
+		GLuint texture;
+		glm::ivec2 size;
+		// Offset from baseline to left/top of glyph
+		glm::ivec2 bearing;
+		// horizontal offset to advance to next glyph
+		uint32_t advance;
+	};
 
-struct Text2D {
-	mu::Str text;
-	uint32_t x; // [0, window.width)
-	uint32_t y; // [0, window.height)
-	float scale;
-	glm::vec3 color;
-};
+	// text for debugging, rendered in imgui overlay window
+	struct TextOverlay {
+		mu::Str text;
+	};
 
-struct Axis {
-	glm::mat4 transformation;
-};
+	struct ZLPoint {
+		glm::vec3 center, color;
+	};
 
-struct Box { glm::vec3 translation, scale, color; };
+	struct Text2D {
+		mu::Str text;
+		uint32_t x; // [0, window.width)
+		uint32_t y; // [0, window.height)
+		float scale;
+		glm::vec3 color;
+	};
 
-struct Line {
-	// world coordinates
-	glm::vec3 p0, p1;
-	glm::vec4 color;
-};
+	struct Axis {
+		glm::mat4 transformation;
+	};
 
-// all state of loaded glyph using FreeType
-// https://learnopengl.com/img/in-practice/glyph_offset.png
-struct Glyph {
-	GLuint texture;
-	glm::ivec2 size;
-	// Offset from baseline to left/top of glyph
-	glm::ivec2 bearing;
-	// horizontal offset to advance to next glyph
-	uint32_t advance;
-};
+	struct Box {
+		glm::vec3 translation, scale, color;
+	};
+
+	struct Line {
+		// world coordinates
+		glm::vec3 p0, p1;
+		glm::vec4 color;
+	};
+
+	struct Mesh {
+		GLuint vao;
+		size_t array_count;
+		glm::mat4 projection_view_model;
+	};
+
+	struct LightSourceMesh {
+		GLuint vao;
+		size_t array_count;
+		glm::mat4 projection_view_model;
+	};
+
+	struct GradientMesh {
+		GLuint vao;
+		size_t array_count;
+		glm::mat4 projection_view_model;
+
+		float gradient_bottom_y, gradient_top_y;
+		glm::vec3 gradient_bottom_color, gradient_top_color;
+	};
+}
 
 struct Canvas {
 	mu::memory::Arena _arena;
 
-	GLProgram meshes_program, picture2d_program;
+	GLProgram picture2d_program;
 
-	mu::Vec<TextOverlay> text_overlay_list;
+	mu::Vec<canvas::TextOverlay> text_overlay_list;
 
 	// opengl can't call shader without VAO even if shader doesn't take input
 	// dummy_vao lets you call shader without input (useful when coords is embedded in shader)
 	GLuint dummy_vao;
+
+	struct {
+		GLProgram program;
+
+		mu::Vec<canvas::Mesh> list_regular;
+		mu::Vec<canvas::LightSourceMesh> list_light_src;
+		mu::Vec<canvas::GradientMesh> list_gradient;
+	} meshes;
 
 	struct {
 		GLProgram program;
@@ -2734,34 +2768,34 @@ struct Canvas {
 		GLuint sprite_texture;
 		SDL_Surface* sprite_surface;
 
-		mu::Vec<ZLPoint> list;
+		mu::Vec<canvas::ZLPoint> list;
 	} zlpoints;
 
 	struct {
-		GLProgram program;
 		GLuint vao, vbo;
 		size_t points_count;
 		GLfloat line_width = 5.0f;
 		bool on_top = true;
 
-		mu::Vec<Axis> list;
+		mu::Vec<canvas::Axis> list;
 	} axes;
 
 	struct {
+		GLProgram program;
 		GLuint vao, vbo;
 		size_t points_count;
 		GLfloat line_width = 1.0f;
 
-		mu::Vec<Box> list;
+		mu::Vec<canvas::Box> list;
 	} boxes;
 
 	struct {
 		GLProgram program;
 		GLuint vao, vbo;
 
-		mu::Arr<Glyph, 128> glyphs;
+		mu::Arr<canvas::Glyph, 128> glyphs;
 
-		mu::Vec<Text2D> list;
+		mu::Vec<canvas::Text2D> list;
 	} text2d;
 
 	struct LinesRendering {
@@ -2775,34 +2809,46 @@ struct Canvas {
 			glm::vec4 color;
 		};
 
-		mu::Vec<Line> list;
+		mu::Vec<canvas::Line> list;
 	} lines;
 };
 
-void canvas_add(Canvas& self, TextOverlay&& d) {
+void canvas_add(Canvas& self, canvas::TextOverlay&& d) {
 	self.text_overlay_list.push_back(std::move(d));
 }
 
-#define TEXT_OVERLAY(...) canvas_add(world.canvas, TextOverlay { mu::str_format(&world.canvas._arena, __VA_ARGS__) })
+#define TEXT_OVERLAY(...) canvas_add(world.canvas, canvas::TextOverlay { mu::str_format(&world.canvas._arena, __VA_ARGS__) })
 
-void canvas_add(Canvas& self, Text2D&& t) {
+void canvas_add(Canvas& self, canvas::Text2D&& t) {
 	self.text2d.list.push_back(std::move(t));
 }
 
-void canvas_add(Canvas& self, Axis&& a) {
+void canvas_add(Canvas& self, canvas::Axis&& a) {
 	self.axes.list.push_back(std::move(a));
 }
 
-void canvas_add(Canvas& self, Box&& b) {
+void canvas_add(Canvas& self, canvas::Box&& b) {
 	self.boxes.list.push_back(std::move(b));
 }
 
-void canvas_add(Canvas& self, ZLPoint&& z) {
+void canvas_add(Canvas& self, canvas::ZLPoint&& z) {
 	self.zlpoints.list.push_back(std::move(z));
 }
 
-void canvas_add(Canvas& self, Line&& l) {
+void canvas_add(Canvas& self, canvas::Line&& l) {
 	self.lines.list.push_back(std::move(l));
+}
+
+void canvas_add(Canvas& self, canvas::Mesh&& m) {
+	self.meshes.list_regular.push_back(std::move(m));
+}
+
+void canvas_add(Canvas& self, canvas::LightSourceMesh&& m) {
+	self.meshes.list_light_src.push_back(std::move(m));
+}
+
+void canvas_add(Canvas& self, canvas::GradientMesh&& m) {
+	self.meshes.list_gradient.push_back(std::move(m));
 }
 
 // precalculated matrices
@@ -3901,24 +3947,21 @@ namespace sys {
 
 		signal_listen(world.signals.wnd_configs_changed);
 
-		self.meshes_program = gl_program_new(
+		self.meshes.program = gl_program_new(
 			// vertex shader
 			R"GLSL(
 				#version 330 core
 				layout (location = 0) in vec3 attr_position;
 				layout (location = 1) in vec4 attr_color;
-				// layout (location = 2) in vec3 attr_normal;
 
 				uniform mat4 projection_view_model;
 
 				out float vs_vertex_y;
 				out vec4 vs_color;
-				// out vec3 vs_normal;
 
 				void main() {
 					gl_Position = projection_view_model * vec4(attr_position, 1.0);
 					vs_color = attr_color;
-					// vs_normal = attr_normal;
 					vs_vertex_y = attr_position.y;
 				}
 			)GLSL",
@@ -3928,11 +3971,8 @@ namespace sys {
 				#version 330 core
 				in float vs_vertex_y;
 				in vec4 vs_color;
-				// in vec3 vs_normal;
 
 				out vec4 out_fragcolor;
-
-				uniform bool is_light_source;
 
 				uniform bool gradient_enabled;
 				uniform float gradient_bottom_y, gradient_top_y;
@@ -4000,7 +4040,7 @@ namespace sys {
 			gl_process_errors();
 		}
 
-		self.axes.program = gl_program_new(
+		self.boxes.program = gl_program_new(
 			// vertex shader
 			R"GLSL(
 				#version 330 core
@@ -4350,7 +4390,7 @@ namespace sys {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-			self.text2d.glyphs[c] = Glyph {
+			self.text2d.glyphs[c] = canvas::Glyph {
 				.texture = text_texture,
 				.size = glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
 				.bearing = glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
@@ -4460,9 +4500,14 @@ namespace sys {
 		// axes
 		glDeleteBuffers(1, &self.axes.vbo);
 		glDeleteVertexArrays(1, &self.axes.vao);
-		gl_program_free(self.axes.program);
+		gl_program_free(self.boxes.program);
 
-		gl_program_free(self.meshes_program);
+		// lines
+		glDeleteBuffers(1, &self.lines.vbo);
+		glDeleteVertexArrays(1, &self.lines.vao);
+		gl_program_free(self.lines.program);
+
+		gl_program_free(self.meshes.program);
 		gl_program_free(self.picture2d_program);
 	}
 
@@ -4506,12 +4551,15 @@ namespace sys {
 		gl_process_errors();
 
 		self._arena = {};
-		self.text_overlay_list = mu::Vec<TextOverlay>(&self._arena);
-		self.text2d.list       = mu::Vec<Text2D>(&self._arena);
-		self.axes.list         = mu::Vec<Axis>(&self._arena);
-		self.boxes.list        = mu::Vec<Box>(&self._arena);
-		self.zlpoints.list     = mu::Vec<ZLPoint>(&self._arena);
-		self.lines.list        = mu::Vec<Line>(&self._arena);
+		self.text_overlay_list     = mu::Vec<canvas::TextOverlay>(&self._arena);
+		self.text2d.list           = mu::Vec<canvas::Text2D>(&self._arena);
+		self.axes.list             = mu::Vec<canvas::Axis>(&self._arena);
+		self.boxes.list            = mu::Vec<canvas::Box>(&self._arena);
+		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self._arena);
+		self.lines.list            = mu::Vec<canvas::Line>(&self._arena);
+		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self._arena);
+		self.meshes.list_light_src = mu::Vec<canvas::LightSourceMesh>(&self._arena);
+		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self._arena);
 	}
 
 	void _camera_update_model_tracking_mode(World& world) {
@@ -4737,7 +4785,7 @@ namespace sys {
 				if (visible[j] && aabbs_intersect(models[i]->current_aabb, models[j]->current_aabb)) {
 					collided[i] = true;
 					collided[j] = true;
-					canvas_add(world.canvas, TextOverlay {
+					canvas_add(world.canvas, canvas::TextOverlay {
 						mu::str_tmpf("{}[air] collided with {}[{}]", names[i], names[j], is_aircraft[j] ? "air":"gro")
 					});
 				}
@@ -4750,7 +4798,7 @@ namespace sys {
 		for (int i = 0; i < models.size(); i++) {
 			if (visible[i] && models[i]->render_aabb) {
 				auto aabb = models[i]->current_aabb;
-				canvas_add(world.canvas, Box {
+				canvas_add(world.canvas, canvas::Box {
 					.translation = aabb.min,
 					.scale = aabb.max - aabb.min,
 					.color = collided[i] ? RED : BLU,
@@ -4921,16 +4969,12 @@ namespace sys {
 	void ground_objs_render(World& world) {
 		DEF_SYSTEM
 
-		gl_program_use(world.canvas.meshes_program);
-
 		for (int i = 0; i < world.ground_objs.size(); i++) {
 			GroundObj& gro = world.ground_objs[i];
 
 			if (!gro.state.visible) {
 				continue;
 			}
-
-			const auto model_transformation = local_euler_angles_matrix(gro.state.angles, gro.state.translation);
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
@@ -4947,18 +4991,26 @@ namespace sys {
 				}
 
 				if (mesh->render_cnt_axis) {
-					canvas_add(world.canvas, Axis { glm::translate(glm::identity<glm::mat4>(), mesh->cnt) });
+					canvas_add(world.canvas, canvas::Axis { glm::translate(glm::identity<glm::mat4>(), mesh->cnt) });
 				}
 
 				if (mesh->render_pos_axis) {
-					canvas_add(world.canvas, Axis { mesh->transformation });
+					canvas_add(world.canvas, canvas::Axis { mesh->transformation });
 				}
 
-				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * mesh->transformation);
-				gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", mesh->is_light_source);
-
-				glBindVertexArray(mesh->gpu.vao);
-				glDrawArrays(mesh->is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+				if (mesh->is_light_source) {
+					canvas_add(world.canvas, canvas::LightSourceMesh {
+						.vao = mesh->gpu.vao,
+						.array_count = mesh->gpu.array_count,
+						.projection_view_model = world.mats.projection_view * mesh->transformation
+					});
+				} else {
+					canvas_add(world.canvas, canvas::Mesh {
+						.vao = mesh->gpu.vao,
+						.array_count = mesh->gpu.array_count,
+						.projection_view_model = world.mats.projection_view * mesh->transformation
+					});
+				}
 
 				// push children
 				for (auto& child : mesh->children) {
@@ -5245,8 +5297,6 @@ namespace sys {
 	void aircrafts_render(World& world) {
 		DEF_SYSTEM
 
-		gl_program_use(world.canvas.meshes_program);
-
 		for (int i = 0; i < world.aircrafts.size(); i++) {
 			Aircraft& aircraft = world.aircrafts[i];
 
@@ -5254,20 +5304,18 @@ namespace sys {
 				continue;
 			}
 
-			const auto model_transformation = local_euler_angles_matrix(aircraft.state.angles, aircraft.state.translation);
-
-			canvas_add(world.canvas, Line {
+			canvas_add(world.canvas, canvas::Line {
 				.p0 = aircraft.state.translation,
 				.p1 = aircraft.state.translation + aircraft.state.angles.front * 35.0f,
 				.color = glm::vec4{1,0,0,1}
 			});
 			auto right = glm::normalize(glm::cross(aircraft.state.angles.front, aircraft.state.angles.up));
-			canvas_add(world.canvas, Line {
+			canvas_add(world.canvas, canvas::Line {
 				.p0 = aircraft.state.translation,
 				.p1 = aircraft.state.translation + right * 20.0f,
 				.color = glm::vec4{0,1,0,1}
 			});
-			canvas_add(world.canvas, Line {
+			canvas_add(world.canvas, canvas::Line {
 				.p0 = aircraft.state.translation,
 				.p1 = aircraft.state.translation + aircraft.state.angles.up * 10.0f,
 				.color = glm::vec4{0,0,1,1}
@@ -5306,24 +5354,32 @@ namespace sys {
 				}
 
 				if (mesh->render_cnt_axis) {
-					canvas_add(world.canvas, Axis { glm::translate(glm::identity<glm::mat4>(), mesh->cnt) });
+					canvas_add(world.canvas, canvas::Axis { glm::translate(glm::identity<glm::mat4>(), mesh->cnt) });
 				}
 
 				if (mesh->render_pos_axis) {
-					canvas_add(world.canvas, Axis { mesh->transformation });
+					canvas_add(world.canvas, canvas::Axis { mesh->transformation });
 				}
 
-				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * mesh->transformation);
-				gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", mesh->is_light_source);
-
-				glBindVertexArray(mesh->gpu.vao);
-				glDrawArrays(mesh->is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh->gpu.array_count);
+				if (mesh->is_light_source) {
+					canvas_add(world.canvas, canvas::LightSourceMesh {
+						.vao = mesh->gpu.vao,
+						.array_count = mesh->gpu.array_count,
+						.projection_view_model = world.mats.projection_view * mesh->transformation
+					});
+				} else {
+					canvas_add(world.canvas, canvas::Mesh {
+						.vao = mesh->gpu.vao,
+						.array_count = mesh->gpu.array_count,
+						.projection_view_model = world.mats.projection_view * mesh->transformation
+					});
+				}
 
 				// ZL
 				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || aircraft.anti_coll_lights.visible) {
 					for (size_t zlid : mesh->zls) {
 						Face& face = mesh->faces[zlid];
-						canvas_add(world.canvas, ZLPoint {
+						canvas_add(world.canvas, canvas::ZLPoint {
 							.center = mesh->transformation * glm::vec4{face.center.x, face.center.y, face.center.z, 1.0f},
 							.color = face.color
 						});
@@ -5391,7 +5447,7 @@ namespace sys {
 
 				for (auto& mesh : fld->meshes) {
 					if (mesh.render_cnt_axis) {
-						canvas_add(world.canvas, Axis { glm::translate(glm::identity<glm::mat4>(), mesh.cnt) });
+						canvas_add(world.canvas, canvas::Axis { glm::translate(glm::identity<glm::mat4>(), mesh.cnt) });
 					}
 
 					// apply mesh transformation
@@ -5402,7 +5458,7 @@ namespace sys {
 					mesh.transformation = glm::rotate(mesh.transformation, mesh.state.rotation[0], glm::vec3{0, 1, 0});
 
 					if (mesh.render_pos_axis) {
-						canvas_add(world.canvas, Axis { mesh.transformation });
+						canvas_add(world.canvas, canvas::Axis { mesh.transformation });
 					}
 				}
 			}
@@ -5457,8 +5513,6 @@ namespace sys {
 		glEnable(GL_DEPTH_TEST);
 
 		// render fields terrains
-		gl_program_use(world.canvas.meshes_program);
-		gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", false);
 		for (const Field* fld : all_fields) {
 			if (fld->state.visible == false) {
 				continue;
@@ -5474,21 +5528,27 @@ namespace sys {
 				model_transformation = glm::rotate(model_transformation, terr_mesh.state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, terr_mesh.state.rotation[0], glm::vec3{0, 1, 0});
-				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * model_transformation);
 
-				gl_program_uniform_set(world.canvas.meshes_program, "gradient_enabled", terr_mesh.gradiant.enabled);
-				if (terr_mesh.gradiant.enabled) {
-					gl_program_uniform_set(world.canvas.meshes_program, "gradient_bottom_y", terr_mesh.gradiant.bottom_y);
-					gl_program_uniform_set(world.canvas.meshes_program, "gradient_top_y", terr_mesh.gradiant.top_y);
-					gl_program_uniform_set(world.canvas.meshes_program, "gradient_bottom_color", terr_mesh.gradiant.bottom_color);
-					gl_program_uniform_set(world.canvas.meshes_program, "gradient_top_color", terr_mesh.gradiant.top_color);
+				if (terr_mesh.gradient.enabled) {
+					canvas_add(world.canvas, canvas::GradientMesh {
+						.vao = terr_mesh.gpu.vao,
+						.array_count = terr_mesh.gpu.array_count,
+						.projection_view_model = world.mats.projection_view * model_transformation,
+
+						.gradient_bottom_y = terr_mesh.gradient.bottom_y,
+						.gradient_top_y = terr_mesh.gradient.top_y,
+						.gradient_bottom_color = terr_mesh.gradient.bottom_color,
+						.gradient_top_color = terr_mesh.gradient.top_color,
+					});
+				} else {
+					canvas_add(world.canvas, canvas::Mesh {
+						.vao = terr_mesh.gpu.vao,
+						.array_count = terr_mesh.gpu.array_count,
+						.projection_view_model = world.mats.projection_view * model_transformation,
+					});
 				}
-
-				glBindVertexArray(terr_mesh.gpu.vao);
-				glDrawArrays(world.settings.rendering.regular_primitives_type, 0, terr_mesh.gpu.array_count);
 			}
 		}
-		gl_program_uniform_set(world.canvas.meshes_program, "gradient_enabled", false);
 
 		// render fields meshes
 		for (const Field* fld : all_fields) {
@@ -5499,14 +5559,19 @@ namespace sys {
 			for (const auto& mesh : fld->meshes) {
 				if (mesh.state.visible == false) {
 					continue;
+				} else if (mesh.is_light_source) {
+					canvas_add(world.canvas, canvas::LightSourceMesh {
+						.vao = mesh.gpu.vao,
+						.array_count = mesh.gpu.array_count,
+						.projection_view_model = world.mats.projection_view * mesh.transformation
+					});
+				} else {
+					canvas_add(world.canvas, canvas::Mesh {
+						.vao = mesh.gpu.vao,
+						.array_count = mesh.gpu.array_count,
+						.projection_view_model = world.mats.projection_view * mesh.transformation
+					});
 				}
-
-				// upload transofmation model
-				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * mesh.transformation);
-				gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", mesh.is_light_source);
-
-				glBindVertexArray(mesh.gpu.vao);
-				glDrawArrays(mesh.is_light_source? world.settings.rendering.light_primitives_type : world.settings.rendering.regular_primitives_type, 0, mesh.gpu.array_count);
 			}
 		}
 	}
@@ -5532,23 +5597,58 @@ namespace sys {
 		}
 	}
 
+	void meshes_render(World& world) {
+		DEF_SYSTEM
+
+		gl_program_use(world.canvas.meshes.program);
+
+		// regular
+		for (const auto& mesh : world.canvas.meshes.list_regular) {
+			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+			glBindVertexArray(mesh.vao);
+			glDrawArrays(world.settings.rendering.regular_primitives_type, 0, mesh.array_count);
+		}
+
+		// light source
+		for (const auto& mesh : world.canvas.meshes.list_light_src) {
+			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+			glBindVertexArray(mesh.vao);
+			glDrawArrays(world.settings.rendering.light_primitives_type, 0, mesh.array_count);
+		}
+
+		// gradient
+		gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", true);
+		for (const auto& mesh : world.canvas.meshes.list_gradient) {
+			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+
+			gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_y", mesh.gradient_bottom_y);
+			gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_y", mesh.gradient_top_y);
+			gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_color", mesh.gradient_bottom_color);
+			gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_color", mesh.gradient_top_color);
+
+			glBindVertexArray(mesh.vao);
+			glDrawArrays(world.settings.rendering.regular_primitives_type, 0, mesh.array_count);
+		}
+		gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", false);
+	}
+
 	void axes_render(World& world) {
 		DEF_SYSTEM
 
 		if (world.canvas.axes.list.empty() == false) {
-			gl_program_use(world.canvas.meshes_program);
+			gl_program_use(world.canvas.meshes.program);
+			glEnable(GL_LINE_SMOOTH);
+			#ifndef OS_MACOS
+			glLineWidth(world.canvas.axes.line_width);
+            #endif
+			glBindVertexArray(world.canvas.axes.vao);
+
 			if (world.canvas.axes.on_top) {
 				glDisable(GL_DEPTH_TEST);
 			}
 
-			glEnable(GL_LINE_SMOOTH);
-            #ifndef OS_MACOS
-			glLineWidth(world.canvas.axes.line_width);
-            #endif
-			gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", false);
-			glBindVertexArray(world.canvas.axes.vao);
 			for (const auto& axis : world.canvas.axes.list) {
-				gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", world.mats.projection_view * axis.transformation);
+				gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", world.mats.projection_view * axis.transformation);
 				glDrawArrays(GL_LINES, 0, world.canvas.axes.points_count);
 			}
 
@@ -5556,14 +5656,11 @@ namespace sys {
 		}
 
 		if (world.settings.world_axis.enabled) {
-			gl_program_use(world.canvas.meshes_program);
-
+			gl_program_use(world.canvas.meshes.program);
 			glEnable(GL_LINE_SMOOTH);
-            #ifndef OS_MACOS
+			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
             #endif
-
-			gl_program_uniform_set(world.canvas.meshes_program, "is_light_source", false);
 			glBindVertexArray(world.canvas.axes.vao);
 
 			float camera_z = 1 - world.settings.world_axis.scale; // invert scale because it's camera moving away
@@ -5574,7 +5671,7 @@ namespace sys {
 
 			auto translate = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world.settings.world_axis.position.x, world.settings.world_axis.position.y, 0});
 
-			gl_program_uniform_set(world.canvas.meshes_program, "projection_view_model", translate * world.mats.projection * new_view_mat);
+			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", translate * world.mats.projection * new_view_mat);
 			glDrawArrays(GL_LINES, 0, world.canvas.axes.points_count);
 		}
 	}
@@ -5586,7 +5683,7 @@ namespace sys {
 			return;
 		}
 
-		gl_program_use(world.canvas.axes.program);
+		gl_program_use(world.canvas.boxes.program);
 		glEnable(GL_LINE_SMOOTH);
 		#ifndef OS_MACOS
 		glLineWidth(world.canvas.boxes.line_width);
@@ -5597,9 +5694,9 @@ namespace sys {
 			auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
 			transformation = glm::scale(transformation, box.scale);
 			const auto projection_view_model = world.mats.projection_view * transformation;
-			gl_program_uniform_set(world.canvas.axes.program, "projection_view_model", projection_view_model);
+			gl_program_uniform_set(world.canvas.boxes.program, "projection_view_model", projection_view_model);
 
-			gl_program_uniform_set(world.canvas.axes.program, "color", box.color);
+			gl_program_uniform_set(world.canvas.boxes.program, "color", box.color);
 
 			glDrawArrays(GL_LINE_LOOP, 0, world.canvas.boxes.points_count);
 		}
@@ -5624,7 +5721,7 @@ namespace sys {
 				if (c >= world.canvas.text2d.glyphs.size()) {
 					c = '?';
 				}
-				const Glyph& glyph = world.canvas.text2d.glyphs[c];
+				const canvas::Glyph& glyph = world.canvas.text2d.glyphs[c];
 
 				// update vertices
 				float xpos = txt_rndr.x + glyph.bearing.x * txt_rndr.scale;
@@ -5747,7 +5844,7 @@ int main() {
 		sys::models_handle_collision(world);
 
 		// examples
-		canvas_add(world.canvas, Text2D {
+		canvas_add(world.canvas, canvas::Text2D {
 			.text = mu::str_tmpf("Hello OpenYSF"),
 			.x = 25,
 			.y = 25,
@@ -5763,6 +5860,7 @@ int main() {
 
 			sys::ground_objs_render(world);
 
+			sys::meshes_render(world);
 			sys::axes_render(world);
 			sys::boxes_render(world);
 			sys::lines_render(world);
