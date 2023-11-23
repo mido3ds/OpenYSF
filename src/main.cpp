@@ -2660,9 +2660,8 @@ struct Settings {
 		GLfloat line_width = 3.0f;
 		GLfloat point_size = 3.0f;
 
-		GLenum regular_primitives_type = GL_TRIANGLES;
-		GLenum light_primitives_type   = GL_TRIANGLES;
-		GLenum polygon_mode            = GL_FILL;
+		GLenum primitives_type = GL_TRIANGLES;
+		GLenum polygon_mode    = GL_FILL;
 	} rendering;
 
 	struct {
@@ -2671,7 +2670,6 @@ struct Settings {
 		float scale = 0.48f;
 	} world_axis;
 };
-
 
 namespace canvas {
 	// all state of loaded glyph using FreeType
@@ -2722,12 +2720,6 @@ namespace canvas {
 		glm::mat4 projection_view_model;
 	};
 
-	struct LightSourceMesh {
-		GLuint vao;
-		size_t array_count;
-		glm::mat4 projection_view_model;
-	};
-
 	struct GradientMesh {
 		GLuint vao;
 		size_t array_count;
@@ -2753,7 +2745,6 @@ struct Canvas {
 		GLProgram program;
 
 		mu::Vec<canvas::Mesh> list_regular;
-		mu::Vec<canvas::LightSourceMesh> list_light_src;
 		mu::Vec<canvas::GradientMesh> list_gradient;
 	} meshes;
 
@@ -2841,10 +2832,6 @@ void canvas_add(Canvas& self, canvas::Line&& l) {
 
 void canvas_add(Canvas& self, canvas::Mesh&& m) {
 	self.meshes.list_regular.push_back(std::move(m));
-}
-
-void canvas_add(Canvas& self, canvas::LightSourceMesh&& m) {
-	self.meshes.list_light_src.push_back(std::move(m));
 }
 
 void canvas_add(Canvas& self, canvas::GradientMesh&& m) {
@@ -3251,17 +3238,7 @@ namespace sys {
 					{GL_FILL,  "GL_FILL"},
 				});
 
-				MyImGui::EnumsCombo("Regular Mesh Primitives", &world.settings.rendering.regular_primitives_type, {
-					{GL_POINTS,          "GL_POINTS"},
-					{GL_LINES,           "GL_LINES"},
-					{GL_LINE_LOOP,       "GL_LINE_LOOP"},
-					{GL_LINE_STRIP,      "GL_LINE_STRIP"},
-					{GL_TRIANGLES,       "GL_TRIANGLES"},
-					{GL_TRIANGLE_STRIP,  "GL_TRIANGLE_STRIP"},
-					{GL_TRIANGLE_FAN,    "GL_TRIANGLE_FAN"},
-				});
-
-				MyImGui::EnumsCombo("Light Mesh Primitives", &world.settings.rendering.light_primitives_type, {
+				MyImGui::EnumsCombo("Regular Mesh Primitives", &world.settings.rendering.primitives_type, {
 					{GL_POINTS,          "GL_POINTS"},
 					{GL_LINES,           "GL_LINES"},
 					{GL_LINE_LOOP,       "GL_LINE_LOOP"},
@@ -4558,7 +4535,6 @@ namespace sys {
 		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self._arena);
 		self.lines.list            = mu::Vec<canvas::Line>(&self._arena);
 		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self._arena);
-		self.meshes.list_light_src = mu::Vec<canvas::LightSourceMesh>(&self._arena);
 		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self._arena);
 	}
 
@@ -4998,19 +4974,11 @@ namespace sys {
 					canvas_add(world.canvas, canvas::Axis { mesh->transformation });
 				}
 
-				if (mesh->is_light_source) {
-					canvas_add(world.canvas, canvas::LightSourceMesh {
-						.vao = mesh->gpu.vao,
-						.array_count = mesh->gpu.array_count,
-						.projection_view_model = world.mats.projection_view * mesh->transformation
-					});
-				} else {
-					canvas_add(world.canvas, canvas::Mesh {
-						.vao = mesh->gpu.vao,
-						.array_count = mesh->gpu.array_count,
-						.projection_view_model = world.mats.projection_view * mesh->transformation
-					});
-				}
+				canvas_add(world.canvas, canvas::Mesh {
+					.vao = mesh->gpu.vao,
+					.array_count = mesh->gpu.array_count,
+					.projection_view_model = world.mats.projection_view * mesh->transformation
+				});
 
 				// push children
 				for (auto& child : mesh->children) {
@@ -5361,19 +5329,11 @@ namespace sys {
 					canvas_add(world.canvas, canvas::Axis { mesh->transformation });
 				}
 
-				if (mesh->is_light_source) {
-					canvas_add(world.canvas, canvas::LightSourceMesh {
-						.vao = mesh->gpu.vao,
-						.array_count = mesh->gpu.array_count,
-						.projection_view_model = world.mats.projection_view * mesh->transformation
-					});
-				} else {
-					canvas_add(world.canvas, canvas::Mesh {
-						.vao = mesh->gpu.vao,
-						.array_count = mesh->gpu.array_count,
-						.projection_view_model = world.mats.projection_view * mesh->transformation
-					});
-				}
+				canvas_add(world.canvas, canvas::Mesh {
+					.vao = mesh->gpu.vao,
+					.array_count = mesh->gpu.array_count,
+					.projection_view_model = world.mats.projection_view * mesh->transformation
+				});
 
 				// ZL
 				if (mesh->animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || aircraft.anti_coll_lights.visible) {
@@ -5557,15 +5517,7 @@ namespace sys {
 			}
 
 			for (const auto& mesh : fld->meshes) {
-				if (mesh.state.visible == false) {
-					continue;
-				} else if (mesh.is_light_source) {
-					canvas_add(world.canvas, canvas::LightSourceMesh {
-						.vao = mesh.gpu.vao,
-						.array_count = mesh.gpu.array_count,
-						.projection_view_model = world.mats.projection_view * mesh.transformation
-					});
-				} else {
+				if (mesh.state.visible) {
 					canvas_add(world.canvas, canvas::Mesh {
 						.vao = mesh.gpu.vao,
 						.array_count = mesh.gpu.array_count,
@@ -5606,30 +5558,25 @@ namespace sys {
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
 			glBindVertexArray(mesh.vao);
-			glDrawArrays(world.settings.rendering.regular_primitives_type, 0, mesh.array_count);
-		}
-
-		// light source
-		for (const auto& mesh : world.canvas.meshes.list_light_src) {
-			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
-			glBindVertexArray(mesh.vao);
-			glDrawArrays(world.settings.rendering.light_primitives_type, 0, mesh.array_count);
+			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.array_count);
 		}
 
 		// gradient
-		gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", true);
-		for (const auto& mesh : world.canvas.meshes.list_gradient) {
-			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+		if (world.canvas.meshes.list_gradient.size() > 0) {
+			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", true);
+			for (const auto& mesh : world.canvas.meshes.list_gradient) {
+				gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
 
-			gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_y", mesh.gradient_bottom_y);
-			gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_y", mesh.gradient_top_y);
-			gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_color", mesh.gradient_bottom_color);
-			gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_color", mesh.gradient_top_color);
+				gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_y", mesh.gradient_bottom_y);
+				gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_y", mesh.gradient_top_y);
+				gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_color", mesh.gradient_bottom_color);
+				gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_color", mesh.gradient_top_color);
 
-			glBindVertexArray(mesh.vao);
-			glDrawArrays(world.settings.rendering.regular_primitives_type, 0, mesh.array_count);
+				glBindVertexArray(mesh.vao);
+				glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.array_count);
+			}
+			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", false);
 		}
-		gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", false);
 	}
 
 	void axes_render(World& world) {
