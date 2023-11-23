@@ -276,10 +276,7 @@ struct Mesh {
 	// POS
 	MeshState initial_state; // should be kepts const after init
 
-	struct {
-		GLuint vao, vbo;
-		size_t array_count;
-	} gpu;
+	GLBuf gl_buf;
 
 	// physics
 	glm::mat4 transformation;
@@ -290,66 +287,16 @@ struct Mesh {
 };
 
 void mesh_load_to_gpu(Mesh& self) {
-	struct Stride {
-		glm::vec3 vertex;
-		glm::vec4 color;
-		glm::vec3 normal;
-	};
-	mu::Vec<Stride> buffer(mu::memory::tmp());
+	mu::Vec<canvas::MeshStride> buffer(mu::memory::tmp());
 	for (const auto& face : self.faces) {
 		for (size_t i = 0; i < face.vertices_ids.size(); i++) {
-			buffer.push_back(Stride {
+			buffer.push_back(canvas::MeshStride {
 				.vertex=self.vertices[face.vertices_ids[i]],
 				.color=face.color,
-				.normal=face.normal,
 			});
 		}
 	}
-	self.gpu.array_count = buffer.size();
-
-	glGenVertexArrays(1, &self.gpu.vao);
-	glBindVertexArray(self.gpu.vao);
-		glGenBuffers(1, &self.gpu.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
-
-		size_t offset = 0;
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,              /*index*/
-			3,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			sizeof(Stride), /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(Stride::vertex);
-
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(
-			1,              /*index*/
-			4,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			sizeof(Stride), /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(Stride::color);
-
-		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(
-			2,              /*index*/
-			3,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			sizeof(Stride), /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(Stride::normal);
-	glBindVertexArray(0);
-
-	gl_process_errors();
+	self.gl_buf = gl_buf_new(buffer);
 
 	for (auto& child : self.children) {
 		mesh_load_to_gpu(child);
@@ -357,10 +304,7 @@ void mesh_load_to_gpu(Mesh& self) {
 }
 
 void mesh_unload_from_gpu(Mesh& self) {
-	glDeleteBuffers(1, &self.gpu.vbo);
-	glBindVertexArray(0);
-	glDeleteVertexArrays(1, &self.gpu.vao);
-	self.gpu = {};
+	gl_buf_free(self.gl_buf);
 
 	for (auto& child : self.children) {
 		mesh_unload_from_gpu(child);
@@ -1318,10 +1262,7 @@ struct TerrMesh {
 
 	glm::vec4 top_side_color, bottom_side_color, right_side_color, left_side_color;
 
-	struct {
-		GLuint vao, vbo;
-		size_t array_count;
-	} gpu;
+	GLBuf gl_buf;
 
 	struct {
 		glm::vec3 translation;
@@ -1331,121 +1272,82 @@ struct TerrMesh {
 };
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
-	struct Stride {
-		glm::vec3 vertex;
-		glm::vec4 color;
-	};
-	mu::Vec<Stride> buffer(mu::memory::tmp());
+	mu::Vec<canvas::MeshStride> buffer(mu::memory::tmp());
 
 	// main triangles
 	for (size_t z = 0; z < self.blocks.size(); z++) {
 		for (size_t x = 0; x < self.blocks[z].size(); x++) {
 			if (self.blocks[z][x].orientation == Block::RIGHT) {
 				// face 1
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[1],
 				});
 			} else {
 				// face 1
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(Stride {
+				buffer.push_back(canvas::MeshStride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
 			}
 		}
 	}
-	self.gpu.array_count = buffer.size();
 
+	// scale
 	for (auto& stride : buffer) {
 		stride.vertex.x *= self.scale.x;
 		stride.vertex.z *= self.scale.y;
 	}
 
-	// load buffer to gpu
-	glGenVertexArrays(1, &self.gpu.vao);
-	glBindVertexArray(self.gpu.vao);
-		glGenBuffers(1, &self.gpu.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
-
-		size_t offset = 0;
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,              /*index*/
-			3,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			sizeof(Stride), /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(Stride::vertex);
-
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(
-			1,              /*index*/
-			4,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			sizeof(Stride), /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(Stride::color);
-	glBindVertexArray(0);
-
-	gl_process_errors();
+	self.gl_buf = gl_buf_new(buffer);
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
-	glDeleteBuffers(1, &self.gpu.vbo);
-	glBindVertexArray(0);
-	glDeleteVertexArrays(1, &self.gpu.vao);
-	self.gpu = {};
+	gl_buf_free(self.gl_buf);
 }
 
 struct Primitive2D {
@@ -1466,34 +1368,31 @@ struct Primitive2D {
 	// (X,Z), y=0
 	mu::Vec<glm::vec2> vertices;
 
-	struct {
-		GLuint vao, vbo;
-		GLenum primitive_type;
-		size_t array_count;
-	} gpu;
+	GLenum gl_primitive_type;
+	GLBuf gl_buf;
 };
 
 void primitive2d_load_to_gpu(Primitive2D& self) {
-	mu::Vec<glm::vec2> vertices(mu::memory::tmp());
 	switch (self.kind) {
 	case Primitive2D::Kind::POINTS:
-		self.gpu.primitive_type = GL_POINTS;
-		vertices = self.vertices;
+		self.gl_primitive_type = GL_POINTS;
+		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::LINES:
-		self.gpu.primitive_type = GL_LINES;
-		vertices = self.vertices;
+		self.gl_primitive_type = GL_LINES;
+		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::LINE_SEGMENTS:
-		self.gpu.primitive_type = GL_LINE_STRIP;
-		vertices = self.vertices;
+		self.gl_primitive_type = GL_LINE_STRIP;
+		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::TRIANGLES:
-		self.gpu.primitive_type = GL_TRIANGLES;
-		vertices = self.vertices;
+		self.gl_primitive_type = GL_TRIANGLES;
+		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::QUADRILATERAL:
-		self.gpu.primitive_type = GL_TRIANGLES;
+	{
+		mu::Vec<glm::vec2> vertices(mu::memory::tmp());
 		for (int i = 0; i < (int)self.vertices.size() - 3; i += 4) {
 			vertices.push_back(self.vertices[i]);
 			vertices.push_back(self.vertices[i+3]);
@@ -1503,10 +1402,14 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 			vertices.push_back(self.vertices[i+2]);
 			vertices.push_back(self.vertices[i+1]);
 		}
+		self.gl_primitive_type = GL_TRIANGLES;
+		self.gl_buf = gl_buf_new(vertices);
 		break;
+	}
 	case Primitive2D::Kind::GRADATION_QUAD_STRIPS: // same as QUAD_STRIPS but with extra color
 	case Primitive2D::Kind::QUAD_STRIPS:
-		self.gpu.primitive_type = GL_TRIANGLES;
+	{
+		mu::Vec<glm::vec2> vertices(mu::memory::tmp());
 		for (int i = 0; i < (int)self.vertices.size() - 2; i += 2) {
 			vertices.push_back(self.vertices[i]);
 			vertices.push_back(self.vertices[i+1]);
@@ -1516,46 +1419,27 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 			vertices.push_back(self.vertices[i+2]);
 			vertices.push_back(self.vertices[i+3]);
 		}
+		self.gl_primitive_type = GL_TRIANGLES;
+		self.gl_buf = gl_buf_new(vertices);
 		break;
+	}
 	case Primitive2D::Kind::POLYGON:
 	{
-		self.gpu.primitive_type = GL_TRIANGLES;
 		auto indices = polygons2d_to_triangles(self.vertices, mu::memory::tmp());
+		mu::Vec<glm::vec2> vertices(mu::memory::tmp());
 		for (auto& index : indices) {
 			vertices.push_back(self.vertices[index]);
 		}
+		self.gl_primitive_type = GL_TRIANGLES;
+		self.gl_buf = gl_buf_new(vertices);
 		break;
 	}
 	default: unreachable();
 	}
-	self.gpu.array_count = vertices.size();
-
-	// load vertices to gpu
-	glGenVertexArrays(1, &self.gpu.vao);
-	glBindVertexArray(self.gpu.vao);
-		glGenBuffers(1, &self.gpu.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.gpu.vbo);
-		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec2), vertices.data(), GL_STATIC_DRAW);
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,                 /*index*/
-			2,                 /*#components*/
-			GL_FLOAT,          /*type*/
-			GL_FALSE,          /*normalize*/
-			sizeof(glm::vec2), /*stride bytes*/
-			(void*)0           /*offset*/
-		);
-	glBindVertexArray(0);
-
-	gl_process_errors();
 }
 
-void prmitive2d_unload_from_gpu(Primitive2D& self) {
-	glDeleteBuffers(1, &self.gpu.vbo);
-	glBindVertexArray(0);
-	glDeleteVertexArrays(1, &self.gpu.vao);
-	self.gpu = {};
+void primitive2d_unload_from_gpu(Primitive2D& self) {
+	gl_buf_free(self.gl_buf);
 }
 
 struct Picture2D {
@@ -1578,7 +1462,7 @@ void picture2d_load_to_gpu(Picture2D& self) {
 
 void picture2d_unload_from_gpu(Picture2D& self) {
 	for (auto& primitive : self.primitives) {
-		prmitive2d_unload_from_gpu(primitive);
+		primitive2d_unload_from_gpu(primitive);
 	}
 }
 
@@ -2716,13 +2600,13 @@ namespace canvas {
 
 	struct Mesh {
 		GLuint vao;
-		size_t array_count;
+		size_t len;
 		glm::mat4 projection_view_model;
 	};
 
 	struct GradientMesh {
 		GLuint vao;
-		size_t array_count;
+		size_t len;
 		glm::mat4 projection_view_model;
 
 		float gradient_bottom_y, gradient_top_y;
@@ -2763,8 +2647,7 @@ struct Canvas {
 	} zlpoints;
 
 	struct {
-		GLuint vao, vbo;
-		size_t points_count;
+		GLBuf gl_buf; // one axis mesh
 		GLfloat line_width = 5.0f;
 		bool on_top = true;
 
@@ -2773,8 +2656,7 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
-		GLuint vao, vbo;
-		size_t points_count;
+		GLBuf gl_buf;
 		GLfloat line_width = 1.0f;
 
 		mu::Vec<canvas::Box> list;
@@ -2782,7 +2664,7 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
-		GLuint vao, vbo;
+		GLBuf gl_buf;
 
 		mu::Arr<canvas::Glyph, 128> glyphs;
 
@@ -2791,14 +2673,8 @@ struct Canvas {
 
 	struct LinesRendering {
 		GLProgram program;
-		GLuint vao, vbo;
+		GLBuf gl_buf;
 		GLfloat line_width = 1.0f;
-
-		constexpr static size_t buf_len = 100;
-		struct Stride {
-			glm::vec4 vertex;
-			glm::vec4 color;
-		};
 
 		mu::Vec<canvas::Line> list;
 	} lines;
@@ -3968,54 +3844,14 @@ namespace sys {
 			)GLSL"
 		);
 
-		{
-			struct Stride {
-				glm::vec3 vertex;
-				glm::vec4 color;
-			};
-			const mu::Vec<Stride> buffer {
-				Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
-				Stride {{1, 0, 0}, {1, 0, 0, 1}},
-				Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
-				Stride {{0, 1, 0}, {0, 1, 0, 1}},
-				Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
-				Stride {{0, 0, 1}, {0, 0, 1, 1}},
-			};
-			self.axes.points_count = buffer.size();
-
-			glGenVertexArrays(1, &self.axes.vao);
-			glBindVertexArray(self.axes.vao);
-				glGenBuffers(1, &self.axes.vbo);
-				glBindBuffer(GL_ARRAY_BUFFER, self.axes.vbo);
-				glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(Stride), buffer.data(), GL_STATIC_DRAW);
-
-				size_t offset = 0;
-
-				glEnableVertexAttribArray(0);
-				glVertexAttribPointer(
-					0,              /*index*/
-					3,              /*#components*/
-					GL_FLOAT,       /*type*/
-					GL_FALSE,       /*normalize*/
-					sizeof(Stride), /*stride bytes*/
-					(void*)offset   /*offset*/
-				);
-				offset += sizeof(Stride::vertex);
-
-				glEnableVertexAttribArray(1);
-				glVertexAttribPointer(
-					1,              /*index*/
-					4,              /*#components*/
-					GL_FLOAT,       /*type*/
-					GL_FALSE,       /*normalize*/
-					sizeof(Stride), /*stride bytes*/
-					(void*)offset   /*offset*/
-				);
-				offset += sizeof(Stride::color);
-			glBindVertexArray(0);
-
-			gl_process_errors();
-		}
+		self.axes.gl_buf = gl_buf_new(mu::Vec<canvas::MeshStride> {
+			canvas::MeshStride {{0, 0, 0}, {1, 0, 0, 1}}, // X
+			canvas::MeshStride {{1, 0, 0}, {1, 0, 0, 1}},
+			canvas::MeshStride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
+			canvas::MeshStride {{0, 1, 0}, {0, 1, 0, 1}},
+			canvas::MeshStride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
+			canvas::MeshStride {{0, 0, 1}, {0, 0, 1, 1}},
+		});
 
 		self.boxes.program = gl_program_new(
 			// vertex shader
@@ -4039,60 +3875,38 @@ namespace sys {
 			)GLSL"
 		);
 
-		{
-			const mu::Vec<glm::vec3> buffer {
-				{0, 0, 0}, // face x0
-				{0, 1, 0},
-				{0, 1, 1},
-				{0, 0, 1},
-				{0, 0, 0},
-				{1, 0, 0}, // face x1
-				{1, 1, 0},
-				{1, 1, 1},
-				{1, 0, 1},
-				{1, 0, 0},
-				{0, 0, 0}, // face y0
-				{1, 0, 0},
-				{1, 0, 1},
-				{0, 0, 1},
-				{0, 0, 0},
-				{0, 1, 0}, // face y1
-				{1, 1, 0},
-				{1, 1, 1},
-				{0, 1, 1},
-				{0, 1, 0},
-				{0, 0, 0}, // face z0
-				{1, 0, 0},
-				{1, 1, 0},
-				{0, 1, 0},
-				{0, 0, 0},
-				{0, 0, 1}, // face z1
-				{1, 0, 1},
-				{1, 1, 1},
-				{0, 1, 1},
-				{0, 0, 1},
-			};
-			self.boxes.points_count = buffer.size();
-
-			glGenVertexArrays(1, &self.boxes.vao);
-			glBindVertexArray(self.boxes.vao);
-				glGenBuffers(1, &self.boxes.vbo);
-				glBindBuffer(GL_ARRAY_BUFFER, self.boxes.vbo);
-				glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(glm::vec3), buffer.data(), GL_STATIC_DRAW);
-
-				glEnableVertexAttribArray(0);
-				glVertexAttribPointer(
-					0,                 /*index*/
-					3,                 /*#components*/
-					GL_FLOAT,          /*type*/
-					GL_FALSE,          /*normalize*/
-					sizeof(glm::vec3), /*stride bytes*/
-					(void*)0           /*offset*/
-				);
-			glBindVertexArray(0);
-
-			gl_process_errors();
-		}
+		self.boxes.gl_buf = gl_buf_new(mu::Vec<glm::vec3> {
+			{0, 0, 0}, // face x0
+			{0, 1, 0},
+			{0, 1, 1},
+			{0, 0, 1},
+			{0, 0, 0},
+			{1, 0, 0}, // face x1
+			{1, 1, 0},
+			{1, 1, 1},
+			{1, 0, 1},
+			{1, 0, 0},
+			{0, 0, 0}, // face y0
+			{1, 0, 0},
+			{1, 0, 1},
+			{0, 0, 1},
+			{0, 0, 0},
+			{0, 1, 0}, // face y1
+			{1, 1, 0},
+			{1, 1, 1},
+			{0, 1, 1},
+			{0, 1, 0},
+			{0, 0, 0}, // face z0
+			{1, 0, 0},
+			{1, 1, 0},
+			{0, 1, 0},
+			{0, 0, 0},
+			{0, 0, 1}, // face z1
+			{1, 0, 1},
+			{1, 1, 1},
+			{0, 1, 1},
+			{0, 0, 1},
+		});
 
 		self.picture2d_program = gl_program_new(
 			// vertex shader
@@ -4296,23 +4110,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		// texture quads
-		glGenVertexArrays(1, &self.text2d.vao);
-		glGenBuffers(1, &self.text2d.vbo);
-		glBindVertexArray(self.text2d.vao);
-			glBindBuffer(GL_ARRAY_BUFFER, self.text2d.vbo);
-			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
-
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(
-				0,                 /*index*/
-				4,                 /*#components*/
-				GL_FLOAT,          /*type*/
-				GL_FALSE,          /*normalize*/
-				4 * sizeof(float), /*stride bytes*/
-				(void*)0           /*offset*/
-			);
-		glBindVertexArray(0);
+		self.text2d.gl_buf = gl_buf_new(glm::vec4{}, 6);
 
 		// disable byte-alignment restriction
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -4404,39 +4202,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		{
-			constexpr auto STRIDE_SIZE = sizeof(Canvas::LinesRendering::Stride);
-			glGenVertexArrays(1, &self.lines.vao);
-			glBindVertexArray(self.lines.vao);
-				glGenBuffers(1, &self.lines.vbo);
-				glBindBuffer(GL_ARRAY_BUFFER, self.lines.vbo);
-				glBufferData(GL_ARRAY_BUFFER, self.lines.buf_len * STRIDE_SIZE, NULL, GL_DYNAMIC_DRAW);
-
-				size_t offset = 0;
-
-				glEnableVertexAttribArray(0);
-				glVertexAttribPointer(
-					0,              /*index*/
-					4,              /*#components*/
-					GL_FLOAT,       /*type*/
-					GL_FALSE,       /*normalize*/
-					STRIDE_SIZE,    /*stride bytes*/
-					(void*)offset   /*offset*/
-				);
-				offset += sizeof(Canvas::LinesRendering::Stride::vertex);
-
-				glEnableVertexAttribArray(1);
-				glVertexAttribPointer(
-					1,              /*index*/
-					4,              /*#components*/
-					GL_FLOAT,       /*type*/
-					GL_FALSE,       /*normalize*/
-					STRIDE_SIZE,    /*stride bytes*/
-					(void*)offset   /*offset*/
-				);
-				offset += sizeof(Canvas::LinesRendering::Stride::color);
-			glBindVertexArray(0);
-		}
+		self.lines.gl_buf = gl_buf_new(canvas::LineStride{}, 100);
 
 		gl_process_errors();
 	}
@@ -4452,8 +4218,7 @@ namespace sys {
 
 		// text2d
 		gl_program_free(self.text2d.program);
-		glDeleteBuffers(1, &self.text2d.vbo);
-		glDeleteVertexArrays(1, &self.text2d.vao);
+		gl_buf_free(self.text2d.gl_buf);
 		for (auto& g : self.text2d.glyphs) {
 			glDeleteTextures(1, &g.texture);
 		}
@@ -4471,18 +4236,15 @@ namespace sys {
 		glDeleteVertexArrays(1, &self.dummy_vao);
 
 		// boxes
-		glDeleteBuffers(1, &self.boxes.vbo);
-		glDeleteVertexArrays(1, &self.boxes.vao);
+		gl_buf_free(self.boxes.gl_buf);
 
 		// axes
-		glDeleteBuffers(1, &self.axes.vbo);
-		glDeleteVertexArrays(1, &self.axes.vao);
 		gl_program_free(self.boxes.program);
+		gl_buf_free(self.axes.gl_buf);
 
 		// lines
-		glDeleteBuffers(1, &self.lines.vbo);
-		glDeleteVertexArrays(1, &self.lines.vao);
 		gl_program_free(self.lines.program);
+		gl_buf_free(self.lines.gl_buf);
 
 		gl_program_free(self.meshes.program);
 		gl_program_free(self.picture2d_program);
@@ -4975,8 +4737,8 @@ namespace sys {
 				}
 
 				canvas_add(world.canvas, canvas::Mesh {
-					.vao = mesh->gpu.vao,
-					.array_count = mesh->gpu.array_count,
+					.vao = mesh->gl_buf.vao,
+					.len = mesh->gl_buf.len,
 					.projection_view_model = world.mats.projection_view * mesh->transformation
 				});
 
@@ -5330,8 +5092,8 @@ namespace sys {
 				}
 
 				canvas_add(world.canvas, canvas::Mesh {
-					.vao = mesh->gpu.vao,
-					.array_count = mesh->gpu.array_count,
+					.vao = mesh->gl_buf.vao,
+					.len = mesh->gl_buf.len,
 					.projection_view_model = world.mats.projection_view * mesh->transformation
 				});
 
@@ -5465,8 +5227,8 @@ namespace sys {
 						gl_program_uniform_set(world.canvas.picture2d_program, "primitive_color[1]", primitive.color2);
 					}
 
-					glBindVertexArray(primitive.gpu.vao);
-					glDrawArrays(primitive.gpu.primitive_type, 0, primitive.gpu.array_count);
+					glBindVertexArray(primitive.gl_buf.vao);
+					glDrawArrays(primitive.gl_primitive_type, 0, primitive.gl_buf.len);
 				}
 			}
 		}
@@ -5491,8 +5253,8 @@ namespace sys {
 
 				if (terr_mesh.gradient.enabled) {
 					canvas_add(world.canvas, canvas::GradientMesh {
-						.vao = terr_mesh.gpu.vao,
-						.array_count = terr_mesh.gpu.array_count,
+						.vao = terr_mesh.gl_buf.vao,
+						.len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
 
 						.gradient_bottom_y = terr_mesh.gradient.bottom_y,
@@ -5502,8 +5264,8 @@ namespace sys {
 					});
 				} else {
 					canvas_add(world.canvas, canvas::Mesh {
-						.vao = terr_mesh.gpu.vao,
-						.array_count = terr_mesh.gpu.array_count,
+						.vao = terr_mesh.gl_buf.vao,
+						.len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
 					});
 				}
@@ -5519,8 +5281,8 @@ namespace sys {
 			for (const auto& mesh : fld->meshes) {
 				if (mesh.state.visible) {
 					canvas_add(world.canvas, canvas::Mesh {
-						.vao = mesh.gpu.vao,
-						.array_count = mesh.gpu.array_count,
+						.vao = mesh.gl_buf.vao,
+						.len = mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * mesh.transformation
 					});
 				}
@@ -5558,7 +5320,7 @@ namespace sys {
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
 			glBindVertexArray(mesh.vao);
-			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.array_count);
+			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.len);
 		}
 
 		// gradient
@@ -5573,7 +5335,7 @@ namespace sys {
 				gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_color", mesh.gradient_top_color);
 
 				glBindVertexArray(mesh.vao);
-				glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.array_count);
+				glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.len);
 			}
 			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", false);
 		}
@@ -5588,7 +5350,7 @@ namespace sys {
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
             #endif
-			glBindVertexArray(world.canvas.axes.vao);
+			glBindVertexArray(world.canvas.axes.gl_buf.vao);
 
 			if (world.canvas.axes.on_top) {
 				glDisable(GL_DEPTH_TEST);
@@ -5596,7 +5358,7 @@ namespace sys {
 
 			for (const auto& axis : world.canvas.axes.list) {
 				gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", world.mats.projection_view * axis.transformation);
-				glDrawArrays(GL_LINES, 0, world.canvas.axes.points_count);
+				glDrawArrays(GL_LINES, 0, world.canvas.axes.gl_buf.len);
 			}
 
 			glEnable(GL_DEPTH_TEST);
@@ -5608,7 +5370,7 @@ namespace sys {
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
             #endif
-			glBindVertexArray(world.canvas.axes.vao);
+			glBindVertexArray(world.canvas.axes.gl_buf.vao);
 
 			float camera_z = 1 - world.settings.world_axis.scale; // invert scale because it's camera moving away
 			camera_z *= -40; // arbitrary multiplier
@@ -5619,7 +5381,7 @@ namespace sys {
 			auto translate = glm::translate(glm::identity<glm::mat4>(), glm::vec3{world.settings.world_axis.position.x, world.settings.world_axis.position.y, 0});
 
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", translate * world.mats.projection * new_view_mat);
-			glDrawArrays(GL_LINES, 0, world.canvas.axes.points_count);
+			glDrawArrays(GL_LINES, 0, world.canvas.axes.gl_buf.len);
 		}
 	}
 
@@ -5635,7 +5397,7 @@ namespace sys {
 		#ifndef OS_MACOS
 		glLineWidth(world.canvas.boxes.line_width);
 		#endif
-		glBindVertexArray(world.canvas.boxes.vao);
+		glBindVertexArray(world.canvas.boxes.gl_buf.vao);
 
 		for (const auto& box : world.canvas.boxes.list) {
 			auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
@@ -5645,7 +5407,7 @@ namespace sys {
 
 			gl_program_uniform_set(world.canvas.boxes.program, "color", box.color);
 
-			glDrawArrays(GL_LINE_LOOP, 0, world.canvas.boxes.points_count);
+			glDrawArrays(GL_LINE_LOOP, 0, world.canvas.boxes.gl_buf.len);
 		}
 	}
 
@@ -5659,7 +5421,7 @@ namespace sys {
 		glm::mat4 projection = glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height));
 		gl_program_uniform_set(world.canvas.text2d.program, "projection", projection);
 
-		glBindVertexArray(world.canvas.text2d.vao);
+		glBindVertexArray(world.canvas.text2d.gl_buf.vao);
 
 		for (auto& txt_rndr : world.canvas.text2d.list) {
 			gl_program_uniform_set(world.canvas.text2d.program, "text_color", txt_rndr.color);
@@ -5675,16 +5437,16 @@ namespace sys {
 				float ypos = txt_rndr.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
 				float w = glyph.size.x * txt_rndr.scale;
 				float h = glyph.size.y * txt_rndr.scale;
-				float vertices[6][4] = {
-					{ xpos,     ypos + h,   0.0f, 0.0f },
-					{ xpos,     ypos,       0.0f, 1.0f },
-					{ xpos + w, ypos,       1.0f, 1.0f },
+				glm::vec4 vertices[6] = {
+					glm::vec4 { xpos,     ypos + h,   0.0f, 0.0f },
+					glm::vec4 { xpos,     ypos,       0.0f, 1.0f },
+					glm::vec4 { xpos + w, ypos,       1.0f, 1.0f },
 
-					{ xpos,     ypos + h,   0.0f, 0.0f },
-					{ xpos + w, ypos,       1.0f, 1.0f },
-					{ xpos + w, ypos + h,   1.0f, 0.0f }
+					glm::vec4 { xpos,     ypos + h,   0.0f, 0.0f },
+					glm::vec4 { xpos + w, ypos,       1.0f, 1.0f },
+					glm::vec4 { xpos + w, ypos + h,   1.0f, 0.0f }
 				};
-				glBindBuffer(GL_ARRAY_BUFFER, world.canvas.text2d.vbo);
+				glBindBuffer(GL_ARRAY_BUFFER, world.canvas.text2d.gl_buf.vbo);
 				glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
 
 				// render glyph texture over quad
@@ -5707,32 +5469,32 @@ namespace sys {
 			return;
 		}
 
-		mu::Vec<Canvas::LinesRendering::Stride> strides(mu::memory::tmp());
+		mu::Vec<canvas::LineStride> strides(mu::memory::tmp());
 		strides.reserve(self.list.size()*2);
 
 		for (const auto& line : self.list) {
-			strides.push_back(Canvas::LinesRendering::Stride {
+			strides.push_back(canvas::LineStride {
 				.vertex = world.mats.projection_view * glm::vec4(line.p0, 1.0f),
 				.color = line.color
 			});
-			strides.push_back(Canvas::LinesRendering::Stride {
+			strides.push_back(canvas::LineStride {
 				.vertex = world.mats.projection_view * glm::vec4(line.p1, 1.0f),
 				.color = line.color
 			});
 		}
 
 		gl_program_use(self.program);
-		glBindVertexArray(self.vao);
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
+		glBindVertexArray(self.gl_buf.vao);
+		glBindBuffer(GL_ARRAY_BUFFER, self.gl_buf.vbo);
 
 		glEnable(GL_LINE_SMOOTH);
 		#ifndef OS_MACOS
 		glLineWidth(self.line_width);
 		#endif
 
-		for (int i = 0; i < strides.size(); i += self.buf_len) {
-			const size_t count = std::min(self.buf_len, strides.size()-i);
-			glBufferSubData(GL_ARRAY_BUFFER, 0, count * sizeof(Canvas::LinesRendering::Stride), strides.data()+i);
+		for (int i = 0; i < strides.size(); i += self.gl_buf.len) {
+			const size_t count = std::min(self.gl_buf.len, strides.size()-i);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, count * sizeof(canvas::LineStride), strides.data()+i);
 			glDrawArrays(GL_LINES, 0, count);
 		}
 	}
