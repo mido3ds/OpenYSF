@@ -46,8 +46,8 @@ constexpr float ENGINE_PROPELLERS_RESISTENCE = 15.0f;
 
 constexpr float ZL_SCALE = 0.151f;
 
-// 2 secs to flash anti collision lights
-constexpr double ANTI_COLL_LIGHT_PERIOD = 4;
+// flash anti collision lights
+constexpr double ANTI_COLL_LIGHT_PERIOD = 1;
 
 struct Face {
 	mu::Vec<uint32_t> vertices_ids;
@@ -4050,8 +4050,9 @@ namespace sys {
 			canvas::SpriteStride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
 			canvas::SpriteStride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{.0, +1} },
 			canvas::SpriteStride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
+
 			canvas::SpriteStride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
-			canvas::SpriteStride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{+1, .0} },
+			canvas::SpriteStride { .vertex = glm::vec2{+1, -1}, .tex_coord = glm::vec2{+1, .0} },
 			canvas::SpriteStride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
 		}));
 

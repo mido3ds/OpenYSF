@@ -1,6 +1,5 @@
 - refactor rendering
 	- box should be turned into list of lines (remove its shader)
-	- zlpoint -> sprite
 - ground objects:
 	- heathrow: totally broken ground objects rotations
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
