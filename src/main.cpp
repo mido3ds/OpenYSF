@@ -2568,24 +2568,24 @@ namespace canvas {
 	// 2d picture rendered on ground
 	struct GndPic {
 		glm::mat4 projection_view_model;
-	};
 
-	// 2d primitive (point, line, line segment, triangle)
-	// that resembles a 2d ground picture
-	struct GndPicPrimitive {
-		GLuint vao;
-		size_t buf_len;
-		GLenum gl_primitive_type;
+		// points, lines, line segments or triangles
+		struct Primitive {
+			GLuint vao;
+			size_t buf_len;
+			GLenum gl_primitive_type;
 
-		glm::vec3 color;
-		size_t picture2d_id;
-		bool gradient_enabled;
-		glm::vec3 gradient_color2;
+			glm::vec3 color;
+			bool gradient_enabled;
+			glm::vec3 gradient_color2;
+		};
+
+		mu::Vec<Primitive> list_primitives;
 	};
 }
 
 struct Canvas {
-	mu::memory::Arena _arena;
+	mu::memory::Arena arena;
 
 	mu::Vec<canvas::TextOverlay> text_overlay_list;
 
@@ -2612,8 +2612,7 @@ struct Canvas {
 	struct {
 		GLProgram program;
 
-		mu::Vec<canvas::GndPic> list_pictures;
-		mu::Vec<canvas::GndPicPrimitive> list_primitives;
+		mu::Vec<canvas::GndPic> list;
 	} gnd_pics;
 
 	struct {
@@ -2662,7 +2661,7 @@ void canvas_add(Canvas& self, canvas::TextOverlay&& d) {
 	self.text_overlay_list.push_back(std::move(d));
 }
 
-#define TEXT_OVERLAY(...) canvas_add(world.canvas, canvas::TextOverlay { mu::str_format(&world.canvas._arena, __VA_ARGS__) })
+#define TEXT_OVERLAY(...) canvas_add(world.canvas, canvas::TextOverlay { mu::str_format(&world.canvas.arena, __VA_ARGS__) })
 
 void canvas_add(Canvas& self, canvas::Text2D&& t) {
 	self.text2d.list.push_back(std::move(t));
@@ -2696,13 +2695,8 @@ void canvas_add(Canvas& self, canvas::Ground&& g) {
 	self.ground.last_gnd = g;
 }
 
-size_t canvas_add(Canvas& self, canvas::GndPic&& p) {
-	self.gnd_pics.list_pictures.push_back(std::move(p));
-	return self.gnd_pics.list_pictures.size()-1;
-}
-
-void canvas_add(Canvas& self, canvas::GndPicPrimitive&& p) {
-	self.gnd_pics.list_primitives.push_back(std::move(p));
+void canvas_add(Canvas& self, canvas::GndPic&& p) {
+	self.gnd_pics.list.push_back(std::move(p));
 }
 
 // precalculated matrices
@@ -4289,20 +4283,17 @@ namespace sys {
 		SDL_GL_SwapWindow(world.sdl_window);
 		gl_process_errors();
 
-		self._arena = {};
+		self.arena = {};
 
-		self.text_overlay_list     = mu::Vec<canvas::TextOverlay>(&self._arena);
-		self.text2d.list           = mu::Vec<canvas::Text2D>(&self._arena);
-		self.axes.list             = mu::Vec<canvas::Axis>(&self._arena);
-		self.boxes.list            = mu::Vec<canvas::Box>(&self._arena);
-		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self._arena);
-		self.lines.list            = mu::Vec<canvas::Line>(&self._arena);
-
-		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self._arena);
-		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self._arena);
-
-		self.gnd_pics.list_pictures     = mu::Vec<canvas::GndPic>(&self._arena);
-		self.gnd_pics.list_primitives   = mu::Vec<canvas::GndPicPrimitive>(&self._arena);
+		self.text_overlay_list     = mu::Vec<canvas::TextOverlay>(&self.arena);
+		self.text2d.list           = mu::Vec<canvas::Text2D>(&self.arena);
+		self.axes.list             = mu::Vec<canvas::Axis>(&self.arena);
+		self.boxes.list            = mu::Vec<canvas::Box>(&self.arena);
+		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self.arena);
+		self.lines.list            = mu::Vec<canvas::Line>(&self.arena);
+		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self.arena);
+		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self.arena);
+		self.gnd_pics.list         = mu::Vec<canvas::GndPic>(&self.arena);
 	}
 
 	void _camera_update_model_tracking_mode(World& world) {
@@ -5218,9 +5209,10 @@ namespace sys {
 				model_transformation = glm::rotate(model_transformation, picture.state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, picture.state.rotation[0], glm::vec3{0, 1, 0});
 
-				auto picture2d_id = canvas_add(world.canvas, canvas::GndPic {
-					.projection_view_model = world.mats.projection_view * model_transformation
-				});
+				auto gnd_pic = canvas::GndPic {
+					.projection_view_model = world.mats.projection_view * model_transformation,
+					.list_primitives = mu::Vec<canvas::GndPic::Primitive>(&world.canvas.arena),
+				};
 
 				for (const auto& primitive : picture.primitives) {
 					GLenum gl_primitive_type;
@@ -5244,17 +5236,18 @@ namespace sys {
 					default: unreachable();
 					}
 
-					canvas_add(world.canvas, canvas::GndPicPrimitive {
+					gnd_pic.list_primitives.push_back(canvas::GndPic::Primitive {
 						.vao = primitive.gl_buf.vao,
 						.buf_len = primitive.gl_buf.len,
 						.gl_primitive_type = gl_primitive_type,
 
 						.color = primitive.color,
-						.picture2d_id = picture2d_id,
 						.gradient_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS,
 						.gradient_color2 = primitive.gradient_color2,
 					});
 				}
+
+				canvas_add(world.canvas, std::move(gnd_pic));
 			}
 
 			// terrains
@@ -5541,25 +5534,27 @@ namespace sys {
 
 		auto& self = world.canvas;
 
-		if (self.gnd_pics.list_pictures.empty()) {
+		if (self.gnd_pics.list.empty()) {
 			return;
 		}
 
 		glDisable(GL_DEPTH_TEST);
 		gl_program_use(world.canvas.gnd_pics.program);
 
-		for (const auto& primitives : self.gnd_pics.list_primitives) {
-			const auto& projection_view_model = self.gnd_pics.list_pictures[primitives.picture2d_id].projection_view_model;
-			gl_program_uniform_set(world.canvas.gnd_pics.program, "projection_view_model", projection_view_model);
-			gl_program_uniform_set(world.canvas.gnd_pics.program, "primitive_color[0]", primitives.color);
+		for (const auto& gnd_pic : self.gnd_pics.list) {
+			gl_program_uniform_set(self.gnd_pics.program, "projection_view_model", gnd_pic.projection_view_model);
 
-			gl_program_uniform_set(world.canvas.gnd_pics.program, "gradient_enabled", primitives.gradient_enabled);
-			if (primitives.gradient_enabled) {
-				gl_program_uniform_set(world.canvas.gnd_pics.program, "primitive_color[1]", primitives.gradient_color2);
+			for (const auto& primitives : gnd_pic.list_primitives) {
+				gl_program_uniform_set(self.gnd_pics.program, "primitive_color[0]", primitives.color);
+
+				gl_program_uniform_set(self.gnd_pics.program, "gradient_enabled", primitives.gradient_enabled);
+				if (primitives.gradient_enabled) {
+					gl_program_uniform_set(self.gnd_pics.program, "primitive_color[1]", primitives.gradient_color2);
+				}
+
+				glBindVertexArray(primitives.vao);
+				glDrawArrays(primitives.gl_primitive_type, 0, primitives.buf_len);
 			}
-
-			glBindVertexArray(primitives.vao);
-			glDrawArrays(primitives.gl_primitive_type, 0, primitives.buf_len);
 		}
 
 		glEnable(GL_DEPTH_TEST);
