@@ -1,6 +1,7 @@
 - refactor rendering
 	- box should be turned into list of lines (remove its shader)
-	- breakdown Primitive2D into its kinds
+	- replace dummy_vao with gl_buf with data
+	- zlpoint -> sprite
 - ground objects:
 	- heathrow: totally broken ground objects rotations
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
@@ -24,8 +25,6 @@
 - render ZL
 	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
-- put lines coords in shader
-- put box coords in shader
 - Scenery files
 	- small.fld bugs:
 		- biggest pic doesn't render/(tesselat?) correctly (from left side)

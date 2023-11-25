@@ -195,7 +195,7 @@ void test_aabbs_intersection() {
 		mu_assert(aabbs_intersect(x, y));
 	}
 
-	mu::log_debug("test_aabbs_intersection: all passed");
+	mu::log_debug(__FUNCTION__ ": all passed");
 }
 
 // margin of error
@@ -530,7 +530,7 @@ void test_polygons_to_triangles() {
 		mu_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
 	}
 
-	mu::log_debug("test_polygons_to_triangles: all passed");
+	mu::log_debug(__FUNCTION__ ": all passed");
 }
 
 template<typename T>
@@ -586,3 +586,43 @@ local_euler_angles_from_attitude(glm::vec3 attitude) {
 	local_euler_angles_rotate(self, attitude.z, attitude.y, attitude.x);
 	return self;
 }
+
+// line segments: [0, 1, 2, 3]
+// lines:         [0, 1, 1, 2, 2, 3]
+mu::Vec<glm::vec2> line_segments_to_lines(const mu::Vec<glm::vec2>& line_segments) {
+	if (line_segments.size() == 0) {
+		return {};
+	}
+	if (line_segments.size() == 1) {
+		mu::panic("can't be a single point");
+	}
+
+	mu::Vec<glm::vec2> lines;
+	lines.reserve(2 + (line_segments.size() - 2)*2);
+
+	lines.push_back(line_segments.front());
+	for (int i = 1; i < line_segments.size()-1; i++) {
+		lines.push_back(line_segments[i]);
+		lines.push_back(line_segments[i]);
+	}
+	lines.push_back(line_segments.back());
+
+	return lines;
+}
+
+void test_line_segments_to_lines() {
+	constexpr glm::vec2 P[] = {
+		glm::vec2{-3, 5},
+		glm::vec2{3, 5},
+		glm::vec2{3, -5},
+		glm::vec2{0, 1},
+	};
+
+	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({})) == mu::Vec<glm::vec2>({}));
+	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1]})) == mu::Vec<glm::vec2>({P[0], P[1]}));
+	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2]}));
+	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2], P[3]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2], P[2], P[3]}));
+
+	mu::log_debug(__FUNCTION__ ": all passed");
+}
+

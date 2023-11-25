@@ -101,16 +101,29 @@ void gl_program_uniform_set(GLProgram& self, const char* uniform, float f) {
 	glUniform1f(glGetUniformLocation(self.id, uniform), f);
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, glm::vec3 f) {
+void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec3& f) {
 	glUniform3fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, glm::mat4 f, bool transpose = false) {
+void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat4& f, bool transpose = false) {
 	glUniformMatrix4fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
 
+namespace canvas {
+	struct MeshStride {
+		glm::vec3 vertex;
+		glm::vec4 color;
+	};
+
+	struct LineStride {
+		glm::vec4 vertex;
+		glm::vec4 color;
+	};
+}
+
 // opengl buffer, resides in GPU memory
-// use `gl_buf_new` to load from CPU memory or iniit empty buf
+// use `gl_buf_new` to load from CPU memory
+// or allocate dynamic buf with given size
 struct GLBuf {
 	GLuint vao, vbo;
 	size_t len;
@@ -189,18 +202,6 @@ GLBuf gl_buf_new(glm::vec4, size_t len) {
 	glBindVertexArray(0);
 
 	return self;
-}
-
-namespace canvas {
-	struct MeshStride {
-		glm::vec3 vertex;
-		glm::vec4 color;
-	};
-
-	struct LineStride {
-		glm::vec4 vertex;
-		glm::vec4 color;
-	};
 }
 
 GLBuf gl_buf_new(const mu::Vec<canvas::MeshStride>& buffer) {

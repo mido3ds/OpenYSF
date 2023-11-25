@@ -1363,31 +1363,26 @@ struct Primitive2D {
 	} kind;
 
 	glm::vec3 color;
-	glm::vec3 color2; // only for kind=GRADATION_QUAD_STRIPS
+	glm::vec3 gradient_color2; // only for kind=GRADATION_QUAD_STRIPS
 
 	// (X,Z), y=0
 	mu::Vec<glm::vec2> vertices;
 
-	GLenum gl_primitive_type;
 	GLBuf gl_buf;
 };
 
 void primitive2d_load_to_gpu(Primitive2D& self) {
 	switch (self.kind) {
 	case Primitive2D::Kind::POINTS:
-		self.gl_primitive_type = GL_POINTS;
 		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::LINES:
-		self.gl_primitive_type = GL_LINES;
 		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::LINE_SEGMENTS:
-		self.gl_primitive_type = GL_LINE_STRIP;
 		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::TRIANGLES:
-		self.gl_primitive_type = GL_TRIANGLES;
 		self.gl_buf = gl_buf_new(self.vertices);
 		break;
 	case Primitive2D::Kind::QUADRILATERAL:
@@ -1402,7 +1397,6 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 			vertices.push_back(self.vertices[i+2]);
 			vertices.push_back(self.vertices[i+1]);
 		}
-		self.gl_primitive_type = GL_TRIANGLES;
 		self.gl_buf = gl_buf_new(vertices);
 		break;
 	}
@@ -1419,7 +1413,6 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 			vertices.push_back(self.vertices[i+2]);
 			vertices.push_back(self.vertices[i+3]);
 		}
-		self.gl_primitive_type = GL_TRIANGLES;
 		self.gl_buf = gl_buf_new(vertices);
 		break;
 	}
@@ -1430,7 +1423,6 @@ void primitive2d_load_to_gpu(Primitive2D& self) {
 		for (auto& index : indices) {
 			vertices.push_back(self.vertices[index]);
 		}
-		self.gl_primitive_type = GL_TRIANGLES;
 		self.gl_buf = gl_buf_new(vertices);
 		break;
 	}
@@ -1823,11 +1815,11 @@ Field _field_from_fld_str(Parser& parser) {
 
 				if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
 					parser_expect(parser, "CL2 ");
-					permitive.color2.r = parser_token_u8(parser) / 255.0f;
+					permitive.gradient_color2.r = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, ' ');
-					permitive.color2.g = parser_token_u8(parser) / 255.0f;
+					permitive.gradient_color2.g = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, ' ');
-					permitive.color2.b = parser_token_u8(parser) / 255.0f;
+					permitive.gradient_color2.b = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, '\n');
 				}
 
@@ -2179,18 +2171,17 @@ void field_load_to_gpu(Field& self) {
 	for (auto& pict : self.pictures) {
 		picture2d_load_to_gpu(pict);
 	}
-	for (auto& subfield : self.subfields) {
-		field_load_to_gpu(subfield);
-	}
 	for (auto& mesh : self.meshes) {
 		mesh_load_to_gpu(mesh);
+	}
+
+	// recurse
+	for (auto& subfield : self.subfields) {
+		field_load_to_gpu(subfield);
 	}
 }
 
 void field_unload_from_gpu(Field& self) {
-	for (auto& subfield : self.subfields) {
-		field_unload_from_gpu(subfield);
-	}
 	for (auto& terr_mesh : self.terr_meshes) {
 		terr_mesh_unload_from_gpu(terr_mesh);
 	}
@@ -2199,6 +2190,11 @@ void field_unload_from_gpu(Field& self) {
 	}
 	for (auto& mesh : self.meshes) {
 		mesh_unload_from_gpu(mesh);
+	}
+
+	// recurse
+	for (auto& subfield : self.subfields) {
+		field_unload_from_gpu(subfield);
 	}
 }
 
@@ -2600,24 +2596,44 @@ namespace canvas {
 
 	struct Mesh {
 		GLuint vao;
-		size_t len;
+		size_t buf_len;
 		glm::mat4 projection_view_model;
 	};
 
 	struct GradientMesh {
 		GLuint vao;
-		size_t len;
+		size_t buf_len;
 		glm::mat4 projection_view_model;
 
 		float gradient_bottom_y, gradient_top_y;
 		glm::vec3 gradient_bottom_color, gradient_top_color;
 	};
+
+	struct Ground {
+		glm::vec3 color;
+	};
+
+	// 2d picture rendered on ground
+	struct GndPic {
+		glm::mat4 projection_view_model;
+	};
+
+	// 2d primitive (point, line, line segment, triangle)
+	// that resembles a 2d ground picture
+	struct GndPicPrimitive {
+		GLuint vao;
+		size_t buf_len;
+		GLenum gl_primitive_type;
+
+		glm::vec3 color;
+		size_t picture2d_id;
+		bool gradient_enabled;
+		glm::vec3 gradient_color2;
+	};
 }
 
 struct Canvas {
 	mu::memory::Arena _arena;
-
-	GLProgram picture2d_program;
 
 	mu::Vec<canvas::TextOverlay> text_overlay_list;
 
@@ -2636,7 +2652,17 @@ struct Canvas {
 		GLProgram program;
 		SDL_Surface* tile_surface;
 		GLuint tile_texture;
+
+		// we currently only render last ground in loaded fields
+		canvas::Ground last_gnd;
 	} ground;
+
+	struct {
+		GLProgram program;
+
+		mu::Vec<canvas::GndPic> list_pictures;
+		mu::Vec<canvas::GndPicPrimitive> list_primitives;
+	} gnd_pics;
 
 	struct {
 		GLProgram program;
@@ -2647,7 +2673,7 @@ struct Canvas {
 	} zlpoints;
 
 	struct {
-		GLBuf gl_buf; // one axis mesh
+		GLBuf gl_buf; // single axis vertices
 		GLfloat line_width = 5.0f;
 		bool on_top = true;
 
@@ -2656,7 +2682,7 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
-		GLBuf gl_buf;
+		GLBuf gl_buf; // single box vertices
 		GLfloat line_width = 1.0f;
 
 		mu::Vec<canvas::Box> list;
@@ -2664,14 +2690,14 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
-		GLBuf gl_buf;
+		GLBuf gl_buf; // single character quad vertices
 
 		mu::Arr<canvas::Glyph, 128> glyphs;
 
 		mu::Vec<canvas::Text2D> list;
 	} text2d;
 
-	struct LinesRendering {
+	struct {
 		GLProgram program;
 		GLBuf gl_buf;
 		GLfloat line_width = 1.0f;
@@ -2712,6 +2738,19 @@ void canvas_add(Canvas& self, canvas::Mesh&& m) {
 
 void canvas_add(Canvas& self, canvas::GradientMesh&& m) {
 	self.meshes.list_gradient.push_back(std::move(m));
+}
+
+void canvas_add(Canvas& self, canvas::Ground&& g) {
+	self.ground.last_gnd = g;
+}
+
+size_t canvas_add(Canvas& self, canvas::GndPic&& p) {
+	self.gnd_pics.list_pictures.push_back(std::move(p));
+	return self.gnd_pics.list_pictures.size()-1;
+}
+
+void canvas_add(Canvas& self, canvas::GndPicPrimitive&& p) {
+	self.gnd_pics.list_primitives.push_back(std::move(p));
 }
 
 // precalculated matrices
@@ -3908,7 +3947,7 @@ namespace sys {
 			{0, 0, 1},
 		});
 
-		self.picture2d_program = gl_program_new(
+		self.gnd_pics.program = gl_program_new(
 			// vertex shader
 			R"GLSL(
 				#version 330 core
@@ -3931,7 +3970,7 @@ namespace sys {
 				in float vs_vertex_id;
 
 				uniform vec3 primitive_color[2];
-				uniform bool gradation_enabled;
+				uniform bool gradient_enabled;
 				uniform sampler2D groundtile;
 
 				out vec4 out_fragcolor;
@@ -3947,7 +3986,7 @@ namespace sys {
 
 				void main() {
 					int color_index = 0;
-					if (gradation_enabled) {
+					if (gradient_enabled) {
 						color_index = color_indices[int(vs_vertex_id)];
 					}
 					out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).r * vec4(primitive_color[color_index], 1.0);
@@ -4247,7 +4286,7 @@ namespace sys {
 		gl_buf_free(self.lines.gl_buf);
 
 		gl_program_free(self.meshes.program);
-		gl_program_free(self.picture2d_program);
+		gl_program_free(self.gnd_pics.program);
 	}
 
 	void canvas_rendering_begin(World& world) {
@@ -4290,14 +4329,19 @@ namespace sys {
 		gl_process_errors();
 
 		self._arena = {};
+
 		self.text_overlay_list     = mu::Vec<canvas::TextOverlay>(&self._arena);
 		self.text2d.list           = mu::Vec<canvas::Text2D>(&self._arena);
 		self.axes.list             = mu::Vec<canvas::Axis>(&self._arena);
 		self.boxes.list            = mu::Vec<canvas::Box>(&self._arena);
 		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self._arena);
 		self.lines.list            = mu::Vec<canvas::Line>(&self._arena);
+
 		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self._arena);
 		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self._arena);
+
+		self.gnd_pics.list_pictures     = mu::Vec<canvas::GndPic>(&self._arena);
+		self.gnd_pics.list_primitives   = mu::Vec<canvas::GndPicPrimitive>(&self._arena);
 	}
 
 	void _camera_update_model_tracking_mode(World& world) {
@@ -4704,7 +4748,7 @@ namespace sys {
 		_ground_objs_apply_physics(world);
 	}
 
-	void ground_objs_render(World& world) {
+	void ground_objs_prepare_render(World& world) {
 		DEF_SYSTEM
 
 		for (int i = 0; i < world.ground_objs.size(); i++) {
@@ -4738,7 +4782,7 @@ namespace sys {
 
 				canvas_add(world.canvas, canvas::Mesh {
 					.vao = mesh->gl_buf.vao,
-					.len = mesh->gl_buf.len,
+					.buf_len = mesh->gl_buf.len,
 					.projection_view_model = world.mats.projection_view * mesh->transformation
 				});
 
@@ -5024,7 +5068,7 @@ namespace sys {
 		}
 	}
 
-	void aircrafts_render(World& world) {
+	void aircrafts_prepare_render(World& world) {
 		DEF_SYSTEM
 
 		for (int i = 0; i < world.aircrafts.size(); i++) {
@@ -5093,7 +5137,7 @@ namespace sys {
 
 				canvas_add(world.canvas, canvas::Mesh {
 					.vao = mesh->gl_buf.vao,
-					.len = mesh->gl_buf.len,
+					.buf_len = mesh->gl_buf.len,
 					.projection_view_model = world.mats.projection_view * mesh->transformation
 				});
 
@@ -5133,6 +5177,7 @@ namespace sys {
 		DEF_SYSTEM
 
 		auto& self = world.scenery;
+		const auto all_fields = field_list_recursively(self.root_fld, mu::memory::tmp());
 
 		if (self.should_be_loaded) {
 			self.should_be_loaded = false;
@@ -5146,8 +5191,6 @@ namespace sys {
 			signal_fire(world.signals.scenery_loaded);
 		}
 
-		// transform subfields
-		const auto all_fields = field_list_recursively(self.root_fld, mu::memory::tmp());
 		if (self.root_fld.should_be_transformed) {
 			self.root_fld.should_be_transformed = false;
 
@@ -5187,26 +5230,23 @@ namespace sys {
 		}
 	}
 
-	void scenery_render(World& world) {
+	void scenery_prepare_render(World& world) {
 		DEF_SYSTEM
 
 		const auto all_fields = field_list_recursively(world.scenery.root_fld, mu::memory::tmp());
 
-		// render last ground
-		gl_program_use(world.canvas.ground.program);
-		gl_program_uniform_set(world.canvas.ground.program, "proj_inv_view_inv", world.mats.proj_inv_view_inv);
-		gl_program_uniform_set(world.canvas.ground.program, "projection", world.mats.projection);
-		gl_program_uniform_set(world.canvas.ground.program, "color", all_fields[all_fields.size()-1]->ground_color);
-
-		glDisable(GL_DEPTH_TEST);
-		glBindTexture(GL_TEXTURE_2D, world.canvas.ground.tile_texture);
-		glBindVertexArray(world.canvas.dummy_vao);
-		glDrawArrays(GL_TRIANGLES, 0, 6);
-
-		// render fields pictures
-		gl_program_use(world.canvas.picture2d_program);
 		for (const Field* fld : all_fields) {
-			for (auto& picture : fld->pictures) {
+			if (fld->state.visible == false) {
+				continue;
+			}
+
+			// ground
+			canvas_add(world.canvas, canvas::Ground {
+				.color = fld->ground_color,
+			});
+
+			// pictures
+			for (const auto& picture : fld->pictures) {
 				if (picture.state.visible == false) {
 					continue;
 				}
@@ -5216,30 +5256,47 @@ namespace sys {
 				model_transformation = glm::rotate(model_transformation, picture.state.rotation[2], glm::vec3{0, 0, 1});
 				model_transformation = glm::rotate(model_transformation, picture.state.rotation[1], glm::vec3{1, 0, 0});
 				model_transformation = glm::rotate(model_transformation, picture.state.rotation[0], glm::vec3{0, 1, 0});
-				gl_program_uniform_set(world.canvas.picture2d_program, "projection_view_model", world.mats.projection_view * model_transformation);
 
-				for (auto& primitive : picture.primitives) {
-					gl_program_uniform_set(world.canvas.picture2d_program, "primitive_color[0]", primitive.color);
+				auto picture2d_id = canvas_add(world.canvas, canvas::GndPic {
+					.projection_view_model = world.mats.projection_view * model_transformation
+				});
 
-					const bool gradation_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS;
-					gl_program_uniform_set(world.canvas.picture2d_program, "gradation_enabled", gradation_enabled);
-					if (gradation_enabled) {
-						gl_program_uniform_set(world.canvas.picture2d_program, "primitive_color[1]", primitive.color2);
+				for (const auto& primitive : picture.primitives) {
+					GLenum gl_primitive_type;
+					switch (primitive.kind) {
+					case Primitive2D::Kind::POINTS:
+						gl_primitive_type = GL_POINTS;
+						break;
+					case Primitive2D::Kind::LINES:
+						gl_primitive_type = GL_LINES;
+						break;
+					case Primitive2D::Kind::LINE_SEGMENTS:
+						gl_primitive_type = GL_LINE_STRIP;
+						break;
+					case Primitive2D::Kind::TRIANGLES:
+					case Primitive2D::Kind::QUAD_STRIPS:
+					case Primitive2D::Kind::QUADRILATERAL:
+					case Primitive2D::Kind::POLYGON:
+					case Primitive2D::Kind::GRADATION_QUAD_STRIPS:
+						gl_primitive_type = GL_TRIANGLES;
+						break;
+					default: unreachable();
 					}
 
-					glBindVertexArray(primitive.gl_buf.vao);
-					glDrawArrays(primitive.gl_primitive_type, 0, primitive.gl_buf.len);
+					canvas_add(world.canvas, canvas::GndPicPrimitive {
+						.vao = primitive.gl_buf.vao,
+						.buf_len = primitive.gl_buf.len,
+						.gl_primitive_type = gl_primitive_type,
+
+						.color = primitive.color,
+						.picture2d_id = picture2d_id,
+						.gradient_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS,
+						.gradient_color2 = primitive.gradient_color2,
+					});
 				}
 			}
-		}
-		glEnable(GL_DEPTH_TEST);
 
-		// render fields terrains
-		for (const Field* fld : all_fields) {
-			if (fld->state.visible == false) {
-				continue;
-			}
-
+			// terrains
 			for (const auto& terr_mesh : fld->terr_meshes) {
 				if (terr_mesh.state.visible == false) {
 					continue;
@@ -5254,7 +5311,7 @@ namespace sys {
 				if (terr_mesh.gradient.enabled) {
 					canvas_add(world.canvas, canvas::GradientMesh {
 						.vao = terr_mesh.gl_buf.vao,
-						.len = terr_mesh.gl_buf.len,
+						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
 
 						.gradient_bottom_y = terr_mesh.gradient.bottom_y,
@@ -5265,32 +5322,32 @@ namespace sys {
 				} else {
 					canvas_add(world.canvas, canvas::Mesh {
 						.vao = terr_mesh.gl_buf.vao,
-						.len = terr_mesh.gl_buf.len,
+						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
 					});
 				}
 			}
-		}
 
-		// render fields meshes
-		for (const Field* fld : all_fields) {
-			if (fld->state.visible == false) {
-				continue;
-			}
-
+			// meshes
 			for (const auto& mesh : fld->meshes) {
-				if (mesh.state.visible) {
-					canvas_add(world.canvas, canvas::Mesh {
-						.vao = mesh.gl_buf.vao,
-						.len = mesh.gl_buf.len,
-						.projection_view_model = world.mats.projection_view * mesh.transformation
-					});
+				if (mesh.state.visible == false) {
+					continue;
 				}
+
+				// TODO add rest of meshes (children)
+				canvas_add(world.canvas, canvas::Mesh {
+					.vao = mesh.gl_buf.vao,
+					.buf_len = mesh.gl_buf.len,
+					.projection_view_model =
+						world.mats.projection_view
+						* mesh.transformation
+						* fld->transformation
+				});
 			}
 		}
 	}
 
-	void zlpoints_render(World& world) {
+	void canvas_render_zlpoints(World& world) {
 		DEF_SYSTEM
 
 		if (world.canvas.zlpoints.list.empty()) {
@@ -5311,7 +5368,7 @@ namespace sys {
 		}
 	}
 
-	void meshes_render(World& world) {
+	void canvas_render_meshes(World& world) {
 		DEF_SYSTEM
 
 		gl_program_use(world.canvas.meshes.program);
@@ -5320,7 +5377,7 @@ namespace sys {
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
 			glBindVertexArray(mesh.vao);
-			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.len);
+			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.buf_len);
 		}
 
 		// gradient
@@ -5335,13 +5392,13 @@ namespace sys {
 				gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_color", mesh.gradient_top_color);
 
 				glBindVertexArray(mesh.vao);
-				glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.len);
+				glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.buf_len);
 			}
 			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", false);
 		}
 	}
 
-	void axes_render(World& world) {
+	void canvas_render_axes(World& world) {
 		DEF_SYSTEM
 
 		if (world.canvas.axes.list.empty() == false) {
@@ -5385,7 +5442,7 @@ namespace sys {
 		}
 	}
 
-	void boxes_render(World& world) {
+	void canvas_render_boxes(World& world) {
 		DEF_SYSTEM
 
 		if (world.canvas.boxes.list.empty()) {
@@ -5411,7 +5468,7 @@ namespace sys {
 		}
 	}
 
-	void text2d_render(World& world) {
+	void canvas_render_text2d(World& world) {
 		DEF_SYSTEM
 
 		gl_program_use(world.canvas.text2d.program);
@@ -5460,7 +5517,7 @@ namespace sys {
 		}
 	}
 
-	void lines_render(World& world) {
+	void canvas_render_lines(World& world) {
 		DEF_SYSTEM
 
 		auto& self = world.canvas.lines;
@@ -5498,6 +5555,54 @@ namespace sys {
 			glDrawArrays(GL_LINES, 0, count);
 		}
 	}
+
+	void canvas_render_ground(World& world) {
+		DEF_SYSTEM
+
+		auto& self = world.canvas;
+
+		gl_program_use(self.ground.program);
+		gl_program_uniform_set(self.ground.program, "proj_inv_view_inv", world.mats.proj_inv_view_inv);
+		gl_program_uniform_set(self.ground.program, "projection", world.mats.projection);
+		gl_program_uniform_set(self.ground.program, "color", self.ground.last_gnd.color);
+
+		glDisable(GL_DEPTH_TEST);
+
+		glBindTexture(GL_TEXTURE_2D, self.ground.tile_texture);
+		glBindVertexArray(self.dummy_vao);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		glEnable(GL_DEPTH_TEST);
+	}
+
+	void canvas_render_gnd_pictures(World& world) {
+		DEF_SYSTEM
+
+		auto& self = world.canvas;
+
+		if (self.gnd_pics.list_pictures.empty()) {
+			return;
+		}
+
+		glDisable(GL_DEPTH_TEST);
+		gl_program_use(world.canvas.gnd_pics.program);
+
+		for (const auto& primitives : self.gnd_pics.list_primitives) {
+			const auto& projection_view_model = self.gnd_pics.list_pictures[primitives.picture2d_id].projection_view_model;
+			gl_program_uniform_set(world.canvas.gnd_pics.program, "projection_view_model", projection_view_model);
+			gl_program_uniform_set(world.canvas.gnd_pics.program, "primitive_color[0]", primitives.color);
+
+			gl_program_uniform_set(world.canvas.gnd_pics.program, "gradient_enabled", primitives.gradient_enabled);
+			if (primitives.gradient_enabled) {
+				gl_program_uniform_set(world.canvas.gnd_pics.program, "primitive_color[1]", primitives.gradient_color2);
+			}
+
+			glBindVertexArray(primitives.vao);
+			glDrawArrays(primitives.gl_primitive_type, 0, primitives.buf_len);
+		}
+
+		glEnable(GL_DEPTH_TEST);
+	}
 }
 
 int main() {
@@ -5507,6 +5612,7 @@ int main() {
 	test_parser();
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
+	test_line_segments_to_lines();
 
 	sys::sdl_init(world);
 	defer(sys::sdl_free(world));
@@ -5547,8 +5653,13 @@ int main() {
 		sys::cached_matrices_recalc(world);
 
 		sys::scenery_update(world);
+		sys::scenery_prepare_render(world);
+
 		sys::aircrafts_update(world);
+		sys::aircrafts_prepare_render(world);
+
 		sys::ground_objs_update(world);
+		sys::ground_objs_prepare_render(world);
 
 		sys::models_handle_collision(world);
 
@@ -5562,18 +5673,14 @@ int main() {
 		});
 
 		sys::canvas_rendering_begin(world); {
-			sys::scenery_render(world);
-
-			sys::aircrafts_render(world);
-			sys::zlpoints_render(world);
-
-			sys::ground_objs_render(world);
-
-			sys::meshes_render(world);
-			sys::axes_render(world);
-			sys::boxes_render(world);
-			sys::lines_render(world);
-			sys::text2d_render(world);
+			sys::canvas_render_ground(world);
+			sys::canvas_render_gnd_pictures(world);
+			sys::canvas_render_zlpoints(world);
+			sys::canvas_render_meshes(world);
+			sys::canvas_render_axes(world);
+			sys::canvas_render_boxes(world);
+			sys::canvas_render_lines(world);
+			sys::canvas_render_text2d(world);
 
 			sys::imgui_rendering_begin(world); {
 				sys::imgui_debug_window(world);
@@ -5581,7 +5688,6 @@ int main() {
 				sys::imgui_overlay_text(world);
 			}
 			sys::imgui_rendering_end(world);
-
 		}
 		sys::canvas_rendering_end(world);
 
