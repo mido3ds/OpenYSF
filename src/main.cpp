@@ -1162,7 +1162,7 @@ struct Aircraft {
 	AircraftTemplate aircraft_template;
 	Model model;
 	DATMap dat;
-	Audio* engine_sound;
+	AudioBuffer* engine_sound;
 
 	struct {
 		glm::vec3 translation;
@@ -2390,54 +2390,6 @@ GroundObj ground_obj_new(GroundObjTemplate ground_obj_template, glm::vec3 pos, g
 	};
 }
 
-struct Sounds {
-	Audio bang, blast, blast2, bombsaway, burner, damage;
-	Audio extendldg, gearhorn, gun, hit, missile, notice;
-	Audio retractldg, rocket, stallhorn, touchdwn, warning, engine;
-	mu::Arr<Audio, 10> engines, props;
-
-	mu::Vec<Audio*> as_array;
-};
-
-inline static void
-_sounds_load(Sounds& self, Audio& audio, mu::StrView path) {
-	audio = audio_new(path);
-	self.as_array.push_back(&audio);
-}
-
-void sounds_load(Sounds& self) {
-	_sounds_load(self, self.bang,       ASSETS_DIR "/sound/bang.wav");
-	_sounds_load(self, self.blast,      ASSETS_DIR "/sound/blast.wav");
-	_sounds_load(self, self.blast2,     ASSETS_DIR "/sound/blast2.wav");
-	_sounds_load(self, self.bombsaway,  ASSETS_DIR "/sound/bombsaway.wav");
-	_sounds_load(self, self.burner,     ASSETS_DIR "/sound/burner.wav");
-	_sounds_load(self, self.damage,     ASSETS_DIR "/sound/damage.wav");
-	_sounds_load(self, self.extendldg,  ASSETS_DIR "/sound/extendldg.wav");
-	_sounds_load(self, self.gearhorn,   ASSETS_DIR "/sound/gearhorn.wav");
-	_sounds_load(self, self.gun,        ASSETS_DIR "/sound/gun.wav");
-	_sounds_load(self, self.hit,        ASSETS_DIR "/sound/hit.wav");
-	_sounds_load(self, self.missile,    ASSETS_DIR "/sound/missile.wav");
-	_sounds_load(self, self.notice,     ASSETS_DIR "/sound/notice.wav");
-	_sounds_load(self, self.retractldg, ASSETS_DIR "/sound/retractldg.wav");
-	_sounds_load(self, self.rocket,     ASSETS_DIR "/sound/rocket.wav");
-	_sounds_load(self, self.stallhorn,  ASSETS_DIR "/sound/stallhorn.wav");
-	_sounds_load(self, self.touchdwn,   ASSETS_DIR "/sound/touchdwn.wav");
-	_sounds_load(self, self.warning,    ASSETS_DIR "/sound/warning.wav");
-	_sounds_load(self, self.engine,     ASSETS_DIR "/sound/engine.wav");
-	for (int i = 0; i < self.engines.size(); i++) {
-		_sounds_load(self, self.engines[i], mu::str_tmpf(ASSETS_DIR "/sound/engine{}.wav", i));
-	}
-	for (int i = 0; i < self.engines.size(); i++) {
-		_sounds_load(self, self.props[i], mu::str_tmpf(ASSETS_DIR "/sound/prop{}.wav", i));
-	}
-}
-
-void sounds_free(Sounds& self) {
-	for (int i = 0; i < self.as_array.size(); i++) {
-		audio_free(*self.as_array[i]);
-	}
-}
-
 struct ImGuiWindowLogger : public mu::ILogger {
 	mu::memory::Arena _arena;
 	mu::Vec<mu::Str> logs;
@@ -2851,7 +2803,7 @@ struct World {
 	mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates;
 
 	AudioDevice audio_device;
-	Sounds sounds;
+	mu::Map<mu::Str, AudioBuffer> audio_buffers; // "engine2" -> AudioBufer{...}
 
 	mu::Vec<Aircraft> aircrafts;
 	mu::Vec<GroundObj> ground_objs;
@@ -3211,30 +3163,28 @@ namespace sys {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("Audio")) {
-				for (int i = 0; i < world.sounds.as_array.size(); i++) {
-					ImGui::PushID(i);
-
-					const Audio& sound = *world.sounds.as_array[i];
+			if (ImGui::TreeNode("AudioBuffer")) {
+				for (const auto& [_, buf] : world.audio_buffers) {
+					ImGui::PushID(buf.file_path.c_str());
 
 					if (ImGui::Button("Play")) {
-						audio_device_play(world.audio_device, sound);
+						audio_device_play(world.audio_device, buf);
 					}
 
 					ImGui::SameLine();
 					if (ImGui::Button("Loop")) {
-						audio_device_play_looped(world.audio_device, sound);
+						audio_device_play_looped(world.audio_device, buf);
 					}
 
 					ImGui::SameLine();
-					ImGui::BeginDisabled(audio_device_is_playing(world.audio_device, sound) == false);
+					ImGui::BeginDisabled(audio_device_is_playing(world.audio_device, buf) == false);
 					if (ImGui::Button("Stop")) {
-						audio_device_stop(world.audio_device, sound);
+						audio_device_stop(world.audio_device, buf);
 					}
 					ImGui::EndDisabled();
 
 					ImGui::SameLine();
-					ImGui::Text(mu::Str(mu::file_get_base_name(sound.file_path), mu::memory::tmp()).c_str());
+					ImGui::Text(mu::Str(mu::file_get_base_name(buf.file_path), mu::memory::tmp()).c_str());
 
 					ImGui::PopID();
 				}
@@ -3816,13 +3766,24 @@ namespace sys {
 		DEF_SYSTEM
 
 		audio_device_init(&world.audio_device);
-		sounds_load(world.sounds);
+
+		// load audio buffers
+		auto file_paths = _dir_list_files_with(ASSETS_DIR "/sound", [](const auto& s) { return s.ends_with(".wav"); });
+		for (const auto& file_path : file_paths) {
+			auto base = mu::file_get_base_name(file_path);
+			base.remove_suffix(mu::StrView(".wav").length());
+
+			world.audio_buffers[mu::Str(base)] = audio_buffer_from_wav(file_path);
+		}
 	}
 
 	void audio_free(World& world) {
 		DEF_SYSTEM
 
-		sounds_free(world.sounds);
+		for (auto& [_, buf] : world.audio_buffers) {
+			audio_buffer_free(buf);
+		}
+
 		audio_device_free(world.audio_device);
 	}
 
@@ -4864,15 +4825,15 @@ namespace sys {
 		}
 
 		// only currently controlled model has audio
-		int audio_index = self.state.engine_speed * (world.sounds.props.size()-1);
+		int audio_index = self.state.engine_speed * 10;
 
-		Audio* audio;
+		AudioBuffer* audio;
 		if (self.model.has_propellers) {
-			audio = &world.sounds.props[audio_index];
+			audio = &world.audio_buffers[mu::str_tmpf("prop{}", audio_index)];
 		} else if (self.state.afterburner_reheat_enabled && self.model.has_afterburner) {
-			audio = &world.sounds.burner;
+			audio = &world.audio_buffers["burner"];
 		} else {
-			audio = &world.sounds.engines[audio_index];
+			audio = &world.audio_buffers[mu::str_tmpf("engine{}", audio_index)];
 		}
 
 		if (self.engine_sound != audio) {

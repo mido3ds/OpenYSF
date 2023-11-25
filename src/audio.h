@@ -18,16 +18,16 @@ constexpr uint8_t AUDIO_CHANNELS = 2;
 // calculated from original assets sound/silence.wav after converting to stereo/22050HZ/16LSB
 constexpr uint16_t AUDIO_SILENCE_VALUE = 0x7FFF;
 
-struct Audio {
+struct AudioBuffer {
 	mu::Str file_path;
-	uint8_t* buffer;
+	uint8_t* data;
 	uint32_t len;
 };
 
-Audio audio_new(mu::StrView filename) {
-	Audio self { .file_path = mu::Str(filename) };
+AudioBuffer audio_buffer_from_wav(mu::StrView filename) {
+	AudioBuffer self { .file_path = mu::Str(filename) };
 	SDL_AudioSpec spec {};
-	if (SDL_LoadWAV(filename.data(), &spec, &self.buffer, &self.len) == nullptr) {
+	if (SDL_LoadWAV(filename.data(), &spec, &self.data, &self.len) == nullptr) {
         mu::panic("failed to open wave file '{}', err: {}", filename, SDL_GetError());
     }
 
@@ -39,30 +39,26 @@ Audio audio_new(mu::StrView filename) {
 	if (cvt.needed) {
 		cvt.len = self.len;
 		cvt.buf = (Uint8*) SDL_malloc(cvt.len * cvt.len_mult);
-		SDL_memcpy(cvt.buf, self.buffer, cvt.len);
+		SDL_memcpy(cvt.buf, self.data, cvt.len);
 
 		if (SDL_ConvertAudio(&cvt) < 0) {
 			mu::panic("failed to convert audio '{}', err: {}", filename, SDL_GetError());
 		}
 
-		SDL_FreeWAV(self.buffer);
-		self.buffer = cvt.buf;
+		SDL_FreeWAV(self.data);
+		self.data = cvt.buf;
 		self.len = cvt.len_cvt;
 	}
 
 	return self;
 }
 
-void audio_free(Audio& self) {
-	SDL_FreeWAV(self.buffer);
-}
-
-void destruct(Audio& self) {
-	audio_free(self);
+void audio_buffer_free(AudioBuffer& self) {
+	SDL_FreeWAV(self.data);
 }
 
 struct AudioPlayback {
-	const Audio* audio;
+	const AudioBuffer* audio;
 	uint32_t pos;
 };
 
@@ -102,7 +98,7 @@ void audio_device_init(AudioDevice* self) {
 				mu_assert(playback.pos < playback.audio->len);
 
 				const uint32_t min_len = min_u32(stream_len, playback.audio->len - playback.pos);
-				SDL_MixAudioFormat(stream, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+				SDL_MixAudioFormat(stream, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 				playback.pos += min_len;
 
 				silence_pos = min_u32(silence_pos + min_len, stream_len);
@@ -121,7 +117,7 @@ void audio_device_init(AudioDevice* self) {
 				uint32_t stream_pos = 0;
 				while (stream_pos < stream_len) {
 					const uint32_t min_len = min_u32(stream_len - stream_pos, playback.audio->len - playback.pos);
-					SDL_MixAudioFormat(stream+stream_pos, playback.audio->buffer+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+					SDL_MixAudioFormat(stream+stream_pos, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
 					stream_pos += min_len;
 					playback.pos += min_len;
 					playback.pos %= playback.audio->len;
@@ -156,20 +152,20 @@ void audio_device_free(AudioDevice& self) {
 }
 
 // `audio` must be alive as long as it's played
-void audio_device_play(AudioDevice& self, const Audio& audio) {
+void audio_device_play(AudioDevice& self, const AudioBuffer& audio) {
 	SDL_LockAudioDevice(self.id);
 	self.playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
-void audio_device_play_looped(AudioDevice& self, const Audio& audio) {
+void audio_device_play_looped(AudioDevice& self, const AudioBuffer& audio) {
 	SDL_LockAudioDevice(self.id);
 	self.looped_playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
-bool audio_device_is_playing(const AudioDevice& self, const Audio& audio) {
+bool audio_device_is_playing(const AudioDevice& self, const AudioBuffer& audio) {
 	for (const auto& playback : self.playbacks) {
 		if (playback.audio == &audio) {
 			return true;
@@ -183,7 +179,7 @@ bool audio_device_is_playing(const AudioDevice& self, const Audio& audio) {
 	return false;
 }
 
-void audio_device_stop(AudioDevice& self, const Audio& audio) {
+void audio_device_stop(AudioDevice& self, const AudioBuffer& audio) {
     SDL_LockAudioDevice(self.id);
 	defer(SDL_UnlockAudioDevice(self.id));
 
