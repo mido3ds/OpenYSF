@@ -2587,8 +2587,6 @@ namespace canvas {
 struct Canvas {
 	mu::memory::Arena arena;
 
-	mu::Vec<canvas::TextOverlay> text_overlay_list;
-
 	struct {
 		GLProgram program;
 
@@ -2655,12 +2653,6 @@ struct Canvas {
 		mu::Vec<canvas::Line> list;
 	} lines;
 };
-
-void canvas_add(Canvas& self, canvas::TextOverlay&& d) {
-	self.text_overlay_list.push_back(std::move(d));
-}
-
-#define TEXT_OVERLAY(...) canvas_add(world.canvas, canvas::TextOverlay { mu::str_format(&world.canvas.arena, __VA_ARGS__) })
 
 void canvas_add(Canvas& self, canvas::Text2D&& t) {
 	self.text2d.list.push_back(std::move(t));
@@ -2787,6 +2779,7 @@ struct World {
 
 	ImGuiWindowLogger imgui_window_logger;
 	mu::Str imgui_ini_file_path;
+	mu::Vec<mu::Str> text_overlay_list;
 
 	LoopTimer loop_timer;
 
@@ -2814,6 +2807,8 @@ struct World {
 
 	SysMon sysmon;
 };
+
+#define TEXT_OVERLAY(...) world.text_overlay_list.push_back(mu::str_tmpf(__VA_ARGS__))
 
 namespace sys {
 	void sdl_init(World& world) {
@@ -2965,9 +2960,10 @@ namespace sys {
 			| ImGuiWindowFlags_NoFocusOnAppearing
 			| ImGuiWindowFlags_NoNav
 			| ImGuiWindowFlags_NoMove)) {
-			for (const auto& line : world.canvas.text_overlay_list) {
-				ImGui::TextWrapped(mu::str_tmpf("> {}", line.text).c_str());
+			for (const auto& line : world.text_overlay_list) {
+				ImGui::TextWrapped(mu::str_tmpf("> {}", line).c_str());
 			}
+			world.text_overlay_list = mu::Vec<mu::Str>(mu::memory::tmp());
 		}
 		ImGui::End();
 	}
@@ -4283,8 +4279,6 @@ namespace sys {
 		gl_process_errors();
 
 		self.arena = {};
-
-		self.text_overlay_list     = mu::Vec<canvas::TextOverlay>(&self.arena);
 		self.text2d.list           = mu::Vec<canvas::Text2D>(&self.arena);
 		self.axes.list             = mu::Vec<canvas::Axis>(&self.arena);
 		self.boxes.list            = mu::Vec<canvas::Box>(&self.arena);
@@ -4518,9 +4512,7 @@ namespace sys {
 				if (visible[j] && aabbs_intersect(models[i]->current_aabb, models[j]->current_aabb)) {
 					collided[i] = true;
 					collided[j] = true;
-					canvas_add(world.canvas, canvas::TextOverlay {
-						mu::str_tmpf("{}[air] collided with {}[{}]", names[i], names[j], is_aircraft[j] ? "air":"gro")
-					});
+					TEXT_OVERLAY("{}[air] collided with {}[{}]", names[i], names[j], is_aircraft[j] ? "air":"gro");
 				}
 			}
 		}
