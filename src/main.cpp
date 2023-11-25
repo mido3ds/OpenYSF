@@ -2589,10 +2589,6 @@ struct Canvas {
 
 	mu::Vec<canvas::TextOverlay> text_overlay_list;
 
-	// opengl can't call shader without VAO even if shader doesn't take input
-	// dummy_vao lets you call shader without input (useful when coords is embedded in shader)
-	GLuint dummy_vao;
-
 	struct {
 		GLProgram program;
 
@@ -2602,6 +2598,7 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
+		GLBuf gl_buf;
 		SDL_Surface* tile_surface;
 		GLuint tile_texture;
 
@@ -2617,6 +2614,8 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
+		GLBuf gl_buf;
+
 		GLuint sprite_texture;
 		SDL_Surface* sprite_surface;
 
@@ -3954,16 +3953,12 @@ namespace sys {
 			// vertex shader
 			R"GLSL(
 				#version 330 core
+				layout (location = 0) in vec2 attr_position;
+
 				uniform mat4 proj_inv_view_inv;
 
 				out vec3 vs_near_point;
 				out vec3 vs_far_point;
-
-				// grid position are in clipped space
-				const vec2 grid_plane[6] = vec2[] (
-					vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
-					vec2(-1, -1), vec2(1, -1), vec2(1, 1)
-				);
 
 				vec3 unproject_point(float x, float y, float z) {
 					vec4 unprojectedPoint = proj_inv_view_inv * vec4(x, y, z, 1.0);
@@ -3971,11 +3966,9 @@ namespace sys {
 				}
 
 				void main() {
-					vec2 p        = grid_plane[gl_VertexID];
-
-					vs_near_point = unproject_point(p.x, p.y, 0.0); // unprojecting on the near plane
-					vs_far_point  = unproject_point(p.x, p.y, 1.0); // unprojecting on the far plane
-					gl_Position   = vec4(p.x, p.y, 0.0, 1.0);       // using directly the clipped coordinates
+					vs_near_point = unproject_point(attr_position.x, attr_position.y, 0.0); // unprojecting on the near plane
+					vs_far_point  = unproject_point(attr_position.x, attr_position.y, 1.0); // unprojecting on the far plane
+					gl_Position   = vec4(attr_position.x, attr_position.y, 0.0, 1.0);       // using directly the clipped coordinates
 				}
 			)GLSL",
 
@@ -4005,7 +3998,11 @@ namespace sys {
 			)GLSL"
 		);
 
-		glGenVertexArrays(1, &self.dummy_vao);
+		// grid position are in clipped space
+		self.ground.gl_buf = gl_buf_new(mu::Vec<glm::vec2> ({
+			glm::vec2{1, 1}, glm::vec2{-1, 1}, glm::vec2{-1, -1},
+			glm::vec2{-1, -1}, glm::vec2{1, -1}, glm::vec2{1, 1}
+		}));
 
 		// groundtile
 		self.ground.tile_surface = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
@@ -4024,23 +4021,16 @@ namespace sys {
 			// vertex shader
 			R"GLSL(
 				#version 330 core
+				layout (location = 0) in vec2 attr_position;
+				layout (location = 1) in vec2 attr_tex_coord;
+
 				uniform mat4 projection_view_model;
 
 				out vec2 vs_tex_coord;
 
-				const vec2 quad[6] = vec2[] (
-					vec2(1, 1), vec2(-1, 1), vec2(-1, -1),
-					vec2(-1, -1), vec2(1, -1), vec2(1, 1)
-				);
-
-				const vec2 tex_coords[6] = vec2[] (
-					vec2(1, 1), vec2(0, 1), vec2(0, 0),
-					vec2(0, 0), vec2(1, 0), vec2(1, 1)
-				);
-
 				void main() {
-					gl_Position = projection_view_model * vec4(quad[gl_VertexID], 0, 1);
-					vs_tex_coord = tex_coords[gl_VertexID];
+					gl_Position = projection_view_model * vec4(attr_position, 0, 1);
+					vs_tex_coord = attr_tex_coord;
 				}
 			)GLSL",
 
@@ -4059,6 +4049,15 @@ namespace sys {
 				}
 			)GLSL"
 		);
+
+		self.zlpoints.gl_buf = gl_buf_new(mu::Vec<canvas::SpriteStride> ({
+			canvas::SpriteStride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
+			canvas::SpriteStride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{.0, +1} },
+			canvas::SpriteStride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
+			canvas::SpriteStride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
+			canvas::SpriteStride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{+1, .0} },
+			canvas::SpriteStride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
+		}));
 
 		// zl_sprite
 		self.zlpoints.sprite_surface = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
@@ -4221,19 +4220,19 @@ namespace sys {
 		SDL_FreeSurface(self.zlpoints.sprite_surface);
 		glDeleteTextures(1, &self.zlpoints.sprite_texture);
 		gl_program_free(self.zlpoints.program);
+		gl_buf_free(self.zlpoints.gl_buf);
 
 		// ground
 		SDL_FreeSurface(self.ground.tile_surface);
 		glDeleteTextures(1, &self.ground.tile_texture);
 		gl_program_free(self.ground.program);
-
-		glDeleteVertexArrays(1, &self.dummy_vao);
+		gl_buf_free(self.ground.gl_buf);
 
 		// boxes
+		gl_program_free(self.boxes.program);
 		gl_buf_free(self.boxes.gl_buf);
 
 		// axes
-		gl_program_free(self.boxes.program);
 		gl_buf_free(self.axes.gl_buf);
 
 		// lines
@@ -5312,13 +5311,13 @@ namespace sys {
 
 		gl_program_use(world.canvas.zlpoints.program);
 		glBindTexture(GL_TEXTURE_2D, world.canvas.zlpoints.sprite_texture);
-		glBindVertexArray(world.canvas.dummy_vao);
+		glBindVertexArray(world.canvas.zlpoints.gl_buf.vao);
 
 		for (const auto& zlpoint : world.canvas.zlpoints.list) {
 			model_transformation[3] = glm::vec4{zlpoint.center.x, zlpoint.center.y, zlpoint.center.z, 1.0f};
 			gl_program_uniform_set(world.canvas.zlpoints.program, "color", zlpoint.color);
 			gl_program_uniform_set(world.canvas.zlpoints.program, "projection_view_model", world.mats.projection_view * model_transformation);
-			glDrawArrays(GL_TRIANGLES, 0, 6);
+			glDrawArrays(GL_TRIANGLES, 0, world.canvas.zlpoints.gl_buf.len);
 		}
 	}
 
@@ -5523,8 +5522,8 @@ namespace sys {
 		glDisable(GL_DEPTH_TEST);
 
 		glBindTexture(GL_TEXTURE_2D, self.ground.tile_texture);
-		glBindVertexArray(self.dummy_vao);
-		glDrawArrays(GL_TRIANGLES, 0, 6);
+		glBindVertexArray(self.ground.gl_buf.vao);
+		glDrawArrays(GL_TRIANGLES, 0, self.ground.gl_buf.len);
 
 		glEnable(GL_DEPTH_TEST);
 	}

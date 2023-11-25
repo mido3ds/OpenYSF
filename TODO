@@ -1,6 +1,5 @@
 - refactor rendering
 	- box should be turned into list of lines (remove its shader)
-	- replace dummy_vao with gl_buf with data
 	- zlpoint -> sprite
 - ground objects:
 	- heathrow: totally broken ground objects rotations

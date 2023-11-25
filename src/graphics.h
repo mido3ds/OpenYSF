@@ -115,6 +115,11 @@ namespace canvas {
 		glm::vec4 color;
 	};
 
+	struct SpriteStride {
+		glm::vec2 vertex;
+		glm::vec2 tex_coord;
+	};
+
 	struct LineStride {
 		glm::vec4 vertex;
 		glm::vec4 color;
@@ -240,6 +245,47 @@ GLBuf gl_buf_new(const mu::Vec<canvas::MeshStride>& buffer) {
 			(void*)offset   /*offset*/
 		);
 		offset += sizeof(canvas::MeshStride::color);
+	glBindVertexArray(0);
+
+	return self;
+}
+
+GLBuf gl_buf_new(const mu::Vec<canvas::SpriteStride>& buffer) {
+	constexpr auto STRIDE_SIZE = sizeof(canvas::SpriteStride);
+
+	GLBuf self {
+		.len = buffer.size()
+	};
+
+	glGenVertexArrays(1, &self.vao);
+	glBindVertexArray(self.vao);
+		glGenBuffers(1, &self.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
+		glBufferData(GL_ARRAY_BUFFER, buffer.size() * STRIDE_SIZE, buffer.data(), GL_STATIC_DRAW);
+
+		size_t offset = 0;
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(
+			0,              /*index*/
+			2,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			STRIDE_SIZE,    /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(canvas::SpriteStride::vertex);
+
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(
+			1,              /*index*/
+			2,              /*#components*/
+			GL_FLOAT,       /*type*/
+			GL_FALSE,       /*normalize*/
+			STRIDE_SIZE,    /*stride bytes*/
+			(void*)offset   /*offset*/
+		);
+		offset += sizeof(canvas::SpriteStride::tex_coord);
 	glBindVertexArray(0);
 
 	return self;
