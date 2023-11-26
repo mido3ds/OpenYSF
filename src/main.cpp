@@ -287,16 +287,23 @@ struct Mesh {
 };
 
 void mesh_load_to_gpu(Mesh& self) {
-	mu::Vec<canvas::MeshStride> buffer(mu::memory::tmp());
+	struct Stride {
+		glm::vec3 vertex;
+		glm::vec4 color;
+	};
+	mu::Vec<Stride> buffer(mu::memory::tmp());
 	for (const auto& face : self.faces) {
 		for (size_t i = 0; i < face.vertices_ids.size(); i++) {
-			buffer.push_back(canvas::MeshStride {
+			buffer.push_back(Stride {
 				.vertex=self.vertices[face.vertices_ids[i]],
 				.color=face.color,
 			});
 		}
 	}
-	self.gl_buf = gl_buf_new(buffer);
+	self.gl_buf = gl_buf_new(buffer.data(), buffer.size(), {
+		gl_vertex_attrib(glm::vec3),
+		gl_vertex_attrib(glm::vec4),
+	});
 
 	for (auto& child : self.children) {
 		mesh_load_to_gpu(child);
@@ -1272,64 +1279,68 @@ struct TerrMesh {
 };
 
 void terr_mesh_load_to_gpu(TerrMesh& self) {
-	mu::Vec<canvas::MeshStride> buffer(mu::memory::tmp());
+	struct Stride {
+		glm::vec3 vertex;
+		glm::vec4 color;
+	};
+	mu::Vec<Stride> buffer(mu::memory::tmp());
 
 	// main triangles
 	for (size_t z = 0; z < self.blocks.size(); z++) {
 		for (size_t x = 0; x < self.blocks[z].size(); x++) {
 			if (self.blocks[z][x].orientation == Block::RIGHT) {
 				// face 1
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[1],
 				});
 			} else {
 				// face 1
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z+1][x+1], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[0],
 				});
 
 				// face 2
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x+1, -self.nodes_height[z][x+1], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z+1][x], z+1},
 					.color=self.blocks[z][x].faces_color[1],
 				});
-				buffer.push_back(canvas::MeshStride {
+				buffer.push_back(Stride {
 					.vertex=glm::vec3{x, -self.nodes_height[z][x], z},
 					.color=self.blocks[z][x].faces_color[1],
 				});
@@ -1343,7 +1354,10 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		stride.vertex.z *= self.scale.y;
 	}
 
-	self.gl_buf = gl_buf_new(buffer);
+	self.gl_buf = gl_buf_new(buffer.data(), buffer.size(), {
+		gl_vertex_attrib(glm::vec3),
+		gl_vertex_attrib(glm::vec4),
+	});
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
@@ -1372,62 +1386,11 @@ struct Primitive2D {
 };
 
 void primitive2d_load_to_gpu(Primitive2D& self) {
-	switch (self.kind) {
-	case Primitive2D::Kind::POINTS:
-		self.gl_buf = gl_buf_new(self.vertices);
-		break;
-	case Primitive2D::Kind::LINES:
-		self.gl_buf = gl_buf_new(self.vertices);
-		break;
-	case Primitive2D::Kind::LINE_SEGMENTS:
-		self.gl_buf = gl_buf_new(self.vertices);
-		break;
-	case Primitive2D::Kind::TRIANGLES:
-		self.gl_buf = gl_buf_new(self.vertices);
-		break;
-	case Primitive2D::Kind::QUADRILATERAL:
-	{
-		mu::Vec<glm::vec2> vertices(mu::memory::tmp());
-		for (int i = 0; i < (int)self.vertices.size() - 3; i += 4) {
-			vertices.push_back(self.vertices[i]);
-			vertices.push_back(self.vertices[i+3]);
-			vertices.push_back(self.vertices[i+2]);
-
-			vertices.push_back(self.vertices[i]);
-			vertices.push_back(self.vertices[i+2]);
-			vertices.push_back(self.vertices[i+1]);
-		}
-		self.gl_buf = gl_buf_new(vertices);
-		break;
-	}
-	case Primitive2D::Kind::GRADATION_QUAD_STRIPS: // same as QUAD_STRIPS but with extra color
-	case Primitive2D::Kind::QUAD_STRIPS:
-	{
-		mu::Vec<glm::vec2> vertices(mu::memory::tmp());
-		for (int i = 0; i < (int)self.vertices.size() - 2; i += 2) {
-			vertices.push_back(self.vertices[i]);
-			vertices.push_back(self.vertices[i+1]);
-			vertices.push_back(self.vertices[i+3]);
-
-			vertices.push_back(self.vertices[i]);
-			vertices.push_back(self.vertices[i+2]);
-			vertices.push_back(self.vertices[i+3]);
-		}
-		self.gl_buf = gl_buf_new(vertices);
-		break;
-	}
-	case Primitive2D::Kind::POLYGON:
-	{
-		auto indices = polygons2d_to_triangles(self.vertices, mu::memory::tmp());
-		mu::Vec<glm::vec2> vertices(mu::memory::tmp());
-		for (auto& index : indices) {
-			vertices.push_back(self.vertices[index]);
-		}
-		self.gl_buf = gl_buf_new(vertices);
-		break;
-	}
-	default: unreachable();
-	}
+	self.gl_buf = gl_buf_new(
+		self.vertices.data(),
+		self.vertices.size(),
+		{ gl_vertex_attrib(glm::vec2) }
+	);
 }
 
 void primitive2d_unload_from_gpu(Primitive2D& self) {
@@ -1772,27 +1735,27 @@ Field _field_from_fld_str(Parser& parser) {
 			picture.state = picture.initial_state;
 
 			while (parser_accept(parser, "ENDPICT\n") == false) {
-				Primitive2D permitive {};
+				Primitive2D primitive {};
 
 				auto kind_str = parser_token_str(parser, mu::memory::tmp());
 				parser_expect(parser, '\n');
 
 				if (kind_str == "LSQ") {
-					permitive.kind = Primitive2D::Kind::LINES;
+					primitive.kind = Primitive2D::Kind::LINES;
 				} else if (kind_str == "PLG") {
-					permitive.kind = Primitive2D::Kind::POLYGON;
+					primitive.kind = Primitive2D::Kind::POLYGON;
 				} else if (kind_str == "PLL") {
-					permitive.kind = Primitive2D::Kind::LINE_SEGMENTS;
+					primitive.kind = Primitive2D::Kind::LINE_SEGMENTS;
 				} else if (kind_str == "PST") {
-					permitive.kind = Primitive2D::Kind::POINTS;
+					primitive.kind = Primitive2D::Kind::POINTS;
 				} else if (kind_str == "QDR") {
-					permitive.kind = Primitive2D::Kind::QUADRILATERAL;
+					primitive.kind = Primitive2D::Kind::QUADRILATERAL;
 				} else if (kind_str == "GQS") {
-					permitive.kind = Primitive2D::Kind::GRADATION_QUAD_STRIPS;
+					primitive.kind = Primitive2D::Kind::GRADATION_QUAD_STRIPS;
 				} else if (kind_str == "QST") {
-					permitive.kind = Primitive2D::Kind::QUAD_STRIPS;
+					primitive.kind = Primitive2D::Kind::QUAD_STRIPS;
 				} else if (kind_str == "TRI") {
-					permitive.kind = Primitive2D::Kind::TRIANGLES;
+					primitive.kind = Primitive2D::Kind::TRIANGLES;
 				} else {
 					mu::log_warning("{}: invalid pict2 kind={}, skip for now", parser.curr_line+1, kind_str);
 					parser_skip_after(parser, "ENDO\n");
@@ -1806,23 +1769,24 @@ Field _field_from_fld_str(Parser& parser) {
 				}
 
 				parser_expect(parser, "COL ");
-				permitive.color.r = parser_token_u8(parser) / 255.0f;
+				primitive.color.r = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, ' ');
-				permitive.color.g = parser_token_u8(parser) / 255.0f;
+				primitive.color.g = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, ' ');
-				permitive.color.b = parser_token_u8(parser) / 255.0f;
+				primitive.color.b = parser_token_u8(parser) / 255.0f;
 				parser_expect(parser, '\n');
 
-				if (permitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
+				if (primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS) {
 					parser_expect(parser, "CL2 ");
-					permitive.gradient_color2.r = parser_token_u8(parser) / 255.0f;
+					primitive.gradient_color2.r = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, ' ');
-					permitive.gradient_color2.g = parser_token_u8(parser) / 255.0f;
+					primitive.gradient_color2.g = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, ' ');
-					permitive.gradient_color2.b = parser_token_u8(parser) / 255.0f;
+					primitive.gradient_color2.b = parser_token_u8(parser) / 255.0f;
 					parser_expect(parser, '\n');
 				}
 
+				mu::Vec<glm::vec2> tmp_verts;
 				while (parser_accept(parser, "ENDO\n") == false) {
 					if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 						// TODO
@@ -1847,25 +1811,67 @@ Field _field_from_fld_str(Parser& parser) {
 					vertex.y = parser_token_float(parser);
 					parser_expect(parser, '\n');
 
-					permitive.vertices.push_back(vertex);
+					tmp_verts.push_back(vertex);
 				}
 
-				if (permitive.vertices.size() == 0) {
+				if (tmp_verts.size() == 0) {
 					parser_panic(parser, "{}: no vertices", parser.curr_line+1);
-				} else if (permitive.kind == Primitive2D::Kind::TRIANGLES && permitive.vertices.size() % 3 != 0) {
-					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, permitive.vertices.size());
-				} else if (permitive.kind == Primitive2D::Kind::LINES && permitive.vertices.size() % 2 != 0) {
-					mu::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, permitive.vertices.size());
-					permitive.vertices.pop_back();
-				} else if (permitive.kind == Primitive2D::Kind::LINE_SEGMENTS && permitive.vertices.size() == 1) {
+				} else if (primitive.kind == Primitive2D::Kind::TRIANGLES && tmp_verts.size() % 3 != 0) {
+					parser_panic(parser, "{}: kind is triangle but num of vertices ({}) isn't divisible by 3", parser.curr_line+1, tmp_verts.size());
+				} else if (primitive.kind == Primitive2D::Kind::LINES && tmp_verts.size() % 2 != 0) {
+					mu::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, tmp_verts.size());
+					tmp_verts.pop_back();
+				} else if (primitive.kind == Primitive2D::Kind::LINE_SEGMENTS && tmp_verts.size() == 1) {
 					parser_panic(parser, "{}: kind is line but has one point", parser.curr_line+1);
-				} else if (permitive.kind == Primitive2D::Kind::QUADRILATERAL && permitive.vertices.size() % 4 != 0) {
-					parser_panic(parser, "{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", parser.curr_line+1, permitive.vertices.size());
-				} else if (permitive.kind == Primitive2D::Kind::QUAD_STRIPS && (permitive.vertices.size() >= 4 && permitive.vertices.size() % 2 == 0) == false) {
-					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, permitive.vertices.size());
+				} else if (primitive.kind == Primitive2D::Kind::QUADRILATERAL && tmp_verts.size() % 4 != 0) {
+					parser_panic(parser, "{}: kind is quadrilateral but num of vertices ({}) isn't divisible by 4", parser.curr_line+1, tmp_verts.size());
+				} else if (primitive.kind == Primitive2D::Kind::QUAD_STRIPS && (tmp_verts.size() >= 4 && tmp_verts.size() % 2 == 0) == false) {
+					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, tmp_verts.size());
 				}
 
-				picture.primitives.push_back(permitive);
+				// build final vertices
+				switch (primitive.kind) {
+				case Primitive2D::Kind::QUADRILATERAL:
+				{
+					for (int i = 0; i < (int)tmp_verts.size() - 3; i += 4) {
+						primitive.vertices.push_back(tmp_verts[i]);
+						primitive.vertices.push_back(tmp_verts[i+3]);
+						primitive.vertices.push_back(tmp_verts[i+2]);
+
+						primitive.vertices.push_back(tmp_verts[i]);
+						primitive.vertices.push_back(tmp_verts[i+2]);
+						primitive.vertices.push_back(tmp_verts[i+1]);
+					}
+					break;
+				}
+				case Primitive2D::Kind::GRADATION_QUAD_STRIPS: // same as QUAD_STRIPS but with extra color
+				case Primitive2D::Kind::QUAD_STRIPS:
+				{
+					for (int i = 0; i < (int)tmp_verts.size() - 2; i += 2) {
+						primitive.vertices.push_back(tmp_verts[i]);
+						primitive.vertices.push_back(tmp_verts[i+1]);
+						primitive.vertices.push_back(tmp_verts[i+3]);
+
+						primitive.vertices.push_back(tmp_verts[i]);
+						primitive.vertices.push_back(tmp_verts[i+2]);
+						primitive.vertices.push_back(tmp_verts[i+3]);
+					}
+					break;
+				}
+				case Primitive2D::Kind::POLYGON:
+				{
+					auto indices = polygons2d_to_triangles(tmp_verts, mu::memory::tmp());
+					for (auto& index : indices) {
+						primitive.vertices.push_back(tmp_verts[index]);
+					}
+					break;
+				}
+				default:
+					primitive.vertices = std::move(tmp_verts);
+					break;
+				}
+
+				picture.primitives.push_back(primitive);
 			}
 
 			field.pictures.push_back(picture);
@@ -3833,14 +3839,24 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.axes.gl_buf = gl_buf_new(mu::Vec<canvas::MeshStride> {
-			canvas::MeshStride {{0, 0, 0}, {1, 0, 0, 1}}, // X
-			canvas::MeshStride {{1, 0, 0}, {1, 0, 0, 1}},
-			canvas::MeshStride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
-			canvas::MeshStride {{0, 1, 0}, {0, 1, 0, 1}},
-			canvas::MeshStride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
-			canvas::MeshStride {{0, 0, 1}, {0, 0, 1, 1}},
-		});
+		{
+			struct Stride {
+				glm::vec3 vertex;
+				glm::vec4 color;
+			};
+			mu::Vec<Stride> buf {
+				Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
+				Stride {{1, 0, 0}, {1, 0, 0, 1}},
+				Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
+				Stride {{0, 1, 0}, {0, 1, 0, 1}},
+				Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
+				Stride {{0, 0, 1}, {0, 0, 1, 1}},
+			};
+			self.axes.gl_buf = gl_buf_new(buf.data(), buf.size(), {
+				gl_vertex_attrib(glm::vec3),
+				gl_vertex_attrib(glm::vec4),
+			});
+		}
 
 		self.boxes.program = gl_program_new(
 			// vertex shader
@@ -3864,7 +3880,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.boxes.gl_buf = gl_buf_new(mu::Vec<glm::vec3> {
+		mu::Vec<glm::vec3> box_buf {
 			{0, 0, 0}, // face x0
 			{0, 1, 0},
 			{0, 1, 1},
@@ -3895,6 +3911,9 @@ namespace sys {
 			{1, 1, 1},
 			{0, 1, 1},
 			{0, 0, 1},
+		};
+		self.boxes.gl_buf = gl_buf_new(box_buf.data(), box_buf.size(), {
+			gl_vertex_attrib(glm::vec3)
 		});
 
 		self.gnd_pics.program = gl_program_new(
@@ -3995,10 +4014,13 @@ namespace sys {
 		);
 
 		// grid position are in clipped space
-		self.ground.gl_buf = gl_buf_new(mu::Vec<glm::vec2> ({
+		mu::Vec<glm::vec2> ground_buf ({
 			glm::vec2{1, 1}, glm::vec2{-1, 1}, glm::vec2{-1, -1},
 			glm::vec2{-1, -1}, glm::vec2{1, -1}, glm::vec2{1, 1}
-		}));
+		});
+		self.ground.gl_buf = gl_buf_new(ground_buf.data(), ground_buf.size(), {
+			gl_vertex_attrib(glm::vec2)
+		});
 
 		// groundtile
 		self.ground.tile_surface = IMG_Load(ASSETS_DIR "/misc/groundtile.png");
@@ -4046,15 +4068,25 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.zlpoints.gl_buf = gl_buf_new(mu::Vec<canvas::SpriteStride> ({
-			canvas::SpriteStride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
-			canvas::SpriteStride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{.0, +1} },
-			canvas::SpriteStride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
+		{
+			struct Stride {
+				glm::vec2 vertex;
+				glm::vec2 tex_coord;
+			};
+			mu::Vec<Stride> zlpoints_buf {
+				Stride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
+				Stride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{.0, +1} },
+				Stride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
 
-			canvas::SpriteStride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
-			canvas::SpriteStride { .vertex = glm::vec2{+1, -1}, .tex_coord = glm::vec2{+1, .0} },
-			canvas::SpriteStride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
-		}));
+				Stride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
+				Stride { .vertex = glm::vec2{+1, -1}, .tex_coord = glm::vec2{+1, .0} },
+				Stride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
+			};
+			self.zlpoints.gl_buf = gl_buf_new(zlpoints_buf.data(), zlpoints_buf.size(), {
+				gl_vertex_attrib(glm::vec2),
+				gl_vertex_attrib(glm::vec2)
+			});
+		}
 
 		// zl_sprite
 		self.zlpoints.sprite_surface = IMG_Load(ASSETS_DIR "/misc/rwlight.png");
@@ -4100,7 +4132,9 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.text2d.gl_buf = gl_buf_new(glm::vec4{}, 6);
+		self.text2d.gl_buf = gl_buf_new_dyn(6, {
+			gl_vertex_attrib(glm::vec4)
+		});
 
 		// disable byte-alignment restriction
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -4192,7 +4226,10 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.lines.gl_buf = gl_buf_new(canvas::LineStride{}, 100);
+		self.lines.gl_buf = gl_buf_new_dyn(100, {
+			gl_vertex_attrib(glm::vec4),
+			gl_vertex_attrib(glm::vec4),
+		});
 
 		gl_process_errors();
 	}
@@ -5472,15 +5509,20 @@ namespace sys {
 			return;
 		}
 
-		mu::Vec<canvas::LineStride> strides(mu::memory::tmp());
+		struct Stride {
+			glm::vec4 vertex;
+			glm::vec4 color;
+		};
+
+		mu::Vec<Stride> strides(mu::memory::tmp());
 		strides.reserve(self.list.size()*2);
 
 		for (const auto& line : self.list) {
-			strides.push_back(canvas::LineStride {
+			strides.push_back(Stride {
 				.vertex = world.mats.projection_view * glm::vec4(line.p0, 1.0f),
 				.color = line.color
 			});
-			strides.push_back(canvas::LineStride {
+			strides.push_back(Stride {
 				.vertex = world.mats.projection_view * glm::vec4(line.p1, 1.0f),
 				.color = line.color
 			});
@@ -5497,7 +5539,7 @@ namespace sys {
 
 		for (int i = 0; i < strides.size(); i += self.gl_buf.len) {
 			const size_t count = std::min(self.gl_buf.len, strides.size()-i);
-			glBufferSubData(GL_ARRAY_BUFFER, 0, count * sizeof(canvas::LineStride), strides.data()+i);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, count * sizeof(Stride), strides.data()+i);
 			glDrawArrays(GL_LINES, 0, count);
 		}
 	}

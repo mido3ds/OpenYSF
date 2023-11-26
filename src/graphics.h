@@ -109,22 +109,37 @@ void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat
 	glUniformMatrix4fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
 
-namespace canvas {
-	struct MeshStride {
-		glm::vec3 vertex;
-		glm::vec4 color;
-	};
+template<typename T> constexpr GLenum _vertex_type();
+template<typename T> constexpr size_t _vertex_num_components();
 
-	struct SpriteStride {
-		glm::vec2 vertex;
-		glm::vec2 tex_coord;
-	};
+#define GL_REGISTER_TYPE(type, num_components, gl_type_enum)								\
+	template<> constexpr GLenum _vertex_type<type>() 			{ return gl_type_enum;   }	\
+	template<> constexpr size_t _vertex_num_components<type>()	{ return num_components; }
 
-	struct LineStride {
-		glm::vec4 vertex;
-		glm::vec4 color;
-	};
-}
+GL_REGISTER_TYPE(float,     1, GL_FLOAT)
+GL_REGISTER_TYPE(glm::vec2, 2, GL_FLOAT)
+GL_REGISTER_TYPE(glm::vec3, 3, GL_FLOAT)
+GL_REGISTER_TYPE(glm::vec4, 4, GL_FLOAT)
+GL_REGISTER_TYPE(int,        1, GL_INT)
+GL_REGISTER_TYPE(glm::ivec2, 2, GL_INT)
+GL_REGISTER_TYPE(glm::ivec3, 3, GL_INT)
+GL_REGISTER_TYPE(glm::ivec4, 4, GL_INT)
+GL_REGISTER_TYPE(unsigned int, 1, GL_UNSIGNED_INT)
+GL_REGISTER_TYPE(glm::uvec2,   2, GL_UNSIGNED_INT)
+GL_REGISTER_TYPE(glm::uvec3,   3, GL_UNSIGNED_INT)
+GL_REGISTER_TYPE(glm::uvec4,   4, GL_UNSIGNED_INT)
+
+struct GLVertexAttrib {
+	GLenum type;
+	size_t num_components, size;
+};
+
+#define gl_vertex_attrib(T)								\
+	GLVertexAttrib {									\
+		.type = _vertex_type<T>(),						\
+		.num_components = _vertex_num_components<T>(),	\
+		.size = sizeof(T)								\
+	}
 
 // opengl buffer, resides in GPU memory
 // use `gl_buf_new` to load from CPU memory
@@ -134,165 +149,13 @@ struct GLBuf {
 	size_t len;
 };
 
-GLBuf gl_buf_new(const mu::Vec<glm::vec2>& buffer) {
-	GLBuf self {
-		.len = buffer.size()
-	};
+GLBuf gl_buf_new(void* data, size_t len, const mu::Vec<GLVertexAttrib>& attributes) {
+	mu_assert(data && len > 0 && attributes.size() > 0);
 
-	glGenVertexArrays(1, &self.vao);
-	glBindVertexArray(self.vao);
-		glGenBuffers(1, &self.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(glm::vec2), buffer.data(), GL_STATIC_DRAW);
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,                 /*index*/
-			2,                 /*#components*/
-			GL_FLOAT,          /*type*/
-			GL_FALSE,          /*normalize*/
-			sizeof(glm::vec2), /*stride bytes*/
-			(void*)0           /*offset*/
-		);
-	glBindVertexArray(0);
-
-	return self;
-}
-
-GLBuf gl_buf_new(const mu::Vec<glm::vec3>& buffer) {
-	GLBuf self {
-		.len = buffer.size()
-	};
-
-	glGenVertexArrays(1, &self.vao);
-	glBindVertexArray(self.vao);
-		glGenBuffers(1, &self.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.size() * sizeof(glm::vec3), buffer.data(), GL_STATIC_DRAW);
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,                 /*index*/
-			3,                 /*#components*/
-			GL_FLOAT,          /*type*/
-			GL_FALSE,          /*normalize*/
-			sizeof(glm::vec3), /*stride bytes*/
-			(void*)0           /*offset*/
-		);
-	glBindVertexArray(0);
-
-	return self;
-}
-
-GLBuf gl_buf_new(glm::vec4, size_t len) {
-	GLBuf self {
-		.len = len
-	};
-
-	glGenVertexArrays(1, &self.vao);
-	glBindVertexArray(self.vao);
-		glGenBuffers(1, &self.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, len * sizeof(glm::vec4), NULL, GL_DYNAMIC_DRAW);
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,                 /*index*/
-			4,                 /*#components*/
-			GL_FLOAT,          /*type*/
-			GL_FALSE,          /*normalize*/
-			sizeof(glm::vec4), /*stride bytes*/
-			(void*)0           /*offset*/
-		);
-	glBindVertexArray(0);
-
-	return self;
-}
-
-GLBuf gl_buf_new(const mu::Vec<canvas::MeshStride>& buffer) {
-	constexpr auto STRIDE_SIZE = sizeof(canvas::MeshStride);
-
-	GLBuf self {
-		.len = buffer.size()
-	};
-
-	glGenVertexArrays(1, &self.vao);
-	glBindVertexArray(self.vao);
-		glGenBuffers(1, &self.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.size() * STRIDE_SIZE, buffer.data(), GL_STATIC_DRAW);
-
-		size_t offset = 0;
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,              /*index*/
-			3,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			STRIDE_SIZE,    /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(canvas::MeshStride::vertex);
-
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(
-			1,              /*index*/
-			4,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			STRIDE_SIZE,    /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(canvas::MeshStride::color);
-	glBindVertexArray(0);
-
-	return self;
-}
-
-GLBuf gl_buf_new(const mu::Vec<canvas::SpriteStride>& buffer) {
-	constexpr auto STRIDE_SIZE = sizeof(canvas::SpriteStride);
-
-	GLBuf self {
-		.len = buffer.size()
-	};
-
-	glGenVertexArrays(1, &self.vao);
-	glBindVertexArray(self.vao);
-		glGenBuffers(1, &self.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, buffer.size() * STRIDE_SIZE, buffer.data(), GL_STATIC_DRAW);
-
-		size_t offset = 0;
-
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,              /*index*/
-			2,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			STRIDE_SIZE,    /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(canvas::SpriteStride::vertex);
-
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(
-			1,              /*index*/
-			2,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			STRIDE_SIZE,    /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(canvas::SpriteStride::tex_coord);
-	glBindVertexArray(0);
-
-	return self;
-}
-
-GLBuf gl_buf_new(canvas::LineStride, size_t len) {
-	constexpr auto STRIDE_SIZE = sizeof(canvas::LineStride);
+	size_t stride_size = 0;
+	for (auto& attrib : attributes) {
+		stride_size += attrib.size;
+	}
 
 	GLBuf self {
 		.len = len
@@ -302,31 +165,59 @@ GLBuf gl_buf_new(canvas::LineStride, size_t len) {
 	glBindVertexArray(self.vao);
 		glGenBuffers(1, &self.vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, self.len * STRIDE_SIZE, NULL, GL_DYNAMIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, len * stride_size, data, GL_STATIC_DRAW);
 
 		size_t offset = 0;
+		bool normalize = false;
+		for (int i = 0; i < attributes.size(); i++) {
+			glEnableVertexAttribArray(i);
+			glVertexAttribPointer(
+				i,
+				attributes[i].num_components,
+				attributes[i].type,
+				normalize,
+				stride_size,
+				(void*)offset
+			);
+			offset += attributes[i].size;
+		}
+	glBindVertexArray(0);
 
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(
-			0,              /*index*/
-			4,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			STRIDE_SIZE,    /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(canvas::LineStride::vertex);
+	return self;
+}
 
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(
-			1,              /*index*/
-			4,              /*#components*/
-			GL_FLOAT,       /*type*/
-			GL_FALSE,       /*normalize*/
-			STRIDE_SIZE,    /*stride bytes*/
-			(void*)offset   /*offset*/
-		);
-		offset += sizeof(canvas::LineStride::color);
+GLBuf gl_buf_new_dyn(size_t len, const mu::Vec<GLVertexAttrib>& attributes) {
+	mu_assert(len > 0 && attributes.size() > 0);
+
+	size_t stride_size = 0;
+	for (auto& attrib : attributes) {
+		stride_size += attrib.size;
+	}
+
+	GLBuf self {
+		.len = len
+	};
+
+	glGenVertexArrays(1, &self.vao);
+	glBindVertexArray(self.vao);
+		glGenBuffers(1, &self.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
+		glBufferData(GL_ARRAY_BUFFER, len * stride_size, NULL, GL_DYNAMIC_DRAW);
+
+		size_t offset = 0;
+		bool normalize = false;
+		for (int i = 0; i < attributes.size(); i++) {
+			glEnableVertexAttribArray(i);
+			glVertexAttribPointer(
+				i,
+				attributes[i].num_components,
+				attributes[i].type,
+				normalize,
+				stride_size,
+				(void*)offset
+			);
+			offset += attributes[i].size;
+		}
 	glBindVertexArray(0);
 
 	return self;
