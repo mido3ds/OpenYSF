@@ -300,10 +300,7 @@ void mesh_load_to_gpu(Mesh& self) {
 			});
 		}
 	}
-	self.gl_buf = gl_buf_new(buffer.data(), buffer.size(), {
-		gl_vertex_attrib(glm::vec3),
-		gl_vertex_attrib(glm::vec4),
-	});
+	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4>(buffer);
 
 	for (auto& child : self.children) {
 		mesh_load_to_gpu(child);
@@ -1354,10 +1351,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		stride.vertex.z *= self.scale.y;
 	}
 
-	self.gl_buf = gl_buf_new(buffer.data(), buffer.size(), {
-		gl_vertex_attrib(glm::vec3),
-		gl_vertex_attrib(glm::vec4),
-	});
+	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4>(buffer);
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
@@ -1386,11 +1380,7 @@ struct Primitive2D {
 };
 
 void primitive2d_load_to_gpu(Primitive2D& self) {
-	self.gl_buf = gl_buf_new(
-		self.vertices.data(),
-		self.vertices.size(),
-		{ gl_vertex_attrib(glm::vec2) }
-	);
+	self.gl_buf = gl_buf_new<glm::vec2>(self.vertices);
 }
 
 void primitive2d_unload_from_gpu(Primitive2D& self) {
@@ -3844,17 +3834,13 @@ namespace sys {
 				glm::vec3 vertex;
 				glm::vec4 color;
 			};
-			mu::Vec<Stride> buf {
+			self.axes.gl_buf = gl_buf_new<glm::vec3, glm::vec4>(mu::Vec<Stride> {
 				Stride {{0, 0, 0}, {1, 0, 0, 1}}, // X
 				Stride {{1, 0, 0}, {1, 0, 0, 1}},
 				Stride {{0, 0, 0}, {0, 1, 0, 1}}, // Y
 				Stride {{0, 1, 0}, {0, 1, 0, 1}},
 				Stride {{0, 0, 0}, {0, 0, 1, 1}}, // Z
 				Stride {{0, 0, 1}, {0, 0, 1, 1}},
-			};
-			self.axes.gl_buf = gl_buf_new(buf.data(), buf.size(), {
-				gl_vertex_attrib(glm::vec3),
-				gl_vertex_attrib(glm::vec4),
 			});
 		}
 
@@ -3880,7 +3866,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		mu::Vec<glm::vec3> box_buf {
+		self.boxes.gl_buf = gl_buf_new<glm::vec3>(mu::Vec<glm::vec3> {
 			{0, 0, 0}, // face x0
 			{0, 1, 0},
 			{0, 1, 1},
@@ -3911,9 +3897,6 @@ namespace sys {
 			{1, 1, 1},
 			{0, 1, 1},
 			{0, 0, 1},
-		};
-		self.boxes.gl_buf = gl_buf_new(box_buf.data(), box_buf.size(), {
-			gl_vertex_attrib(glm::vec3)
 		});
 
 		self.gnd_pics.program = gl_program_new(
@@ -4014,12 +3997,9 @@ namespace sys {
 		);
 
 		// grid position are in clipped space
-		mu::Vec<glm::vec2> ground_buf ({
+		self.ground.gl_buf = gl_buf_new<glm::vec2>(mu::Vec<glm::vec2> {
 			glm::vec2{1, 1}, glm::vec2{-1, 1}, glm::vec2{-1, -1},
 			glm::vec2{-1, -1}, glm::vec2{1, -1}, glm::vec2{1, 1}
-		});
-		self.ground.gl_buf = gl_buf_new(ground_buf.data(), ground_buf.size(), {
-			gl_vertex_attrib(glm::vec2)
 		});
 
 		// groundtile
@@ -4073,7 +4053,7 @@ namespace sys {
 				glm::vec2 vertex;
 				glm::vec2 tex_coord;
 			};
-			mu::Vec<Stride> zlpoints_buf {
+			self.zlpoints.gl_buf = gl_buf_new<glm::vec2, glm::vec2>(mu::Vec<Stride> {
 				Stride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
 				Stride { .vertex = glm::vec2{-1, +1}, .tex_coord = glm::vec2{.0, +1} },
 				Stride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
@@ -4081,10 +4061,6 @@ namespace sys {
 				Stride { .vertex = glm::vec2{-1, -1}, .tex_coord = glm::vec2{.0, .0} },
 				Stride { .vertex = glm::vec2{+1, -1}, .tex_coord = glm::vec2{+1, .0} },
 				Stride { .vertex = glm::vec2{+1, +1}, .tex_coord = glm::vec2{+1, +1} },
-			};
-			self.zlpoints.gl_buf = gl_buf_new(zlpoints_buf.data(), zlpoints_buf.size(), {
-				gl_vertex_attrib(glm::vec2),
-				gl_vertex_attrib(glm::vec2)
 			});
 		}
 
@@ -4132,9 +4108,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.text2d.gl_buf = gl_buf_new_dyn(6, {
-			gl_vertex_attrib(glm::vec4)
-		});
+		self.text2d.gl_buf = gl_buf_new_dyn<glm::vec4>(6);
 
 		// disable byte-alignment restriction
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -4226,10 +4200,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.lines.gl_buf = gl_buf_new_dyn(100, {
-			gl_vertex_attrib(glm::vec4),
-			gl_vertex_attrib(glm::vec4),
-		});
+		self.lines.gl_buf = gl_buf_new_dyn<glm::vec4, glm::vec4>(100);
 
 		gl_process_errors();
 	}

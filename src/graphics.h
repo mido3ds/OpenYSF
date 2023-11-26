@@ -109,37 +109,35 @@ void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat
 	glUniformMatrix4fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
 
-template<typename T> constexpr GLenum _vertex_type();
-template<typename T> constexpr size_t _vertex_num_components();
-
-#define GL_REGISTER_TYPE(type, num_components, gl_type_enum)								\
-	template<> constexpr GLenum _vertex_type<type>() 			{ return gl_type_enum;   }	\
-	template<> constexpr size_t _vertex_num_components<type>()	{ return num_components; }
-
-GL_REGISTER_TYPE(float,     1, GL_FLOAT)
-GL_REGISTER_TYPE(glm::vec2, 2, GL_FLOAT)
-GL_REGISTER_TYPE(glm::vec3, 3, GL_FLOAT)
-GL_REGISTER_TYPE(glm::vec4, 4, GL_FLOAT)
-GL_REGISTER_TYPE(int,        1, GL_INT)
-GL_REGISTER_TYPE(glm::ivec2, 2, GL_INT)
-GL_REGISTER_TYPE(glm::ivec3, 3, GL_INT)
-GL_REGISTER_TYPE(glm::ivec4, 4, GL_INT)
-GL_REGISTER_TYPE(unsigned int, 1, GL_UNSIGNED_INT)
-GL_REGISTER_TYPE(glm::uvec2,   2, GL_UNSIGNED_INT)
-GL_REGISTER_TYPE(glm::uvec3,   3, GL_UNSIGNED_INT)
-GL_REGISTER_TYPE(glm::uvec4,   4, GL_UNSIGNED_INT)
-
 struct GLVertexAttrib {
 	GLenum type;
-	size_t num_components, size;
+	size_t num_components;
+	size_t size;
 };
 
-#define gl_vertex_attrib(T)								\
-	GLVertexAttrib {									\
-		.type = _vertex_type<T>(),						\
-		.num_components = _vertex_num_components<T>(),	\
-		.size = sizeof(T)								\
+template<typename T> constexpr GLVertexAttrib _gl_vertex_attrib();
+
+#define GL_REGISTER_TYPE(T, gl_type_enum, nc)			 		\
+	template<> constexpr GLVertexAttrib _gl_vertex_attrib<T>() {\
+		return GLVertexAttrib { 								\
+			.type=gl_type_enum,									\
+			.num_components=nc,									\
+			.size=sizeof(T) 									\
+		};														\
 	}
+
+GL_REGISTER_TYPE(float,     GL_FLOAT, 1)
+GL_REGISTER_TYPE(glm::vec2, GL_FLOAT, 2)
+GL_REGISTER_TYPE(glm::vec3, GL_FLOAT, 3)
+GL_REGISTER_TYPE(glm::vec4, GL_FLOAT, 4)
+GL_REGISTER_TYPE(int,        GL_INT, 1)
+GL_REGISTER_TYPE(glm::ivec2, GL_INT, 2)
+GL_REGISTER_TYPE(glm::ivec3, GL_INT, 3)
+GL_REGISTER_TYPE(glm::ivec4, GL_INT, 4)
+GL_REGISTER_TYPE(unsigned int, GL_UNSIGNED_INT, 1)
+GL_REGISTER_TYPE(glm::uvec2,   GL_UNSIGNED_INT, 2)
+GL_REGISTER_TYPE(glm::uvec3,   GL_UNSIGNED_INT, 3)
+GL_REGISTER_TYPE(glm::uvec4,   GL_UNSIGNED_INT, 4)
 
 // opengl buffer, resides in GPU memory
 // use `gl_buf_new` to load from CPU memory
@@ -149,27 +147,28 @@ struct GLBuf {
 	size_t len;
 };
 
-GLBuf gl_buf_new(void* data, size_t len, const mu::Vec<GLVertexAttrib>& attributes) {
-	mu_assert(data && len > 0 && attributes.size() > 0);
+template<typename... AttribType, typename T>
+GLBuf gl_buf_new(const mu::Vec<T>& buffer) {
+	constexpr size_t attributes_size = sizeof...(AttribType);
+	constexpr GLVertexAttrib attributes[attributes_size] = { _gl_vertex_attrib<AttribType>()... };
+	constexpr size_t stride_size = sizeof(T);
+	static_assert(attributes_size > 0, "requires attributes");
 
-	size_t stride_size = 0;
-	for (auto& attrib : attributes) {
-		stride_size += attrib.size;
-	}
+	mu_assert(buffer.size() > 0 && stride_size > 0);
 
 	GLBuf self {
-		.len = len
+		.len = buffer.size()
 	};
 
 	glGenVertexArrays(1, &self.vao);
 	glBindVertexArray(self.vao);
 		glGenBuffers(1, &self.vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, self.vbo);
-		glBufferData(GL_ARRAY_BUFFER, len * stride_size, data, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, buffer.size() * stride_size, buffer.data(), GL_STATIC_DRAW);
 
 		size_t offset = 0;
 		bool normalize = false;
-		for (int i = 0; i < attributes.size(); i++) {
+		for (int i = 0; i < attributes_size; i++) {
 			glEnableVertexAttribArray(i);
 			glVertexAttribPointer(
 				i,
@@ -186,13 +185,17 @@ GLBuf gl_buf_new(void* data, size_t len, const mu::Vec<GLVertexAttrib>& attribut
 	return self;
 }
 
-GLBuf gl_buf_new_dyn(size_t len, const mu::Vec<GLVertexAttrib>& attributes) {
-	mu_assert(len > 0 && attributes.size() > 0);
+template<typename... AttribType>
+GLBuf gl_buf_new_dyn(size_t len) {
+	constexpr size_t attributes_size = sizeof...(AttribType);
+	constexpr GLVertexAttrib attributes[attributes_size] = { _gl_vertex_attrib<AttribType>()... };
+	static_assert(attributes_size > 0, "requires attributes");
 
 	size_t stride_size = 0;
-	for (auto& attrib : attributes) {
-		stride_size += attrib.size;
+	for (int i = 0; i < attributes_size; i++) {
+		stride_size += attributes[i].size;
 	}
+	mu_assert(len > 0 && stride_size > 0);
 
 	GLBuf self {
 		.len = len
@@ -206,7 +209,7 @@ GLBuf gl_buf_new_dyn(size_t len, const mu::Vec<GLVertexAttrib>& attributes) {
 
 		size_t offset = 0;
 		bool normalize = false;
-		for (int i = 0; i < attributes.size(); i++) {
+		for (int i = 0; i < attributes_size; i++) {
 			glEnableVertexAttribArray(i);
 			glVertexAttribPointer(
 				i,
