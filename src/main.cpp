@@ -1172,7 +1172,6 @@ struct Aircraft {
 		glm::vec3 translation;
 		LocalEulerAngles angles;
 		bool visible = true;
-		float speed;
 
 		float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 		float throttle = 0;
@@ -1187,6 +1186,8 @@ struct Aircraft {
 
 	bool should_be_loaded;
 	bool should_be_removed;
+	bool render_axes;
+	bool render_forces = true;
 };
 
 Aircraft aircraft_new(AircraftTemplate aircraft_template) {
@@ -1202,7 +1203,18 @@ void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.state.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.state.throttle = start_info.throttle;
 	self.state.engine_speed = start_info.throttle;
-	self.state.speed = start_info.speed;
+}
+
+glm::vec3 aircraft_calc_air_lift(const Aircraft& self) {
+	return self.state.angles.up * 12.0f; // whatever for now
+}
+
+glm::vec3 aircraft_calc_weight(const Aircraft& self) {
+	return glm::vec3{0,1,0} * 10.0f; // whatever for now
+}
+
+glm::vec3 aircraft_calc_velocity(const Aircraft& self) {
+	return (self.state.engine_speed * MAX_SPEED + MIN_SPEED) * self.state.angles.front;
 }
 
 struct PerspectiveProjection {
@@ -2589,6 +2601,13 @@ namespace canvas {
 			glm::vec4 color;
 		};
 	}
+
+	struct Vector {
+		mu::Str label;
+		glm::vec3 p, dir;
+		float len;
+		glm::vec4 color;
+	};
 }
 
 struct Canvas {
@@ -2700,6 +2719,20 @@ void canvas_add(Canvas& self, canvas::Ground&& g) {
 
 void canvas_add(Canvas& self, canvas::GndPic&& p) {
 	self.gnd_pics.list.push_back(std::move(p));
+}
+
+void canvas_add(Canvas& self, const canvas::Vector& v) {
+	canvas_add(self, canvas::Line {
+		.p0 = v.p,
+		.p1 = v.p + v.dir * v.len,
+		.color = v.color
+	});
+	canvas_add(self, canvas::Text {
+		.text = v.label,
+		.p = v.p + v.dir * v.len,
+		.scale = 0.02f,
+		.color = v.color
+	});
 }
 
 // precalculated matrices
@@ -3164,7 +3197,7 @@ namespace sys {
 				ImGui::TreePop();
 			}
 
-			if (ImGui::TreeNode("AudioBuffer")) {
+			if (ImGui::TreeNode("Audio")) {
 				for (const auto& [_, buf] : world.audio_buffers) {
 					ImGui::PushID(buf.file_path.c_str());
 
@@ -3460,8 +3493,6 @@ namespace sys {
 					ImGui::DragFloat3("front", glm::value_ptr(aircraft.state.angles.front));
 					ImGui::EndDisabled();
 
-					ImGui::DragFloat("Speed", &aircraft.state.speed, 0.05f, MIN_SPEED, MAX_SPEED);
-
 					ImGui::Checkbox("Render AABB", &aircraft.model.render_aabb);
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(aircraft.model.current_aabb.min));
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(aircraft.model.current_aabb.max));
@@ -3478,6 +3509,9 @@ namespace sys {
 
 						ImGui::TreePop();
 					}
+
+					ImGui::Checkbox("Render Axes", &aircraft.render_axes);
+					ImGui::Checkbox("Render Forces", &aircraft.render_forces);
 
 					size_t light_sources_count = 0;
 					for (const auto& mesh : aircraft.model.meshes) {
@@ -4929,9 +4963,8 @@ namespace sys {
 				aircraft.state.engine_speed -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
 				aircraft.state.engine_speed = clamp(aircraft.state.engine_speed, aircraft.state.throttle, 1.0f);
 			}
-			aircraft.state.speed = aircraft.state.engine_speed * MAX_SPEED + MIN_SPEED;
 
-			aircraft.state.translation += ((float)world.loop_timer.delta_time * aircraft.state.speed) * aircraft.state.angles.front;
+			aircraft.state.translation += (float)world.loop_timer.delta_time * aircraft_calc_velocity(aircraft);
 
 			// transform AABB (estimate new AABB after rotation)
 			{
@@ -5049,35 +5082,71 @@ namespace sys {
 				continue;
 			}
 
-			// axis
-			canvas_add(world.canvas, canvas::Line {
-				.p0 = aircraft.state.translation,
-				.p1 = aircraft.state.translation + aircraft.state.angles.front * 35.0f,
-				.color = glm::vec4{1,0,0,1}
-			});
-			canvas_add(world.canvas, canvas::Text {
-				.text = "front", .p = aircraft.state.translation + aircraft.state.angles.front * 35.0f,
-				.scale = 0.02f, .color = glm::vec4{1,0,0,1}
-			});
-			auto right = glm::normalize(glm::cross(aircraft.state.angles.front, aircraft.state.angles.up));
-			canvas_add(world.canvas, canvas::Line {
-				.p0 = aircraft.state.translation,
-				.p1 = aircraft.state.translation + right * 20.0f,
-				.color = glm::vec4{0,1,0,1}
-			});
-			canvas_add(world.canvas, canvas::Text {
-				.text = "right", .p = aircraft.state.translation + right * 20.0f,
-				.scale = 0.02f, .color = glm::vec4{0,1,0,1}
-			});
-			canvas_add(world.canvas, canvas::Line {
-				.p0 = aircraft.state.translation,
-				.p1 = aircraft.state.translation + aircraft.state.angles.up * 10.0f,
-				.color = glm::vec4{0,0,1,1}
-			});
-			canvas_add(world.canvas, canvas::Text {
-				.text = "up", .p = aircraft.state.translation + aircraft.state.angles.up * 10.0f,
-				.scale = 0.02f, .color = glm::vec4{0,0,1,1}
-			});
+			if (aircraft.render_axes) {
+				canvas_add(world.canvas, canvas::Vector {
+					.label = "front",
+					.p = aircraft.state.translation,
+					.dir = aircraft.state.angles.front,
+					.len = 35.0f,
+					.color = glm::vec4{1,0,0,0.3}
+				});
+				canvas_add(world.canvas, canvas::Vector {
+					.label = "right",
+					.p = aircraft.state.translation,
+					.dir = glm::normalize(glm::cross(aircraft.state.angles.front, aircraft.state.angles.up)),
+					.len = 20.0f,
+					.color = glm::vec4{0,1,0,0.3}
+				});
+				canvas_add(world.canvas, canvas::Vector {
+					.label = "up",
+					.p = aircraft.state.translation,
+					.dir = aircraft.state.angles.up,
+					.len = 10.0f,
+					.color = glm::vec4{0,0,1,0.3}
+				});
+			}
+
+			if (aircraft.render_forces) {
+				auto w = aircraft_calc_weight(aircraft);
+				auto w_mag = glm::length(w);
+				canvas_add(world.canvas, canvas::Vector {
+					.label = mu::str_tmpf("weight={}", w_mag),
+					.p = aircraft.state.translation,
+					.dir = w,
+					.len = 1,
+					.color = glm::vec4{1,0,0,0.3}
+				});
+
+				auto al = aircraft_calc_air_lift(aircraft);
+				auto al_mag = glm::length(al);
+				canvas_add(world.canvas, canvas::Vector {
+					.label = mu::str_tmpf("lift={}", al_mag),
+					.p = aircraft.state.translation,
+					.dir = al,
+					.len = 1,
+					.color = glm::vec4{0,1,0,0.3}
+				});
+
+				auto sum = w + al;
+				auto sum_mag = glm::length(sum);
+				canvas_add(world.canvas, canvas::Vector {
+					.label = mu::str_tmpf("sum={}", sum_mag),
+					.p = aircraft.state.translation,
+					.dir = sum,
+					.len = 1,
+					.color = glm::vec4{1,1,0,0.3}
+				});
+
+				auto vel = aircraft_calc_velocity(aircraft);
+				auto vel_mag = glm::length(vel);
+				canvas_add(world.canvas, canvas::Vector {
+					.label = mu::str_tmpf("vel={}", vel_mag),
+					.p = aircraft.state.translation,
+					.dir = vel,
+					.len = 1,
+					.color = glm::vec4{0,0,1,0.3}
+				});
+			}
 
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
