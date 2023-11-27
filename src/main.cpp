@@ -4082,14 +4082,16 @@ namespace sys {
 			// vertex shader
 			R"GLSL(
 				#version 330 core
-				layout (location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
-				out vec2 vs_tex_coord;
+				layout (location = 0) in vec2 attr_position;
+				layout (location = 1) in vec2 attr_tex_coord;
 
 				uniform mat4 projection;
 
+				out vec2 vs_tex_coord;
+
 				void main() {
-					gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
-					vs_tex_coord = vertex.zw;
+					gl_Position = projection * vec4(attr_position, 0.0, 1.0);
+					vs_tex_coord = attr_tex_coord;
 				}
 			)GLSL",
 			// fragment shader
@@ -4108,7 +4110,7 @@ namespace sys {
 			)GLSL"
 		);
 
-		self.text2d.gl_buf = gl_buf_new_dyn<glm::vec4>(6);
+		self.text2d.gl_buf = gl_buf_new_dyn<glm::vec2, glm::vec2>(6);
 
 		// disable byte-alignment restriction
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -5444,21 +5446,25 @@ namespace sys {
 				const canvas::Glyph& glyph = world.canvas.text2d.glyphs[c];
 
 				// update vertices
+				struct Stride {
+					glm::vec2 pos, tex_coord;
+				};
 				float xpos = txt_rndr.x + glyph.bearing.x * txt_rndr.scale;
 				float ypos = txt_rndr.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
 				float w = glyph.size.x * txt_rndr.scale;
 				float h = glyph.size.y * txt_rndr.scale;
-				glm::vec4 vertices[6] = {
-					glm::vec4 { xpos,     ypos + h,   0.0f, 0.0f },
-					glm::vec4 { xpos,     ypos,       0.0f, 1.0f },
-					glm::vec4 { xpos + w, ypos,       1.0f, 1.0f },
+				mu::Vec<Stride> buffer {
+					Stride { .pos = { xpos,     ypos + h }, .tex_coord = { 0.0f, 0.0f } },
+					Stride { .pos = { xpos,     ypos     }, .tex_coord = { 0.0f, 1.0f } },
+					Stride { .pos = { xpos + w, ypos     }, .tex_coord = { 1.0f, 1.0f } },
 
-					glm::vec4 { xpos,     ypos + h,   0.0f, 0.0f },
-					glm::vec4 { xpos + w, ypos,       1.0f, 1.0f },
-					glm::vec4 { xpos + w, ypos + h,   1.0f, 0.0f }
+					Stride { .pos = { xpos,     ypos + h }, .tex_coord = { 0.0f, 0.0f } },
+					Stride { .pos = { xpos + w, ypos     }, .tex_coord = { 1.0f, 1.0f } },
+					Stride { .pos = { xpos + w, ypos + h }, .tex_coord = { 1.0f, 0.0f } },
 				};
+				mu_assert(buffer.size() == world.canvas.text2d.gl_buf.len);
 				glBindBuffer(GL_ARRAY_BUFFER, world.canvas.text2d.gl_buf.vbo);
-				glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+				glBufferSubData(GL_ARRAY_BUFFER, 0, buffer.size() * sizeof(Stride), buffer.data());
 
 				// render glyph texture over quad
 				glBindTexture(GL_TEXTURE_2D, glyph.texture);
