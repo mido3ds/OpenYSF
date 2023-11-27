@@ -105,6 +105,10 @@ void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec
 	glUniform3fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
 }
 
+void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec4& f) {
+	glUniform4fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
+}
+
 void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat4& f, bool transpose = false) {
 	glUniformMatrix4fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
@@ -152,9 +156,6 @@ GLBuf gl_buf_new(const mu::Vec<T>& buffer) {
 	constexpr size_t attributes_size = sizeof...(AttribType);
 	constexpr GLVertexAttrib attributes[attributes_size] = { _gl_vertex_attrib<AttribType>()... };
 	constexpr size_t stride_size = sizeof(T);
-	static_assert(attributes_size > 0, "requires attributes");
-
-	mu_assert(buffer.size() > 0 && stride_size > 0);
 
 	GLBuf self {
 		.len = buffer.size()
@@ -189,13 +190,11 @@ template<typename... AttribType>
 GLBuf gl_buf_new_dyn(size_t len) {
 	constexpr size_t attributes_size = sizeof...(AttribType);
 	constexpr GLVertexAttrib attributes[attributes_size] = { _gl_vertex_attrib<AttribType>()... };
-	static_assert(attributes_size > 0, "requires attributes");
 
 	size_t stride_size = 0;
 	for (int i = 0; i < attributes_size; i++) {
 		stride_size += attributes[i].size;
 	}
-	mu_assert(len > 0 && stride_size > 0);
 
 	GLBuf self {
 		.len = len

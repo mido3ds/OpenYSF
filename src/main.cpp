@@ -2520,12 +2520,12 @@ namespace canvas {
 		glm::vec3 center, color;
 	};
 
-	struct Text2D {
+	// text that always faces camera
+	struct Text {
 		mu::Str text;
-		uint32_t x; // [0, window.width)
-		uint32_t y; // [0, window.height)
+		glm::vec3 p; // world coords, left-bottom corner
 		float scale;
-		glm::vec3 color;
+		glm::vec4 color;
 	};
 
 	struct Axis {
@@ -2578,6 +2578,17 @@ namespace canvas {
 
 		mu::Vec<Primitive> list_primitives;
 	};
+
+	// heads up display, 2d shapes that sticks to window
+	// all positions are in [0,1] range
+	namespace hud {
+		struct Text {
+			mu::Str text;
+			glm::vec2 p; // left-bottom corner
+			float scale;
+			glm::vec4 color;
+		};
+	}
 }
 
 struct Canvas {
@@ -2638,8 +2649,9 @@ struct Canvas {
 
 		mu::Arr<canvas::Glyph, 128> glyphs;
 
-		mu::Vec<canvas::Text2D> list;
-	} text2d;
+		mu::Vec<canvas::Text> list_world;
+		mu::Vec<canvas::hud::Text> list_hud;
+	} text;
 
 	struct {
 		GLProgram program;
@@ -2650,8 +2662,12 @@ struct Canvas {
 	} lines;
 };
 
-void canvas_add(Canvas& self, canvas::Text2D&& t) {
-	self.text2d.list.push_back(std::move(t));
+void canvas_add(Canvas& self, canvas::Text&& t) {
+	self.text.list_world.push_back(std::move(t));
+}
+
+void canvas_add(Canvas& self, canvas::hud::Text&& t) {
+	self.text.list_hud.push_back(std::move(t));
 }
 
 void canvas_add(Canvas& self, canvas::Axis&& a) {
@@ -4078,19 +4094,19 @@ namespace sys {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 		// text
-		self.text2d.program = gl_program_new(
+		self.text.program = gl_program_new(
 			// vertex shader
 			R"GLSL(
 				#version 330 core
-				layout (location = 0) in vec2 attr_position;
+				layout (location = 0) in vec3 attr_position;
 				layout (location = 1) in vec2 attr_tex_coord;
 
-				uniform mat4 projection;
+				uniform mat4 projection_view;
 
 				out vec2 vs_tex_coord;
 
 				void main() {
-					gl_Position = projection * vec4(attr_position, 0.0, 1.0);
+					gl_Position = projection_view * vec4(attr_position, 1.0);
 					vs_tex_coord = attr_tex_coord;
 				}
 			)GLSL",
@@ -4101,16 +4117,16 @@ namespace sys {
 				out vec4 color;
 
 				uniform sampler2D text_texture;
-				uniform vec3 text_color;
+				uniform vec4 text_color;
 
 				void main() {
 					vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text_texture, vs_tex_coord).r);
-					color = vec4(text_color, 1.0) * sampled;
+					color = text_color * sampled;
 				}
 			)GLSL"
 		);
 
-		self.text2d.gl_buf = gl_buf_new_dyn<glm::vec2, glm::vec2>(6);
+		self.text.gl_buf = gl_buf_new_dyn<glm::vec3, glm::vec2>(6);
 
 		// disable byte-alignment restriction
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -4139,7 +4155,7 @@ namespace sys {
 		}
 
 		// generate textures
-		for (uint8_t c = 0; c < self.text2d.glyphs.size(); c++) {
+		for (uint8_t c = 0; c < self.text.glyphs.size(); c++) {
 			if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
 				mu::panic("failed to load glyph");
 			}
@@ -4165,7 +4181,7 @@ namespace sys {
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-			self.text2d.glyphs[c] = canvas::Glyph {
+			self.text.glyphs[c] = canvas::Glyph {
 				.texture = text_texture,
 				.size = glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
 				.bearing = glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
@@ -4216,10 +4232,10 @@ namespace sys {
 		glBindVertexArray(0);
 		glBindTexture(GL_TEXTURE_2D, 0);
 
-		// text2d
-		gl_program_free(self.text2d.program);
-		gl_buf_free(self.text2d.gl_buf);
-		for (auto& g : self.text2d.glyphs) {
+		// text
+		gl_program_free(self.text.program);
+		gl_buf_free(self.text.gl_buf);
+		for (auto& g : self.text.glyphs) {
 			glDeleteTextures(1, &g.texture);
 		}
 
@@ -4290,7 +4306,8 @@ namespace sys {
 		gl_process_errors();
 
 		self.arena = {};
-		self.text2d.list           = mu::Vec<canvas::Text2D>(&self.arena);
+		self.text.list_world       = mu::Vec<canvas::Text>(&self.arena);
+		self.text.list_hud         = mu::Vec<canvas::hud::Text>(&self.arena);
 		self.axes.list             = mu::Vec<canvas::Axis>(&self.arena);
 		self.boxes.list            = mu::Vec<canvas::Box>(&self.arena);
 		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self.arena);
@@ -4818,15 +4835,15 @@ namespace sys {
 		}
 
 		// only currently controlled model has audio
-		int audio_index = self.state.engine_speed * 10;
+		int audio_index = self.state.engine_speed * 9;
 
 		AudioBuffer* audio;
 		if (self.model.has_propellers) {
-			audio = &world.audio_buffers[mu::str_tmpf("prop{}", audio_index)];
+			audio = &world.audio_buffers.at(mu::str_tmpf("prop{}", audio_index));
 		} else if (self.state.afterburner_reheat_enabled && self.model.has_afterburner) {
-			audio = &world.audio_buffers["burner"];
+			audio = &world.audio_buffers.at("burner");
 		} else {
-			audio = &world.audio_buffers[mu::str_tmpf("engine{}", audio_index)];
+			audio = &world.audio_buffers.at(mu::str_tmpf("engine{}", audio_index));
 		}
 
 		if (self.engine_sound != audio) {
@@ -5032,10 +5049,15 @@ namespace sys {
 				continue;
 			}
 
+			// axis
 			canvas_add(world.canvas, canvas::Line {
 				.p0 = aircraft.state.translation,
 				.p1 = aircraft.state.translation + aircraft.state.angles.front * 35.0f,
 				.color = glm::vec4{1,0,0,1}
+			});
+			canvas_add(world.canvas, canvas::Text {
+				.text = "front", .p = aircraft.state.translation + aircraft.state.angles.front * 35.0f,
+				.scale = 0.02f, .color = glm::vec4{1,0,0,1}
 			});
 			auto right = glm::normalize(glm::cross(aircraft.state.angles.front, aircraft.state.angles.up));
 			canvas_add(world.canvas, canvas::Line {
@@ -5043,10 +5065,18 @@ namespace sys {
 				.p1 = aircraft.state.translation + right * 20.0f,
 				.color = glm::vec4{0,1,0,1}
 			});
+			canvas_add(world.canvas, canvas::Text {
+				.text = "right", .p = aircraft.state.translation + right * 20.0f,
+				.scale = 0.02f, .color = glm::vec4{0,1,0,1}
+			});
 			canvas_add(world.canvas, canvas::Line {
 				.p0 = aircraft.state.translation,
 				.p1 = aircraft.state.translation + aircraft.state.angles.up * 10.0f,
 				.color = glm::vec4{0,0,1,1}
+			});
+			canvas_add(world.canvas, canvas::Text {
+				.text = "up", .p = aircraft.state.translation + aircraft.state.angles.up * 10.0f,
+				.scale = 0.02f, .color = glm::vec4{0,0,1,1}
 			});
 
 			// start with root meshes
@@ -5424,46 +5454,46 @@ namespace sys {
 		}
 	}
 
-	void canvas_render_text2d(World& world) {
+	void canvas_render_text(World& world) {
 		DEF_SYSTEM
 
-		gl_program_use(world.canvas.text2d.program);
+		gl_program_use(world.canvas.text.program);
+		glBindVertexArray(world.canvas.text.gl_buf.vao);
+		glBindBuffer(GL_ARRAY_BUFFER, world.canvas.text.gl_buf.vbo);
 
-		int wnd_width, wnd_height;
-		SDL_GL_GetDrawableSize(world.sdl_window, &wnd_width, &wnd_height);
-		glm::mat4 projection = glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height));
-		gl_program_uniform_set(world.canvas.text2d.program, "projection", projection);
+		for (auto& txt_rndr : world.canvas.text.list_world) {
+			gl_program_uniform_set(world.canvas.text.program, "text_color", txt_rndr.color);
 
-		glBindVertexArray(world.canvas.text2d.gl_buf.vao);
-
-		for (auto& txt_rndr : world.canvas.text2d.list) {
-			gl_program_uniform_set(world.canvas.text2d.program, "text_color", txt_rndr.color);
+			auto model_transformation = glm::mat4(glm::mat3(world.mats.view_inverse));
+			model_transformation[3] = glm::vec4{txt_rndr.p.x, txt_rndr.p.y, txt_rndr.p.z, 1.0f};
+			gl_program_uniform_set(world.canvas.text.program, "projection_view", world.mats.projection_view * model_transformation);
+			txt_rndr.p = {};
 
 			for (char c : txt_rndr.text) {
-				if (c >= world.canvas.text2d.glyphs.size()) {
+				if (c >= world.canvas.text.glyphs.size()) {
 					c = '?';
 				}
-				const canvas::Glyph& glyph = world.canvas.text2d.glyphs[c];
+				const canvas::Glyph& glyph = world.canvas.text.glyphs[c];
 
 				// update vertices
 				struct Stride {
-					glm::vec2 pos, tex_coord;
+					glm::vec3 pos;
+					glm::vec2 tex_coord;
 				};
-				float xpos = txt_rndr.x + glyph.bearing.x * txt_rndr.scale;
-				float ypos = txt_rndr.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
+				float x = txt_rndr.p.x + glyph.bearing.x * txt_rndr.scale;
+				float y = txt_rndr.p.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
 				float w = glyph.size.x * txt_rndr.scale;
 				float h = glyph.size.y * txt_rndr.scale;
 				mu::Vec<Stride> buffer {
-					Stride { .pos = { xpos,     ypos + h }, .tex_coord = { 0.0f, 0.0f } },
-					Stride { .pos = { xpos,     ypos     }, .tex_coord = { 0.0f, 1.0f } },
-					Stride { .pos = { xpos + w, ypos     }, .tex_coord = { 1.0f, 1.0f } },
+					Stride {{x,   y+h, txt_rndr.p.z}, {0.0f, 0.0f}}, // 0
+					Stride {{x,   y  , txt_rndr.p.z}, {0.0f, 1.0f}}, // 1
+					Stride {{x+w, y  , txt_rndr.p.z}, {1.0f, 1.0f}}, // 2
 
-					Stride { .pos = { xpos,     ypos + h }, .tex_coord = { 0.0f, 0.0f } },
-					Stride { .pos = { xpos + w, ypos     }, .tex_coord = { 1.0f, 1.0f } },
-					Stride { .pos = { xpos + w, ypos + h }, .tex_coord = { 1.0f, 0.0f } },
+					Stride {{x,   y+h, txt_rndr.p.z}, {0.0f, 0.0f}}, // 0
+					Stride {{x+w, y  , txt_rndr.p.z}, {1.0f, 1.0f}}, // 2
+					Stride {{x+w, y+h, txt_rndr.p.z}, {1.0f, 0.0f}}, // 3
 				};
-				mu_assert(buffer.size() == world.canvas.text2d.gl_buf.len);
-				glBindBuffer(GL_ARRAY_BUFFER, world.canvas.text2d.gl_buf.vbo);
+				mu_assert(buffer.size() == world.canvas.text.gl_buf.len);
 				glBufferSubData(GL_ARRAY_BUFFER, 0, buffer.size() * sizeof(Stride), buffer.data());
 
 				// render glyph texture over quad
@@ -5472,7 +5502,63 @@ namespace sys {
 
 				// now advance cursors for next glyph (note that advance is number of 1/64 pixels)
 				// bitshift by 6 to get value in pixels (2^6 = 64 (divide amount of 1/64th pixels by 64 to get amount of pixels))
-				txt_rndr.x += (glyph.advance >> 6) * txt_rndr.scale;
+				txt_rndr.p.x += (glyph.advance >> 6) * txt_rndr.scale;
+			}
+		}
+	}
+
+	void canvas_render_hud_text(World& world) {
+		DEF_SYSTEM
+
+		gl_program_use(world.canvas.text.program);
+
+		int wnd_width, wnd_height;
+		SDL_GL_GetDrawableSize(world.sdl_window, &wnd_width, &wnd_height);
+		gl_program_uniform_set(world.canvas.text.program, "projection_view", glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height)));
+
+		glBindVertexArray(world.canvas.text.gl_buf.vao);
+		glBindBuffer(GL_ARRAY_BUFFER, world.canvas.text.gl_buf.vbo);
+
+		for (auto& txt_rndr : world.canvas.text.list_hud) {
+			gl_program_uniform_set(world.canvas.text.program, "text_color", txt_rndr.color);
+
+			txt_rndr.p.x *= wnd_width;
+			txt_rndr.p.y *= wnd_height;
+
+			for (char c : txt_rndr.text) {
+				if (c >= world.canvas.text.glyphs.size()) {
+					c = '?';
+				}
+				const canvas::Glyph& glyph = world.canvas.text.glyphs[c];
+
+				// update vertices
+				struct Stride {
+					glm::vec3 pos;
+					glm::vec2 tex_coord;
+				};
+				float x = txt_rndr.p.x + glyph.bearing.x * txt_rndr.scale;
+				float y = txt_rndr.p.y - (glyph.size.y - glyph.bearing.y) * txt_rndr.scale;
+				float w = glyph.size.x * txt_rndr.scale;
+				float h = glyph.size.y * txt_rndr.scale;
+				mu::Vec<Stride> buffer {
+					Stride {{x,   y+h, 0}, {0.0f, 0.0f}}, // 0
+					Stride {{x,   y  , 0}, {0.0f, 1.0f}}, // 1
+					Stride {{x+w, y  , 0}, {1.0f, 1.0f}}, // 2
+
+					Stride {{x,   y+h, 0}, {0.0f, 0.0f}}, // 0
+					Stride {{x+w, y  , 0}, {1.0f, 1.0f}}, // 2
+					Stride {{x+w, y+h, 0}, {1.0f, 0.0f}}, // 3
+				};
+				mu_assert(buffer.size() == world.canvas.text.gl_buf.len);
+				glBufferSubData(GL_ARRAY_BUFFER, 0, buffer.size() * sizeof(Stride), buffer.data());
+
+				// render glyph texture over quad
+				glBindTexture(GL_TEXTURE_2D, glyph.texture);
+				glDrawArrays(GL_TRIANGLES, 0, 6);
+
+				// now advance cursors for next glyph (note that advance is number of 1/64 pixels)
+				// bitshift by 6 to get value in pixels (2^6 = 64 (divide amount of 1/64th pixels by 64 to get amount of pixels))
+				txt_rndr.p.x += (glyph.advance >> 6) * txt_rndr.scale;
 			}
 		}
 	}
@@ -5630,15 +5716,6 @@ int main() {
 
 		sys::models_handle_collision(world);
 
-		// examples
-		canvas_add(world.canvas, canvas::Text2D {
-			.text = mu::str_tmpf("Hello OpenYSF"),
-			.x = 25,
-			.y = 25,
-			.scale = 1.0f,
-			.color = {0.5, 0.8f, 0.2f}
-		});
-
 		sys::canvas_rendering_begin(world); {
 			sys::canvas_render_ground(world);
 			sys::canvas_render_gnd_pictures(world);
@@ -5647,7 +5724,8 @@ int main() {
 			sys::canvas_render_axes(world);
 			sys::canvas_render_boxes(world);
 			sys::canvas_render_lines(world);
-			sys::canvas_render_text2d(world);
+			sys::canvas_render_text(world);
+			sys::canvas_render_hud_text(world);
 
 			sys::imgui_rendering_begin(world); {
 				sys::imgui_debug_window(world);
