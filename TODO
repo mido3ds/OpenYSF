@@ -1,3 +1,9 @@
+- render aircraft vectors:
+	- prop/engine power dir
+
+- when switch tracking of aircraft, turn off the audio for current aircraft
+- hear nearby aircrafts' sounds
+- calculate camera distance based on aircraft size
 - refactor rendering
 	- box should be turned into list of lines (remove its shader)
 - ground objects:
@@ -6,22 +12,20 @@
 - mac: fix change line width
 - calculate air lift
 - calculate weight
+- shade using normals
+- render terrain texture
+- fog
+
 - what to do with StartInfo::speed if it's always calculated/overwritten?
-- render aircraft vectors:
-	- prop/engine power dir
-- when switch tracking of aircraft, turn off the audio for current aircraft
-- hear nearby aircrafts' sounds
-- calculate camera distance based on aircraft size
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
 - viggen.dnm: right wheel doesn't rotate right
 - cessna172r has a hidden beacon
 - f1(?) has one beacon on right but not on left
 - concorde.dnm loading is slow
 - concorde.dnm has flickering triangles
-- render ZL
-	- create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
+- render ZL: create texture image instead of rwlight.png (similar to https://ysflightsim.fandom.com/wiki/SRF_Files)
 - which ground to render if multiple fields?
-- Scenery files
+- Scenery
 	- small.fld bugs:
 		- biggest pic doesn't render/(tesselat?) correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
@@ -39,45 +43,33 @@
 		- read AIRROUTE
 		- failed to tesselate
 	- what is DST in heathrow.fld pictures ?
-	- hot reload file?
-	- meshes imgui in field?
 - what's PAX in dnmver 2?
 - what are GE and ZE in hurricane.dnm?
 - what are GL in cessna172r.dnm?
 - what do if REL DEP not in dnm?
-- shade using normals
 - fix render land texture (now it's half-assed)
-- render terrain texture
-- fog
-- AABB for each mesh?
-- AABB -> OBB?
-- use coll.dnm files?
+- use coll.dnm files
 - figure out how to IPO the landing gear (angles in general), no it's not slerp or lerp
 - animate landing gear transition in real time (no alpha)
 - axis
-	- better shader
-		- no normals
-		- no colors
-		- refactor shaders
-		- geometry shaders
-	- select mesh/object
-	- move selected (translation of axis)
-	- show axis angels
-	- rotate selected
-	- move internal DNMs to resources dir
+	- show axis labels
+	-? select mesh/object
+	-? move selected (translation of axis)
+	-? rotate selected
 - all rotations as quaternions
-- view normals (geometry shader)
-- strict integers tokenization
-- dnm hot realod per model
+-? AABB for each mesh
+-? AABB -> OBB
+-? view normals (geometry shader)
+-? strict integers tokenization
 
 - optimization:
 	- use smaller kinds of opengl primitives (i.e. strip/fan)
 
 - audio:
     - mixing anything with propoller isn't loud enough
-    - don't use SDL_MixAudioFormat
+    - don't use SDL_MixAudioFormat (why :D)
     - what to do with multiple playbacks of same sound? (ignore new? increase volume unlimited? increase volume within limit? ??)
     - use silence.wav to get correct silence value dynamically?
 
 - parser:
-    - read from disk?
+    -? read from disk

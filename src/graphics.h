@@ -101,12 +101,20 @@ void gl_program_uniform_set(GLProgram& self, const char* uniform, float f) {
 	glUniform1f(glGetUniformLocation(self.id, uniform), f);
 }
 
+void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec2& f) {
+	glUniform2fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
+}
+
 void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec3& f) {
 	glUniform3fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
 }
 
 void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec4& f) {
 	glUniform4fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
+}
+
+void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat3& f, bool transpose = false) {
+	glUniformMatrix3fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
 
 void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat4& f, bool transpose = false) {
