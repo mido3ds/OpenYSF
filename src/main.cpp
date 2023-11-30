@@ -2744,7 +2744,6 @@ struct CachedMatrices {
 	glm::mat4 projection_inverse;
 
 	glm::mat4 projection_view;
-	glm::mat4 proj_inv_view_inv;
 };
 
 struct LoopTimer {
@@ -4003,14 +4002,15 @@ namespace sys {
 				#version 330 core
 				layout (location = 0) in vec2 attr_position;
 
-				uniform mat4 proj_inv_view_inv;
+				uniform mat4 projection_inverse;
+				uniform mat4 view_inverse;
 
 				out vec3 vs_near_point;
 				out vec3 vs_far_point;
 
 				vec3 unproject_point(float x, float y, float z) {
-					vec4 unprojectedPoint = proj_inv_view_inv * vec4(x, y, z, 1.0);
-					return unprojectedPoint.xyz / unprojectedPoint.w;
+					vec4 p = view_inverse * projection_inverse * vec4(x, y, z, 1.0);
+					return p.xyz / p.w;
 				}
 
 				void main() {
@@ -4030,7 +4030,6 @@ namespace sys {
 
 				uniform vec3 color;
 				uniform sampler2D groundtile;
-				uniform mat4 projection;
 
 				void main() {
 					float t = -vs_near_point.y / (vs_far_point.y - vs_near_point.y);
@@ -4038,9 +4037,7 @@ namespace sys {
 						discard;
 					} else {
 						vec3 frag_pos_3d = vs_near_point + t * (vs_far_point - vs_near_point);
-						vec4 clip_space_pos = projection * vec4(frag_pos_3d, 1.0);
-
-						out_fragcolor = vec4(texture(groundtile, clip_space_pos.xz / 600).x * color, 1.0);
+						out_fragcolor = vec4(texture(groundtile, frag_pos_3d.xz / 600).x * color, 1.0);
 					}
 				}
 			)GLSL"
@@ -4470,7 +4467,6 @@ namespace sys {
 		self.projection_inverse = glm::inverse(self.projection);
 
 		self.projection_view = self.projection * self.view;
-		self.proj_inv_view_inv = self.view_inverse * self.projection_inverse;
 	}
 
 	void events_collect(World& world) {
@@ -5682,8 +5678,8 @@ namespace sys {
 		auto& self = world.canvas;
 
 		gl_program_use(self.ground.program);
-		gl_program_uniform_set(self.ground.program, "proj_inv_view_inv", world.mats.proj_inv_view_inv);
-		gl_program_uniform_set(self.ground.program, "projection", world.mats.projection);
+		gl_program_uniform_set(self.ground.program, "projection_inverse", world.mats.projection_inverse);
+		gl_program_uniform_set(self.ground.program, "view_inverse", world.mats.view_inverse);
 		gl_program_uniform_set(self.ground.program, "color", self.ground.last_gnd.color);
 
 		glDisable(GL_DEPTH_TEST);
