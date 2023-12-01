@@ -5154,6 +5154,10 @@ namespace sys {
 				Mesh* mesh = *meshes_stack.rbegin();
 				meshes_stack.pop_back();
 
+				if (!mesh->state.visible) {
+					continue;
+				}
+
 				const bool enable_high_throttle = almost_equal(aircraft.state.throttle, 1.0f);
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
 					continue;
@@ -5172,12 +5176,8 @@ namespace sys {
 					}
 				}
 
-				if (!mesh->state.visible) {
-					continue;
-				}
-
 				if (mesh->render_cnt_axis) {
-					canvas_add(world.canvas, canvas::Axis { glm::translate(glm::identity<glm::mat4>(), mesh->cnt) });
+					canvas_add(world.canvas, canvas::Axis { mesh->transformation * glm::translate(mesh->cnt) });
 				}
 
 				if (mesh->render_pos_axis) {
