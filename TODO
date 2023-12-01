@@ -1,6 +1,12 @@
-- render aircraft vectors:
-	- prop/engine power dir
-
+- calc thrust as func of engine speed
+- load weight from DAT, calc weight from it
+- calc accel from forces.sum and weight
+- calc velocity from accel (capped by maximum loaded from DAT)
+- store rudder/elevetor/aileron configs and change them by keyboard
+- add: aileron applies torque
+- add: aileron adds drag
+- add: elevetor adds lift and drag
+- add: engine reduces fuel as function of engine speed
 - when switch tracking of aircraft, turn off the audio for current aircraft
 - hear nearby aircrafts' sounds
 - calculate camera distance based on aircraft size

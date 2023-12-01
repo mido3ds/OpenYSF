@@ -1179,8 +1179,9 @@ struct Aircraft {
 		float engine_speed; // 0 -> 1
 		bool afterburner_reheat_enabled = false;
 
-		struct Forces {
-			glm::vec3 thrust, airlift, drag, weight, sum;
+		struct {
+			float thrust, airlift, drag, weight;
+			glm::vec3 v_thrust, v_airlift, v_drag, v_weight, sum;
 		} forces;
 	} state;
 
@@ -4955,14 +4956,19 @@ namespace sys {
 				aircraft.state.engine_speed = clamp(aircraft.state.engine_speed, aircraft.state.throttle, 1.0f);
 			}
 
-			aircraft.state.forces.thrust = aircraft.state.angles.front * 30.0f; // whatever for now
-			aircraft.state.forces.drag = -aircraft.state.angles.front * 20.0f; // whatever for now
-			aircraft.state.forces.airlift = aircraft.state.angles.up * 12.0f; // whatever for now
-			aircraft.state.forces.weight = glm::vec3{0,1,0} * 10.0f; // whatever for now
-			aircraft.state.forces.sum = aircraft.state.forces.weight +
-				aircraft.state.forces.airlift +
-				aircraft.state.forces.drag +
-				aircraft.state.forces.thrust;
+			aircraft.state.forces.thrust = 30.0f; // whatever for now
+			aircraft.state.forces.drag = 20.0f; // whatever for now
+			aircraft.state.forces.airlift = 12.0f; // whatever for now
+			aircraft.state.forces.weight = 10.0f; // whatever for now
+
+			aircraft.state.forces.v_thrust = aircraft.state.angles.front * aircraft.state.forces.thrust;
+			aircraft.state.forces.v_drag = -aircraft.state.angles.front * aircraft.state.forces.drag;
+			aircraft.state.forces.v_airlift = aircraft.state.angles.up * aircraft.state.forces.airlift;
+			aircraft.state.forces.v_weight = glm::vec3{0,1,0} * aircraft.state.forces.weight;
+			aircraft.state.forces.sum = aircraft.state.forces.v_weight +
+				aircraft.state.forces.v_airlift +
+				aircraft.state.forces.v_drag +
+				aircraft.state.forces.v_thrust;
 
 			aircraft.state.velocity = (aircraft.state.engine_speed * MAX_SPEED + MIN_SPEED) * aircraft.state.angles.front;
 
@@ -5109,38 +5115,34 @@ namespace sys {
 			}
 
 			if (aircraft.render_forces) {
-				auto w_mag = glm::length(aircraft.state.forces.weight);
 				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("weight={}", w_mag),
+					.label = mu::str_tmpf("weight={}", aircraft.state.forces.weight),
 					.p = aircraft.state.translation,
-					.dir = aircraft.state.forces.weight,
+					.dir = aircraft.state.forces.v_weight,
 					.len = 1,
 					.color = glm::vec4{1,0,0,0.3}
 				});
 
-				auto al_mag = glm::length(aircraft.state.forces.airlift);
 				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("lift={}", al_mag),
+					.label = mu::str_tmpf("lift={}", aircraft.state.forces.airlift),
 					.p = aircraft.state.translation,
-					.dir = aircraft.state.forces.airlift,
+					.dir = aircraft.state.forces.v_airlift,
 					.len = 1,
 					.color = glm::vec4{0,1,0,0.3}
 				});
 
-				auto th_mag = glm::length(aircraft.state.forces.thrust);
 				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("thrust={}", th_mag),
+					.label = mu::str_tmpf("thrust={}", aircraft.state.forces.thrust),
 					.p = aircraft.state.translation,
-					.dir = aircraft.state.forces.thrust,
+					.dir = aircraft.state.forces.v_thrust,
 					.len = 1,
 					.color = glm::vec4{0,0,1,0.3}
 				});
 
-				auto drag_mag = glm::length(aircraft.state.forces.drag);
 				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("drag={}", drag_mag),
+					.label = mu::str_tmpf("drag={}", aircraft.state.forces.drag),
 					.p = aircraft.state.translation,
-					.dir = aircraft.state.forces.drag,
+					.dir = aircraft.state.forces.v_drag,
 					.len = 1,
 					.color = glm::vec4{0,0,1,0.3}
 				});
