@@ -3505,8 +3505,25 @@ namespace sys {
 					}
 
 					ImGui::Checkbox("Render Axes", &aircraft.render_axes);
-					ImGui::Checkbox("Render Forces", &aircraft.render_forces);
-					ImGui::Checkbox("Render Acceleration", &aircraft.render_accel);
+
+					if (ImGui::TreeNode("Forces")) {
+						ImGui::Checkbox("Render Forces", &aircraft.render_forces);
+						ImGui::Checkbox("Render Acceleration", &aircraft.render_accel);
+
+						ImGui::DragFloat("Thrust", &aircraft.state.forces.thrust);
+						ImGui::DragFloat("Drag", &aircraft.state.forces.drag);
+						ImGui::DragFloat("Airlift", &aircraft.state.forces.airlift);
+						ImGui::DragFloat("Weight", &aircraft.state.forces.weight);
+
+						ImGui::BeginDisabled();
+						auto accel = glm::length(aircraft.state.acceleration);
+						auto vel = glm::length(aircraft.state.velocity);
+						ImGui::DragFloat("Accel", &accel);
+						ImGui::DragFloat("vel", &vel);
+						ImGui::EndDisabled();
+
+						ImGui::TreePop();
+					}
 
 					size_t light_sources_count = 0;
 					for (const auto& mesh : aircraft.model.meshes) {
@@ -4955,11 +4972,6 @@ namespace sys {
 				aircraft.state.engine_speed -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
 				aircraft.state.engine_speed = clamp(aircraft.state.engine_speed, aircraft.state.throttle, 1.0f);
 			}
-
-			aircraft.state.forces.thrust = 30.0f; // whatever for now
-			aircraft.state.forces.drag = 20.0f; // whatever for now
-			aircraft.state.forces.airlift = 12.0f; // whatever for now
-			aircraft.state.forces.weight = 10.0f; // whatever for now
 
 			aircraft.state.forces.v_thrust = aircraft.state.angles.front * aircraft.state.forces.thrust;
 			aircraft.state.forces.v_drag = -aircraft.state.angles.front * aircraft.state.forces.drag;
