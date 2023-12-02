@@ -1176,7 +1176,7 @@ struct Aircraft {
 
 	struct {
 		float thrust, airlift, drag, weight;
-		glm::vec3 v_thrust, v_airlift, v_drag, v_weight, sum;
+		glm::vec3 v_thrust, v_airlift, v_drag, v_weight;
 	} forces;
 
 	struct {
@@ -1204,6 +1204,10 @@ void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.throttle = start_info.throttle;
 	self.engine_speed = start_info.throttle;
+}
+
+glm::vec3 aircraft_forces_sum(const Aircraft& self) {
+	return self.forces.v_weight + self.forces.v_airlift + self.forces.v_drag + self.forces.v_thrust;
 }
 
 struct PerspectiveProjection {
@@ -3475,8 +3479,8 @@ namespace sys {
 						ImGui::BeginDisabled();
 						auto accel = glm::length(aircraft.acceleration);
 						auto vel = glm::length(aircraft.velocity);
-						ImGui::DragFloat("Accel", &accel);
-						ImGui::DragFloat("vel", &vel);
+						ImGui::DragFloat("Acceleration", &accel);
+						ImGui::DragFloat("Velocity", &vel);
 						ImGui::EndDisabled();
 
 						ImGui::TreePop();
@@ -4916,10 +4920,6 @@ namespace sys {
 			aircraft.forces.v_drag = -aircraft.angles.front * aircraft.forces.drag;
 			aircraft.forces.v_airlift = aircraft.angles.up * aircraft.forces.airlift;
 			aircraft.forces.v_weight = glm::vec3{0,1,0} * aircraft.forces.weight;
-			aircraft.forces.sum = aircraft.forces.v_weight +
-				aircraft.forces.v_airlift +
-				aircraft.forces.v_drag +
-				aircraft.forces.v_thrust;
 
 			aircraft.velocity = (aircraft.engine_speed * MAX_SPEED + MIN_SPEED) * aircraft.angles.front;
 
@@ -5098,11 +5098,12 @@ namespace sys {
 					.color = glm::vec4{0,0,1,0.3}
 				});
 
-				auto sum_mag = glm::length(aircraft.forces.sum);
+				auto sum = aircraft_forces_sum(aircraft);
+				auto sum_mag = glm::length(sum);
 				canvas_add(world.canvas, canvas::Vector {
 					.label = mu::str_tmpf("sum={}", sum_mag),
 					.p = aircraft.translation,
-					.dir = aircraft.forces.sum,
+					.dir = sum,
 					.len = 1,
 					.color = glm::vec4{1,1,0,0.3}
 				});
