@@ -1179,6 +1179,11 @@ struct Aircraft {
 		glm::vec3 v_thrust, v_airlift, v_drag, v_weight;
 	} forces;
 
+	// in tons
+	struct {
+		float clean, load, fuel;
+	} mass;
+
 	struct {
 		bool visible = true;
 		double time_left_secs = ANTI_COLL_LIGHT_PERIOD;
@@ -1198,6 +1203,30 @@ Aircraft aircraft_new(AircraftTemplate aircraft_template) {
 	};
 }
 
+void aircraft_load(Aircraft& self) {
+	self.model = model_from_dnm_file(self.aircraft_template.dnm);
+	model_load_to_gpu(self.model);
+
+	self.dat = datmap_from_dat_file(self.aircraft_template.dat);
+
+	mu::Vec<float> floats;
+
+	floats = datmap_get_floats(self.dat, "WEIGHCLN", mu::memory::tmp());
+	self.mass.clean = floats.size() == 1 ? floats[0] / 1e6 : 15.0;
+
+	floats = datmap_get_floats(self.dat, "WEIGFUEL", mu::memory::tmp());
+	self.mass.fuel = floats.size() == 1 ? floats[0] / 1e6 : 5.0;
+
+	floats = datmap_get_floats(self.dat, "WEIGLOAD", mu::memory::tmp());
+	self.mass.load = floats.size() == 1 ? floats[0] / 1e6 : 4.5;
+
+	self.should_be_loaded = false;
+}
+
+void aircraft_unload(Aircraft& self) {
+	model_unload_from_gpu(self.model);
+}
+
 void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.translation = start_info.position;
 	self.angles = local_euler_angles_from_attitude(start_info.attitude);
@@ -1206,8 +1235,12 @@ void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.engine_speed = start_info.throttle;
 }
 
-glm::vec3 aircraft_forces_sum(const Aircraft& self) {
+glm::vec3 aircraft_forces_total(const Aircraft& self) {
 	return self.forces.v_weight + self.forces.v_airlift + self.forces.v_drag + self.forces.v_thrust;
+}
+
+float aircraft_mass_total(const Aircraft& self) {
+	return self.mass.clean + self.mass.fuel + self.mass.load;
 }
 
 struct PerspectiveProjection {
@@ -3453,7 +3486,7 @@ namespace sys {
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(aircraft.model.current_aabb.max));
 
 					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
-						ImGui::DragFloat("Landing Gear", &aircraft.landing_gear_alpha, 0.01, 0, 1);
+						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
 						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
 
 						ImGui::BeginDisabled();
@@ -3481,6 +3514,19 @@ namespace sys {
 						auto vel = glm::length(aircraft.velocity);
 						ImGui::DragFloat("Acceleration", &accel);
 						ImGui::DragFloat("Velocity", &vel);
+						ImGui::EndDisabled();
+
+						ImGui::TreePop();
+					}
+
+					if (ImGui::TreeNode("Mass (tons)")) {
+						ImGui::DragFloat("Clean", &aircraft.mass.clean, 0.05);
+						ImGui::DragFloat("Fuel", &aircraft.mass.fuel, 0.05);
+						ImGui::DragFloat("Load", &aircraft.mass.load, 0.05);
+
+						ImGui::BeginDisabled();
+						auto total = aircraft_mass_total(aircraft);
+						ImGui::DragFloat("Total", &total);
 						ImGui::EndDisabled();
 
 						ImGui::TreePop();
@@ -4517,12 +4563,12 @@ namespace sys {
 		mu::Vec<bool> collided(models.size(), false, mu::memory::tmp());
 
 		// test collision
-		for (int i = 0; i < models.size()-1 && is_aircraft[i]; i++) {
+		for (uint32_t i = 0; models.size() > 1 && i < models.size()-1 && is_aircraft[i]; i++) {
 			if (visible[i] == false) {
 				continue;
 			}
 
-			for (int j = i+1; j < models.size(); j++) {
+			for (uint32_t j = i+1; j < models.size(); j++) {
 				if (visible[j] && aabbs_intersect(models[i]->current_aabb, models[j]->current_aabb)) {
 					collided[i] = true;
 					collided[j] = true;
@@ -4776,7 +4822,7 @@ namespace sys {
 	}
 
 	// allow user control over camera tracked aircraft
-	void _tracked_aircraft_control(World& world) {
+	void _aircrafts_apply_user_controls(World& world) {
 		DEF_SYSTEM
 
 		if (world.camera.aircraft == nullptr) {
@@ -4841,24 +4887,19 @@ namespace sys {
 		}
 	}
 
-	void _aircrafts_load_from_files(World& world) {
+	void _aircrafts_reload(World& world) {
 		DEF_SYSTEM
 
 		for (int i = 0; i < world.aircrafts.size(); i++) {
 			if (world.aircrafts[i].should_be_loaded) {
-				model_unload_from_gpu(world.aircrafts[i].model);
-				world.aircrafts[i].model = model_from_dnm_file(world.aircrafts[i].aircraft_template.dnm);
-				model_load_to_gpu(world.aircrafts[i].model);
-
-				world.aircrafts[i].dat = datmap_from_dat_file(world.aircrafts[i].aircraft_template.dat);
-
-				mu::log_debug("loaded '{}'", world.aircrafts[i].aircraft_template.dnm);
-				world.aircrafts[i].should_be_loaded = false;
+				aircraft_unload(world.aircrafts[i]);
+				aircraft_load(world.aircrafts[i]);
+				mu::log_debug("loaded '{}'", world.aircrafts[i].aircraft_template.short_name);
 			}
 		}
 	}
 
-	void _aircrafts_autoremove(World& world) {
+	void _aircrafts_remove(World& world) {
 		DEF_SYSTEM
 
 		for (int i = 0; i < world.aircrafts.size(); i++) {
@@ -4871,6 +4912,7 @@ namespace sys {
 					}
 				}
 
+				aircraft_unload(world.aircrafts[i]);
 				world.aircrafts.erase(world.aircrafts.begin()+i);
 
 				if (tracked_model_index > 0 && tracked_model_index >= i) {
@@ -4956,6 +4998,12 @@ namespace sys {
 				}
 			}
 
+			// ground
+			float model_y = aircraft.model.current_aabb.max.y;
+			if (model_y > 0) {
+				aircraft.translation.y -= model_y;
+			}
+
 			// start with root meshes
 			mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 			for (auto& mesh : aircraft.model.meshes) {
@@ -5015,20 +5063,10 @@ namespace sys {
 			}
 		}
 
-		_aircrafts_load_from_files(world);
-		_aircrafts_autoremove(world);
-
-		_tracked_aircraft_control(world);
-
+		_aircrafts_reload(world);
+		_aircrafts_remove(world);
+		_aircrafts_apply_user_controls(world);
 		_aircrafts_apply_physics(world);
-
-		// aircrafts and ground
-		for (auto& aircraft : world.aircrafts) {
-			float model_y = aircraft.model.current_aabb.max.y;
-			if (model_y > 0) {
-				aircraft.translation.y -= model_y;
-			}
-		}
 	}
 
 	void aircrafts_prepare_render(World& world) {
@@ -5098,12 +5136,12 @@ namespace sys {
 					.color = glm::vec4{0,0,1,0.3}
 				});
 
-				auto sum = aircraft_forces_sum(aircraft);
-				auto sum_mag = glm::length(sum);
+				auto total = aircraft_forces_total(aircraft);
+				auto total_mag = glm::length(total);
 				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("sum={}", sum_mag),
+					.label = mu::str_tmpf("total={}", total_mag),
 					.p = aircraft.translation,
-					.dir = sum,
+					.dir = total,
 					.len = 1,
 					.color = glm::vec4{1,1,0,0.3}
 				});
