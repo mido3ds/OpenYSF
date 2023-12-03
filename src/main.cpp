@@ -1174,6 +1174,7 @@ struct Aircraft {
 	float engine_speed; // 0 -> 1
 	bool afterburner_reheat_enabled = false;
 
+	// in mega newtons
 	struct {
 		float thrust, airlift, drag, weight;
 		glm::vec3 v_thrust, v_airlift, v_drag, v_weight;
@@ -1191,9 +1192,9 @@ struct Aircraft {
 
 	bool should_be_loaded;
 	bool should_be_removed;
+
 	bool render_axes;
-	bool render_forces;
-	bool render_accel = true;
+	bool render_total_force;
 };
 
 Aircraft aircraft_new(AircraftTemplate aircraft_template) {
@@ -1241,6 +1242,10 @@ glm::vec3 aircraft_forces_total(const Aircraft& self) {
 
 float aircraft_mass_total(const Aircraft& self) {
 	return self.mass.clean + self.mass.fuel + self.mass.load;
+}
+
+bool aircraft_on_ground(const Aircraft& self) {
+	return std::abs(self.model.current_aabb.max.y) < 2.0f;
 }
 
 struct PerspectiveProjection {
@@ -3500,9 +3505,8 @@ namespace sys {
 
 					ImGui::Checkbox("Render Axes", &aircraft.render_axes);
 
-					if (ImGui::TreeNode("Forces")) {
-						ImGui::Checkbox("Render Forces", &aircraft.render_forces);
-						ImGui::Checkbox("Render Acceleration", &aircraft.render_accel);
+					if (ImGui::TreeNode("Forces (mega-newtons)")) {
+						ImGui::Checkbox("Render Total", &aircraft.render_total_force);
 
 						ImGui::DragFloat("Thrust", &aircraft.forces.thrust);
 						ImGui::DragFloat("Drag", &aircraft.forces.drag);
@@ -4958,6 +4962,14 @@ namespace sys {
 				aircraft.engine_speed = clamp(aircraft.engine_speed, aircraft.throttle, 1.0f);
 			}
 
+			aircraft.forces.weight = aircraft_mass_total(aircraft) * 9.86f;
+			aircraft.forces.airlift = 0; // for now
+
+			// ground reverse force
+			if (aircraft_on_ground(aircraft)) {
+				aircraft.forces.airlift += aircraft.forces.weight;
+			}
+
 			aircraft.forces.v_thrust = aircraft.angles.front * aircraft.forces.thrust;
 			aircraft.forces.v_drag = -aircraft.angles.front * aircraft.forces.drag;
 			aircraft.forces.v_airlift = aircraft.angles.up * aircraft.forces.airlift;
@@ -5103,58 +5115,15 @@ namespace sys {
 				});
 			}
 
-			if (aircraft.render_forces) {
-				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("weight={}", aircraft.forces.weight),
-					.p = aircraft.translation,
-					.dir = aircraft.forces.v_weight,
-					.len = 1,
-					.color = glm::vec4{1,0,0,0.3}
-				});
-
-				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("lift={}", aircraft.forces.airlift),
-					.p = aircraft.translation,
-					.dir = aircraft.forces.v_airlift,
-					.len = 1,
-					.color = glm::vec4{0,1,0,0.3}
-				});
-
-				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("thrust={}", aircraft.forces.thrust),
-					.p = aircraft.translation,
-					.dir = aircraft.forces.v_thrust,
-					.len = 1,
-					.color = glm::vec4{0,0,1,0.3}
-				});
-
-				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("drag={}", aircraft.forces.drag),
-					.p = aircraft.translation,
-					.dir = aircraft.forces.v_drag,
-					.len = 1,
-					.color = glm::vec4{0,0,1,0.3}
-				});
-
+			if (aircraft.render_total_force) {
 				auto total = aircraft_forces_total(aircraft);
 				auto total_mag = glm::length(total);
 				canvas_add(world.canvas, canvas::Vector {
 					.label = mu::str_tmpf("total={}", total_mag),
 					.p = aircraft.translation,
-					.dir = total,
-					.len = 1,
+					.dir = glm::normalize(total),
+					.len = std::min(total_mag, 15.0f),
 					.color = glm::vec4{1,1,0,0.3}
-				});
-			}
-
-			if (aircraft.render_accel) {
-				auto acc_mag = glm::length(aircraft.acceleration);
-				canvas_add(world.canvas, canvas::Vector {
-					.label = mu::str_tmpf("a={}", acc_mag),
-					.p = aircraft.translation,
-					.dir = aircraft.acceleration,
-					.len = 1,
-					.color = glm::vec4{0,0,1,0.3}
 				});
 			}
 
