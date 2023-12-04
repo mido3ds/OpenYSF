@@ -1168,6 +1168,7 @@ struct Aircraft {
 	LocalEulerAngles angles;
 	bool visible = true;
 	glm::vec3 acceleration, velocity;
+	float max_velocity;
 
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
@@ -1198,7 +1199,7 @@ struct Aircraft {
 	bool should_be_removed;
 
 	bool render_axes;
-	bool render_total_force;
+	bool render_total_force = true;
 };
 
 Aircraft aircraft_new(AircraftTemplate aircraft_template) {
@@ -1247,6 +1248,11 @@ void aircraft_load(Aircraft& self) {
 		self.engine.idle_power /= float(n);
 	}
 
+	self.max_velocity = 133;
+	if (auto arr = datmap_get_floats(self.dat, "MAXSPEED", mu::memory::tmp()); arr.size() == 1) {
+		self.max_velocity = arr[0];
+	}
+
 	self.should_be_loaded = false;
 }
 
@@ -1271,7 +1277,7 @@ float aircraft_mass_total(const Aircraft& self) {
 }
 
 bool aircraft_on_ground(const Aircraft& self) {
-	return std::abs(self.model.current_aabb.max.y) < 2.0f;
+	return self.translation.y >= -3.0f;
 }
 
 struct PerspectiveProjection {
@@ -4976,9 +4982,6 @@ namespace sys {
 				aircraft.anti_coll_lights.visible = ! aircraft.anti_coll_lights.visible;
 			}
 
-			// apply model transformation
-			const auto model_transformation = local_euler_angles_matrix(aircraft.angles, aircraft.translation);
-
 			// engine
 			aircraft.throttle = clamp(aircraft.throttle, 0.0f, 1.0f);
 			if (aircraft.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
@@ -5013,14 +5016,23 @@ namespace sys {
 
 			glm::vec3 accel_dir = glm::normalize(aircraft.acceleration);
 			float accel_mag = glm::length(aircraft.acceleration);
-			aircraft.velocity += std::min(accel_mag, MAX_SPEED) * accel_dir;
+			aircraft.velocity += accel_mag * accel_dir;
+
+			glm::vec3 vel_dir = glm::normalize(aircraft.velocity);
+			float vel_mag = glm::length(aircraft.velocity);
+			aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
 
+			// put back on ground
+			aircraft.translation.y = std::min(aircraft.translation.y, -3.0f);
+
 			// transform AABB (estimate new AABB after rotation)
+			const auto model_transformation = local_euler_angles_matrix(aircraft.angles, aircraft.translation);
 			{
 				// translate AABB
-				aircraft.model.current_aabb.min = aircraft.model.current_aabb.max = aircraft.translation;
+				aircraft.model.current_aabb.min = aircraft.translation;
+				aircraft.model.current_aabb.max = aircraft.translation;
 
 				// new rotated AABB (no translation)
 				const auto model_rotation = glm::mat3(model_transformation);
@@ -5046,12 +5058,6 @@ namespace sys {
 						}
 					}
 				}
-			}
-
-			// ground
-			float model_y = aircraft.model.current_aabb.max.y;
-			if (model_y > 0) {
-				aircraft.translation.y -= model_y;
 			}
 
 			// start with root meshes
