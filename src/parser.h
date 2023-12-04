@@ -81,11 +81,10 @@ bool parser_accept(Parser& self, mu::StrView s) {
 }
 
 // return multiplier that converts to standard unit (maybe 1 if no unit or standard unit)
-// standard units: m, g, m/s, joules/second, degrees
+// standard units: m, g, m/s, HP, degrees
 double parser_accept_unit(Parser& self) {
 	if (parser_accept(self, "ft"))   { return 0.3048;    }
 	if (parser_accept(self, "kt"))   { return 0.514444;  }
-	if (parser_accept(self, "HP"))   { return 745.7;     }
 	if (parser_accept(self, "km/h")) { return 0.277778;  }
 	if (parser_accept(self, "MACH")) { return 340.29;    }
 	if (parser_accept(self, "kg"))   { return 1000;      }
@@ -94,6 +93,7 @@ double parser_accept_unit(Parser& self) {
 
 	// accept those units to avoid crashing on them later
 	if (parser_accept(self, "deg"))  { return 1;    }
+	if (parser_accept(self, "HP"))   { return 1;    }
 	if (parser_accept(self, "m^2"))  { return 1;    }
 	if (parser_accept(self, "m/s"))  { return 1;    }
 	if (parser_accept(self, "m"))    { return 1;    }
@@ -302,7 +302,7 @@ void test_parser() {
 	parser_expect(parser, ' ');
 	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.06096f));
 	parser_expect(parser, ' ');
-	mu_assert(almost_equal((float)parser_token_i64(parser) * parser_accept_unit(parser), 11185.5f));
+	mu_assert(almost_equal((float)parser_token_i64(parser) * parser_accept_unit(parser), 15.0f));
 	parser_expect(parser, ' ');
 	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 1.2));
 	parser_expect(parser, ' ');

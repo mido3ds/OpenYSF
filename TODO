@@ -1,7 +1,4 @@
-- load engine power from DAT
-- calc thrust as func of engine speed and engine power
-- calc accel from forces.sum and weight
-- calc velocity from accel (capped by maximum loaded from DAT)
+- capped velocity by maximum loaded from DAT
 - store rudder/elevetor/aileron configs and change them by keyboard
 - add: aileron applies torque
 - add: aileron adds drag

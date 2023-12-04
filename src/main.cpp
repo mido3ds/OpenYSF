@@ -1171,8 +1171,12 @@ struct Aircraft {
 
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
-	float engine_speed; // 0 -> 1
-	bool afterburner_reheat_enabled = false;
+
+	struct {
+		float speed_percent; // 0 -> 1
+		bool burner_enabled = false;
+		float max_power, idle_power; // HP
+	} engine;
 
 	// in mega newtons
 	struct {
@@ -1210,16 +1214,38 @@ void aircraft_load(Aircraft& self) {
 
 	self.dat = datmap_from_dat_file(self.aircraft_template.dat);
 
-	mu::Vec<float> floats;
+	// mass
+	self.mass.clean = 15.0f;
+	self.mass.fuel = 5.0f;
+	self.mass.load = 4.5f;
+	if (auto arr = datmap_get_floats(self.dat, "WEIGHCLN", mu::memory::tmp()); arr.size() == 1) {
+		self.mass.clean = arr[0] / 1e6;
+	}
+	if (auto arr = datmap_get_floats(self.dat, "WEIGFUEL", mu::memory::tmp()); arr.size() == 1) {
+		self.mass.fuel = arr[0] / 1e6;
+	}
+	if (auto arr = datmap_get_floats(self.dat, "WEIGLOAD", mu::memory::tmp()); arr.size() == 1) {
+		self.mass.load = arr[0] / 1e6;
+	}
 
-	floats = datmap_get_floats(self.dat, "WEIGHCLN", mu::memory::tmp());
-	self.mass.clean = floats.size() == 1 ? floats[0] / 1e6 : 15.0;
+	// engine power
+	self.engine.max_power = 3060; self.engine.idle_power = 30;
+	if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
+		size_t n = arr[0];
+		self.engine.max_power = 0; self.engine.idle_power = 0;
 
-	floats = datmap_get_floats(self.dat, "WEIGFUEL", mu::memory::tmp());
-	self.mass.fuel = floats.size() == 1 ? floats[0] / 1e6 : 5.0;
+		for (int i = 0; i < n; i++) {
+			if (auto arr = datmap_get_floats(self.dat, mu::str_tmpf("REALPROP {} MAXPOWER", i), mu::memory::tmp()); arr.size() == 1) {
+				self.engine.max_power += arr[0];
+			}
+			if (auto arr = datmap_get_floats(self.dat, mu::str_tmpf("REALPROP {} IDLEPOWER", i), mu::memory::tmp()); arr.size() == 1) {
+				self.engine.idle_power += arr[0];
+			}
+		}
 
-	floats = datmap_get_floats(self.dat, "WEIGLOAD", mu::memory::tmp());
-	self.mass.load = floats.size() == 1 ? floats[0] / 1e6 : 4.5;
+		self.engine.max_power /= float(n);
+		self.engine.idle_power /= float(n);
+	}
 
 	self.should_be_loaded = false;
 }
@@ -1233,7 +1259,7 @@ void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.angles = local_euler_angles_from_attitude(start_info.attitude);
 	self.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.throttle = start_info.throttle;
-	self.engine_speed = start_info.throttle;
+	self.engine.speed_percent = start_info.throttle;
 }
 
 glm::vec3 aircraft_forces_total(const Aircraft& self) {
@@ -3490,15 +3516,17 @@ namespace sys {
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(aircraft.model.current_aabb.min));
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(aircraft.model.current_aabb.max));
 
-					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
+					if (ImGui::TreeNode("Control")) {
 						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
 						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
 
 						ImGui::BeginDisabled();
-						ImGui::SliderFloat("Engine Speed %%", &aircraft.engine_speed, 0.0f, 1.0f);
+						ImGui::SliderFloat("Engine Speed %%", &aircraft.engine.speed_percent, 0.0f, 1.0f);
+						ImGui::DragFloat("Engine MAX power", &aircraft.engine.max_power);
+						ImGui::DragFloat("Engine IDLE power", &aircraft.engine.idle_power);
 						ImGui::EndDisabled();
 
-						ImGui::Checkbox("Afterburner Reheat", &aircraft.afterburner_reheat_enabled);
+						ImGui::Checkbox("Burner", &aircraft.engine.burner_enabled);
 
 						ImGui::TreePop();
 					}
@@ -3508,16 +3536,17 @@ namespace sys {
 					if (ImGui::TreeNode("Forces (mega-newtons)")) {
 						ImGui::Checkbox("Render Total", &aircraft.render_total_force);
 
-						ImGui::DragFloat("Thrust", &aircraft.forces.thrust);
-						ImGui::DragFloat("Drag", &aircraft.forces.drag);
-						ImGui::DragFloat("Airlift", &aircraft.forces.airlift);
-						ImGui::DragFloat("Weight", &aircraft.forces.weight);
 
 						ImGui::BeginDisabled();
-						auto accel = glm::length(aircraft.acceleration);
-						auto vel = glm::length(aircraft.velocity);
-						ImGui::DragFloat("Acceleration", &accel);
-						ImGui::DragFloat("Velocity", &vel);
+							ImGui::DragFloat("Thrust", &aircraft.forces.thrust);
+							ImGui::DragFloat("Drag", &aircraft.forces.drag);
+							ImGui::DragFloat("Airlift", &aircraft.forces.airlift);
+							ImGui::DragFloat("Weight", &aircraft.forces.weight);
+
+							auto accel = glm::length(aircraft.acceleration);
+							auto vel = glm::length(aircraft.velocity);
+							ImGui::DragFloat("Acceleration", &accel);
+							ImGui::DragFloat("Velocity", &vel);
 						ImGui::EndDisabled();
 
 						ImGui::TreePop();
@@ -4857,9 +4886,9 @@ namespace sys {
 		local_euler_angles_rotate(self.angles, delta_yaw, delta_pitch, delta_roll);
 
 		if (world.events.afterburner_toggle) {
-			self.afterburner_reheat_enabled = ! self.afterburner_reheat_enabled;
+			self.engine.burner_enabled = ! self.engine.burner_enabled;
 		}
-		if (self.afterburner_reheat_enabled && self.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+		if (self.engine.burner_enabled && self.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
 			self.throttle = AFTERBURNER_THROTTLE_THRESHOLD;
 		}
 
@@ -4871,12 +4900,12 @@ namespace sys {
 		}
 
 		// only currently controlled model has audio
-		int audio_index = self.engine_speed * 9;
+		int audio_index = self.engine.speed_percent * 9;
 
 		AudioBuffer* audio;
 		if (self.model.has_propellers) {
 			audio = &world.audio_buffers.at(mu::str_tmpf("prop{}", audio_index));
-		} else if (self.afterburner_reheat_enabled && self.model.has_afterburner) {
+		} else if (self.engine.burner_enabled && self.model.has_afterburner) {
 			audio = &world.audio_buffers.at("burner");
 		} else {
 			audio = &world.audio_buffers.at(mu::str_tmpf("engine{}", audio_index));
@@ -4940,6 +4969,7 @@ namespace sys {
 				continue;
 			}
 
+			// anti coll lights
 			aircraft.anti_coll_lights.time_left_secs -= world.loop_timer.delta_time;
 			if (aircraft.anti_coll_lights.time_left_secs < 0) {
 				aircraft.anti_coll_lights.time_left_secs = ANTI_COLL_LIGHT_PERIOD;
@@ -4949,24 +4979,27 @@ namespace sys {
 			// apply model transformation
 			const auto model_transformation = local_euler_angles_matrix(aircraft.angles, aircraft.translation);
 
+			// engine
 			aircraft.throttle = clamp(aircraft.throttle, 0.0f, 1.0f);
 			if (aircraft.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-				aircraft.afterburner_reheat_enabled = false;
+				aircraft.engine.burner_enabled = false;
 			}
 
-			if (aircraft.engine_speed < aircraft.throttle) {
-				aircraft.engine_speed += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				aircraft.engine_speed = clamp(aircraft.engine_speed, 0.0f, aircraft.throttle);
-			} else if (aircraft.engine_speed > aircraft.throttle) {
-				aircraft.engine_speed -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				aircraft.engine_speed = clamp(aircraft.engine_speed, aircraft.throttle, 1.0f);
+			if (aircraft.engine.speed_percent < aircraft.throttle) {
+				aircraft.engine.speed_percent += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, 0.0f, aircraft.throttle);
+			} else if (aircraft.engine.speed_percent > aircraft.throttle) {
+				aircraft.engine.speed_percent -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
 			}
 
+			// forces
+			aircraft.forces.thrust = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
 			aircraft.forces.weight = aircraft_mass_total(aircraft) * 9.86f;
 			aircraft.forces.airlift = 0; // for now
 
-			// ground reverse force
 			if (aircraft_on_ground(aircraft)) {
+				// ground reverse force
 				aircraft.forces.airlift += aircraft.forces.weight;
 			}
 
@@ -4975,7 +5008,12 @@ namespace sys {
 			aircraft.forces.v_airlift = aircraft.angles.up * aircraft.forces.airlift;
 			aircraft.forces.v_weight = glm::vec3{0,1,0} * aircraft.forces.weight;
 
-			aircraft.velocity = (aircraft.engine_speed * MAX_SPEED + MIN_SPEED) * aircraft.angles.front;
+			// translation
+			aircraft.acceleration = aircraft_forces_total(aircraft) / aircraft_mass_total(aircraft);
+
+			glm::vec3 accel_dir = glm::normalize(aircraft.acceleration);
+			float accel_mag = glm::length(aircraft.acceleration);
+			aircraft.velocity += std::min(accel_mag, MAX_SPEED) * accel_dir;
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
 
@@ -5045,10 +5083,10 @@ namespace sys {
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER) {
-					mesh->rotation.x += aircraft.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
+					mesh->rotation.x += aircraft.engine.speed_percent * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-					mesh->rotation.z += aircraft.engine_speed * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
+					mesh->rotation.z += aircraft.engine.speed_percent * PROPOLLER_MAX_ANGLE_SPEED * world.loop_timer.delta_time;
 				}
 
 				// apply mesh transformation
@@ -5150,7 +5188,7 @@ namespace sys {
 				}
 
 				if (mesh->animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-					if (aircraft.afterburner_reheat_enabled == false) {
+					if (aircraft.engine.burner_enabled == false) {
 						continue;
 					}
 
