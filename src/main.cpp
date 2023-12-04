@@ -1170,6 +1170,7 @@ struct Aircraft {
 	glm::vec3 acceleration, velocity;
 	float max_velocity;
 
+	float friction_coeff = 0.032f;
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
 
@@ -1182,7 +1183,6 @@ struct Aircraft {
 	// in mega newtons
 	struct {
 		float thrust, airlift, drag, weight;
-		glm::vec3 v_thrust, v_airlift, v_drag, v_weight;
 	} forces;
 
 	// in tons
@@ -1268,16 +1268,21 @@ void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.engine.speed_percent = start_info.throttle;
 }
 
-glm::vec3 aircraft_forces_total(const Aircraft& self) {
-	return self.forces.v_weight + self.forces.v_airlift + self.forces.v_drag + self.forces.v_thrust;
+bool aircraft_on_ground(const Aircraft& self) {
+	return self.translation.y >= -3.0f;
 }
 
 float aircraft_mass_total(const Aircraft& self) {
 	return self.mass.clean + self.mass.fuel + self.mass.load;
 }
 
-bool aircraft_on_ground(const Aircraft& self) {
-	return self.translation.y >= -3.0f;
+glm::vec3 aircraft_thrust(const Aircraft& self)   { return self.angles.front * self.forces.thrust; }
+glm::vec3 aircraft_drag(const Aircraft& self)     { return -self.angles.front * self.forces.drag;  }
+glm::vec3 aircraft_airlift(const Aircraft& self)  { return self.angles.up * self.forces.airlift;   }
+glm::vec3 aircraft_weight(const Aircraft& self)   { return glm::vec3{0,1,0} * self.forces.weight;  }
+
+glm::vec3 aircraft_forces_total(const Aircraft& self) {
+	return aircraft_weight(self)+ aircraft_airlift(self) + aircraft_drag(self) + aircraft_thrust(self);
 }
 
 struct PerspectiveProjection {
@@ -3525,6 +3530,7 @@ namespace sys {
 					if (ImGui::TreeNode("Control")) {
 						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
 						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
+						ImGui::SliderFloat("Friction Coeff", &aircraft.friction_coeff, 0.0f, 1.0f);
 
 						ImGui::BeginDisabled();
 						ImGui::SliderFloat("Engine Speed %%", &aircraft.engine.speed_percent, 0.0f, 1.0f);
@@ -3541,7 +3547,6 @@ namespace sys {
 
 					if (ImGui::TreeNode("Forces (mega-newtons)")) {
 						ImGui::Checkbox("Render Total", &aircraft.render_total_force);
-
 
 						ImGui::BeginDisabled();
 							ImGui::DragFloat("Thrust", &aircraft.forces.thrust);
@@ -4999,17 +5004,13 @@ namespace sys {
 			// forces
 			aircraft.forces.thrust = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
 			aircraft.forces.weight = aircraft_mass_total(aircraft) * 9.86f;
+			aircraft.forces.drag = 0; // for now
 			aircraft.forces.airlift = 0; // for now
 
 			if (aircraft_on_ground(aircraft)) {
-				// ground reverse force
-				aircraft.forces.airlift += aircraft.forces.weight;
+				float friction = aircraft.friction_coeff * aircraft_mass_total(aircraft) * aircraft.forces.thrust;
+				aircraft.forces.thrust -= std::min(friction, aircraft.forces.thrust);
 			}
-
-			aircraft.forces.v_thrust = aircraft.angles.front * aircraft.forces.thrust;
-			aircraft.forces.v_drag = -aircraft.angles.front * aircraft.forces.drag;
-			aircraft.forces.v_airlift = aircraft.angles.up * aircraft.forces.airlift;
-			aircraft.forces.v_weight = glm::vec3{0,1,0} * aircraft.forces.weight;
 
 			// translation
 			aircraft.acceleration = aircraft_forces_total(aircraft) / aircraft_mass_total(aircraft);
