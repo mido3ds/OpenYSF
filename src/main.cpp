@@ -1170,9 +1170,19 @@ struct Aircraft {
 	glm::vec3 acceleration, velocity;
 	float max_velocity;
 
+	float wing_area; // m^2
 	float friction_coeff = 0.032f;
+	float thrust_multiplier = 3e3; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
+
+	struct {
+		float a = 0.0017f, b = 5.9f, c = 0.1f;
+	} cd_consts;
+
+	struct {
+		float a = 0.069f, b = 0.3f, c = 5.0f, aoa_critical = 30;
+	} cl_consts;
 
 	struct {
 		float speed_percent; // 0 -> 1
@@ -1180,7 +1190,7 @@ struct Aircraft {
 		float max_power, idle_power; // HP
 	} engine;
 
-	// in mega newtons
+	// in newtons
 	struct {
 		float thrust, airlift, drag, weight;
 	} forces;
@@ -1253,7 +1263,29 @@ void aircraft_load(Aircraft& self) {
 		self.max_velocity = arr[0];
 	}
 
+	self.wing_area = 91;
+	if (auto arr = datmap_get_floats(self.dat, "WINGAREA", mu::memory::tmp()); arr.size() == 1) {
+		self.wing_area = arr[0];
+	}
+
 	self.should_be_loaded = false;
+}
+
+// degrees
+float aircraft_angle_of_attack(const Aircraft& self) {
+	float aoa = glm::degrees(glm::acos(self.angles.front.z));
+	return self.angles.front.y < 0 ? +aoa : -aoa;
+}
+
+float aircraft_calc_drag_coeff(const Aircraft& self, float angle_of_attack) {
+	return self.cd_consts.a * pow(angle_of_attack + self.cd_consts.b, 2) + self.cd_consts.c;
+}
+
+float aircraft_calc_lift_coeff(const Aircraft& self, float angle_of_attack) {
+	if (angle_of_attack >= -self.cl_consts.aoa_critical && angle_of_attack <= self.cl_consts.aoa_critical) {
+		return self.cl_consts.a * angle_of_attack + self.cl_consts.b;
+	}
+	return self.cl_consts.a * angle_of_attack - self.cl_consts.c * self.cl_consts.b;
 }
 
 void aircraft_unload(Aircraft& self) {
@@ -1269,11 +1301,11 @@ void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 }
 
 bool aircraft_on_ground(const Aircraft& self) {
-	return self.translation.y >= -3.0f;
+	return self.translation.y >= -1.0f;
 }
 
 float aircraft_mass_total(const Aircraft& self) {
-	return self.mass.clean + self.mass.fuel + self.mass.load;
+	return (self.mass.clean + self.mass.fuel + self.mass.load) * 1e6;
 }
 
 glm::vec3 aircraft_thrust(const Aircraft& self)   { return self.angles.front * self.forces.thrust; }
@@ -2957,6 +2989,10 @@ namespace sys {
 		if (ImGui::CreateContext() == nullptr) {
 			mu::panic("failed to create imgui context");
 		}
+		if (ImPlot::CreateContext() == nullptr) {
+			mu::panic("failed to create implot context");
+		}
+
 		ImGui::StyleColorsDark();
 
 		if (!ImGui_ImplSDL2_InitForOpenGL(world.sdl_window, world.sdl_gl_context)) {
@@ -2976,6 +3012,7 @@ namespace sys {
 
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplSDL2_Shutdown();
+		ImPlot::DestroyContext();
 		ImGui::DestroyContext();
 	}
 
@@ -3527,37 +3564,72 @@ namespace sys {
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(aircraft.model.current_aabb.min));
 					ImGui::DragFloat3("AABB.max", glm::value_ptr(aircraft.model.current_aabb.max));
 
-					if (ImGui::TreeNode("Control")) {
-						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
-						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
-						ImGui::SliderFloat("Friction Coeff", &aircraft.friction_coeff, 0.0f, 1.0f);
-
-						ImGui::BeginDisabled();
-						ImGui::SliderFloat("Engine Speed %%", &aircraft.engine.speed_percent, 0.0f, 1.0f);
-						ImGui::DragFloat("Engine MAX power", &aircraft.engine.max_power);
-						ImGui::DragFloat("Engine IDLE power", &aircraft.engine.idle_power);
-						ImGui::EndDisabled();
-
-						ImGui::Checkbox("Burner", &aircraft.engine.burner_enabled);
-
-						ImGui::TreePop();
-					}
-
 					ImGui::Checkbox("Render Axes", &aircraft.render_axes);
 
-					if (ImGui::TreeNode("Forces (mega-newtons)")) {
-						ImGui::Checkbox("Render Total", &aircraft.render_total_force);
+					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
+						ImGui::Checkbox("Burner", &aircraft.engine.burner_enabled);
+
+						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
+						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
+						ImGui::DragFloat("Thrust Coeff", &aircraft.thrust_multiplier);
+						ImGui::SliderFloat("Friction Coeff", &aircraft.friction_coeff, 0.0f, 1.0f);
+
+						if (ImGui::TreeNode("Aerodynamic Coefficients")) {
+							if (ImPlot::BeginPlot("Aerodynamic Coefficients", {-1,0}, ImPlotFlags_Crosshairs)) {
+								ImPlot::SetupAxes("AoA", "C", ImPlotAxisFlags_AutoFit);
+
+								mu::Arr<glm::vec2, 1001> p;
+								for (int i = 0; i < p.size(); i++) {
+									p[i].x = -180 + (i / float(p.size())) * 360;
+								}
+
+								for (int i = 0; i < p.size(); i++) {
+									p[i].y = aircraft_calc_drag_coeff(aircraft, p[i].x);
+								}
+								ImPlot::PlotLine("Cd", &p[0].x, &p[0].y, p.size(), 0, 0, sizeof(glm::vec2));
+
+								for (int i = 0; i < p.size(); i++) {
+									p[i].y = aircraft_calc_lift_coeff(aircraft, p[i].x);
+								}
+								ImPlot::PlotLine("Cl", &p[0].x, &p[0].y, p.size(), 0, 0, sizeof(glm::vec2));
+
+								float aoa = aircraft_angle_of_attack(aircraft);
+								ImPlot::PlotInfLines("AoA", &aoa, 1);
+
+								ImPlot::EndPlot();
+							}
+
+							ImGui::DragFloat("Cd.a", &aircraft.cd_consts.a, 0.0001, 0, 0.08);
+							ImGui::DragFloat("Cd.b", &aircraft.cd_consts.b, 0.1);
+							ImGui::DragFloat("Cd.c", &aircraft.cd_consts.c, 0.1);
+							ImGui::Spacing();
+							ImGui::DragFloat("Cl.a", &aircraft.cl_consts.a, 0.01, 0, 0.1);
+							ImGui::DragFloat("Cl.b", &aircraft.cl_consts.b, 0.05, 0, 0.8);
+							ImGui::DragFloat("Cl.c", &aircraft.cl_consts.c, 1, 10, 1);
+							ImGui::DragFloat("Cl.AoA_cr", &aircraft.cl_consts.aoa_critical, 5, 0, 90);
+
+							ImGui::TreePop();
+						}
 
 						ImGui::BeginDisabled();
-							ImGui::DragFloat("Thrust", &aircraft.forces.thrust);
-							ImGui::DragFloat("Drag", &aircraft.forces.drag);
-							ImGui::DragFloat("Airlift", &aircraft.forces.airlift);
-							ImGui::DragFloat("Weight", &aircraft.forces.weight);
+							ImGui::SliderFloat("Engine Speed %%", &aircraft.engine.speed_percent, 0.0f, 1.0f);
+							ImGui::DragFloat("Engine MAX power", &aircraft.engine.max_power);
+							ImGui::DragFloat("Engine IDLE power", &aircraft.engine.idle_power);
 
 							auto accel = glm::length(aircraft.acceleration);
 							auto vel = glm::length(aircraft.velocity);
 							ImGui::DragFloat("Acceleration", &accel);
 							ImGui::DragFloat("Velocity", &vel);
+
+						ImGui::EndDisabled();
+
+						ImGui::Text("Forces (mega-newtons)");
+						ImGui::Checkbox("Render Total", &aircraft.render_total_force);
+						ImGui::BeginDisabled();
+							MyImGui::SliderMultiplier("Thrust", &aircraft.forces.thrust, 1);
+							MyImGui::SliderMultiplier("Drag", &aircraft.forces.drag, 1);
+							MyImGui::SliderMultiplier("Airlift", &aircraft.forces.airlift, 1);
+							MyImGui::SliderMultiplier("Weight", &aircraft.forces.weight, 1);
 						ImGui::EndDisabled();
 
 						ImGui::TreePop();
@@ -5001,32 +5073,73 @@ namespace sys {
 				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
 			}
 
+			// air density, https://en.wikipedia.org/wiki/Density_of_air#Dry_air, https://www.mide.com/air-pressure-at-altitude-calculator
+			double air_density = 0; {
+				constexpr double BOT_PRESSURE = 101325.00; // Pa
+				constexpr double TOP_PRESSURE = 12044.57;  // Pa
+				constexpr double TOP_ALT = 15000.0; // m
+				constexpr double AIR_TEMP = 15.0 + 273.15; // kelvin
+
+				double altitude_meters = std::abs(aircraft.translation.y);
+				double alt_percent = altitude_meters/TOP_ALT;
+				double air_pressure = alt_percent * TOP_PRESSURE + (1-alt_percent) * BOT_PRESSURE;
+				air_density =  air_pressure / (287.0 * AIR_TEMP);
+			}
+
+			// front v
+			float vel = glm::length(aircraft.velocity);
+			float vel_sq = pow(vel, 2);
+
 			// forces
-			aircraft.forces.thrust = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
+			{
+				auto engine_power_hp = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
+				TEXT_OVERLAY("engine_power_hp={} hp", engine_power_hp);
+				auto engine_power_j_s = engine_power_hp * 745.69;
+				aircraft.forces.thrust = engine_power_j_s / std::max(std::abs(vel), 0.01f) * aircraft.thrust_multiplier;
+			}
+
 			aircraft.forces.weight = aircraft_mass_total(aircraft) * 9.86f;
-			aircraft.forces.drag = 0; // for now
-			aircraft.forces.airlift = 0; // for now
+
+			float aoa = aircraft_angle_of_attack(aircraft);
+
+			// https://www.grc.nasa.gov/www/k-12/VirtualAero/BottleRocket/airplane/drageq.html
+			aircraft.forces.drag =
+				aircraft_calc_drag_coeff(aircraft, aoa) *
+				air_density *
+				vel_sq *
+				(0.05 * aircraft.wing_area);
+
+			// https://www.grc.nasa.gov/www/k-12/VirtualAero/BottleRocket/airplane/lifteq.html
+			aircraft.forces.airlift =
+				aircraft_calc_lift_coeff(aircraft, aoa) *
+				air_density *
+				vel_sq *
+				aircraft.wing_area;
 
 			if (aircraft_on_ground(aircraft)) {
-				float friction = aircraft.friction_coeff * aircraft_mass_total(aircraft) * aircraft.forces.thrust;
-				aircraft.forces.thrust -= std::min(friction, aircraft.forces.thrust);
+				float friction = aircraft.friction_coeff * std::max(aircraft.forces.weight - aircraft.forces.airlift, 0.0f);
+				aircraft.forces.thrust = std::max(aircraft.forces.thrust - friction, 0.0f);
+
+				aircraft.forces.weight = 0;
 			}
 
 			// translation
-			aircraft.acceleration = aircraft_forces_total(aircraft) / aircraft_mass_total(aircraft);
+			{
+				aircraft.acceleration = aircraft_forces_total(aircraft) / aircraft_mass_total(aircraft);
 
-			glm::vec3 accel_dir = glm::normalize(aircraft.acceleration);
-			float accel_mag = glm::length(aircraft.acceleration);
-			aircraft.velocity += accel_mag * accel_dir;
+				glm::vec3 accel_dir = glm::normalize(aircraft.acceleration);
+				float accel_mag = glm::length(aircraft.acceleration);
+				aircraft.velocity += accel_mag * accel_dir;
 
-			glm::vec3 vel_dir = glm::normalize(aircraft.velocity);
-			float vel_mag = glm::length(aircraft.velocity);
-			aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
+				glm::vec3 vel_dir = glm::normalize(aircraft.velocity);
+				float vel_mag = glm::length(aircraft.velocity);
+				aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
+			}
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
 
 			// put back on ground
-			aircraft.translation.y = std::min(aircraft.translation.y, -3.0f);
+			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
 
 			// transform AABB (estimate new AABB after rotation)
 			const auto model_transformation = local_euler_angles_matrix(aircraft.angles, aircraft.translation);

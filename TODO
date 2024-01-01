@@ -1,3 +1,5 @@
+- remove velocity from thrust eq
+- AoA: use angle with plane not only front.z
 - store rudder/elevetor/aileron configs and change them by keyboard
 - add: aileron applies torque
 - add: aileron adds drag
@@ -12,8 +14,6 @@
 	- heathrow: totally broken ground objects rotations
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
 - mac: fix change line width
-- calculate air lift
-- calculate weight
 - shade using normals
 - render terrain texture
 - fog

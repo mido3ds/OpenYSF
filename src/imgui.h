@@ -4,6 +4,8 @@
 #include <backends/imgui_impl_sdl.h>
 #include <backends/imgui_impl_opengl3.h>
 
+#include <implot.h>
+
 #include "math.h"
 
 namespace MyImGui {
@@ -43,5 +45,12 @@ namespace MyImGui {
 			*radians = angle / angle_max * RADIANS_MAX;
 		}
 		return changed;
+	}
+
+	void SliderMultiplier(const char* label, float* v, float multiplier) {
+		float v2 = (*v) / multiplier;
+		if (ImGui::DragFloat(label, &v2)) {
+			*v = v2 * multiplier;
+		}
 	}
 }

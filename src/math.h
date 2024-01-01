@@ -10,6 +10,7 @@
 #include <glm/gtc/type_ptr.hpp> // glm::value_ptr
 
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/norm.hpp> // glm::length2
 
 // YS angle format, degrees(0->360): YS(0x0000->0xFFFF), extracted from ys blender scripts
 constexpr float YS_MAX      = 0xFFFF;

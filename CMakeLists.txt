@@ -58,6 +58,9 @@ CPMAddPackage(
 	GIT_REPOSITORY   https://github.com/g-truc/glm.git
 	GIT_TAG          0.9.9.8
 	GIT_SHALLOW      TRUE
+	OPTIONS
+		"BUILD_STATIC_LIBS ON"
+		"BUILD_SHARED_LIBS OFF"
 )
 CPMAddPackage(
 	NAME             portable-file-dialogs
@@ -108,6 +111,18 @@ add_library(_imgui
 target_include_directories(_imgui PUBLIC extern/imgui-1.85)
 target_link_libraries(_imgui PRIVATE SDL2::SDL2)
 
+# implot
+add_library(_implot
+	STATIC
+		extern/implot-0.16/implot.h
+		extern/implot-0.16/implot_internal.h
+		extern/implot-0.16/implot.cpp
+		extern/implot-0.16/implot_demo.cpp
+		extern/implot-0.16/implot_items.cpp
+)
+target_include_directories(_implot PUBLIC extern/implot-0.16)
+target_link_libraries(_implot PRIVATE _imgui)
+
 # open-ysf
 add_executable(open-ysf
 	src/main.cpp
@@ -128,6 +143,7 @@ target_link_libraries(open-ysf
 		freetype
 		_glad
 		_imgui
+		_implot
 		portable_file_dialogs
 		$<$<PLATFORM_ID:Windows>:dbghelp>
 		${CMAKE_DL_LIBS}
