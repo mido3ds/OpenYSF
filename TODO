@@ -1,5 +1,3 @@
-- remove velocity from thrust eq
-- AoA: use angle with plane not only front.z
 - store rudder/elevetor/aileron configs and change them by keyboard
 - add: aileron applies torque
 - add: aileron adds drag

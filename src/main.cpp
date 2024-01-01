@@ -1172,7 +1172,7 @@ struct Aircraft {
 
 	float wing_area; // m^2
 	float friction_coeff = 0.032f;
-	float thrust_multiplier = 3e3; // too lazy to calculate real thrust
+	float thrust_multiplier = 500; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
 
@@ -1273,8 +1273,12 @@ void aircraft_load(Aircraft& self) {
 
 // degrees
 float aircraft_angle_of_attack(const Aircraft& self) {
-	float aoa = glm::degrees(glm::acos(self.angles.front.z));
-	return self.angles.front.y < 0 ? +aoa : -aoa;
+	bool other_side = glm::acos(-self.angles.up.y) > 1.5708f;
+	auto a = 90 + (other_side ? +1 : -1) * glm::degrees(glm::acos(-self.angles.front.y));
+	if (a > 180) {
+		return a - 360;
+	}
+	return a;
 }
 
 float aircraft_calc_drag_coeff(const Aircraft& self, float angle_of_attack) {
@@ -5087,15 +5091,13 @@ namespace sys {
 			}
 
 			// front v
-			float vel = glm::length(aircraft.velocity);
-			float vel_sq = pow(vel, 2);
+			float vel_sq = pow(glm::length(aircraft.velocity), 2);
 
 			// forces
 			{
 				auto engine_power_hp = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
-				TEXT_OVERLAY("engine_power_hp={} hp", engine_power_hp);
 				auto engine_power_j_s = engine_power_hp * 745.69;
-				aircraft.forces.thrust = engine_power_j_s / std::max(std::abs(vel), 0.01f) * aircraft.thrust_multiplier;
+				aircraft.forces.thrust = engine_power_j_s * aircraft.thrust_multiplier;
 			}
 
 			aircraft.forces.weight = aircraft_mass_total(aircraft) * 9.86f;
