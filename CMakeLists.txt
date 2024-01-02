@@ -131,6 +131,7 @@ add_executable(open-ysf
 	src/graphics.h
 	src/imgui.h
 	src/audio.h
+	src/assets.h
 )
 
 target_link_libraries(open-ysf

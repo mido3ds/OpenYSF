@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glad/glad.h>
+#include <mu/utils.h>
 
 void gl_process_errors() {
 	#ifndef NDEBUG

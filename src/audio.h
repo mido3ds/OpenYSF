@@ -6,7 +6,6 @@
 #include <string.h>
 
 #include <SDL.h>
-
 #include <mu/utils.h>
 
 // for stream at callback, bigger is slower, should be power of 2
