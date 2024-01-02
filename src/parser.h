@@ -227,6 +227,15 @@ mu::Str parser_token_str(Parser& self, mu::memory::Allocator* allocator = mu::me
 	return parser_token_str_with(self, [](char c){ return !::isspace(c); }, allocator);
 }
 
+mu::Str parser_token_any(Parser& self, std::initializer_list<mu::Str>&& args) {
+	for (const auto& arg : args) {
+		if (parser_accept(self, arg)) {
+			return arg;
+		}
+	}
+	parser_panic(self, "unexpected token");
+}
+
 bool parser_finished(Parser& self) {
 	return self.pos >= self.str.size();
 }

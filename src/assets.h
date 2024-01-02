@@ -279,17 +279,6 @@ struct StartInfo {
 	bool landing_gear_is_out = true;
 };
 
-bool _token_bool(Parser& parser) {
-	const auto x = parser_token_str(parser, mu::memory::tmp());
-	if (x == "TRUE") {
-		return true;
-	} else if (x == "FALSE") {
-		return false;
-	}
-	parser_panic(parser, "expected either TRUE or FALSE, found='{}'", x);
-	return false;
-}
-
 mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
 	auto parser = parser_from_file(stp_file_abs_path, mu::memory::tmp());
 
@@ -332,7 +321,7 @@ mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
 					mu::panic("throttle={} out of bounds [0,1]", start_info.throttle);
 				}
 			} else if (parser_accept(parser, "CTLLDGEA ")) {
-				start_info.landing_gear_is_out = _token_bool(parser);
+				start_info.landing_gear_is_out = parser_token_any(parser, {"TRUE", "FALSE"}) == "TRUE";
 				parser_expect(parser, '\n');
 			} else {
 				parser_panic(parser, "unrecognized type");
@@ -1386,7 +1375,7 @@ Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, '\n');
 
 	if (parser_accept(parser, "GNDSPECULAR ")) {
-		field.ground_specular = _token_bool(parser);
+		field.ground_specular = parser_token_any(parser, {"TRUE", "FALSE"}) == "TRUE";
 		parser_expect(parser, '\n');
 	}
 
