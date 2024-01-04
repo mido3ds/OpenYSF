@@ -270,6 +270,54 @@ void mesh_unload_from_gpu(Mesh& self) {
 	}
 }
 
+void meshes_foreach(mu::Vec<Mesh>& meshes, std::function<bool(Mesh&)> f) {
+	mu::Vec<Mesh*> stack(mu::memory::tmp());
+	for (auto& mesh : meshes) {
+		stack.push_back(&mesh);
+	}
+	while (stack.empty() == false) {
+		Mesh& mesh = *stack.back();
+		if (f(mesh) == false) return;
+		stack.pop_back();
+		for (auto& child : mesh.children) {
+			stack.push_back(&child);
+		}
+	}
+}
+
+void meshes_foreach(const mu::Vec<Mesh>& meshes, std::function<bool(const Mesh&)> f) {
+	mu::Vec<const Mesh*> stack(mu::memory::tmp());
+	for (const auto& mesh : meshes) {
+		stack.push_back(&mesh);
+	}
+	while (stack.empty() == false) {
+		const Mesh& mesh = *stack.back();
+		if (f(mesh) == false) return;
+		stack.pop_back();
+		for (auto& child : mesh.children) {
+			stack.push_back(&child);
+		}
+	}
+}
+
+AABB aabb_from_meshes(const mu::Vec<Mesh>& meshes) {
+	AABB aabb {
+		.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
+		.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
+	};
+
+	meshes_foreach(meshes, [&aabb](const Mesh& mesh) {
+		for (auto& v : mesh.vertices) {
+			const auto model_v = glm::vec3(mesh.transformation * glm::vec4(v, 1.0));
+			aabb.min = glm::min(aabb.min, model_v);
+			aabb.max = glm::max(aabb.max, model_v);
+		}
+		return true;
+	});
+
+	return aabb;
+}
+
 struct StartInfo {
 	mu::Str name;
 	glm::vec3 position;
@@ -339,29 +387,9 @@ mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
 // DNM See https://ysflightsim.fandom.com/wiki/DynaModel_Files
 struct Model {
 	mu::Vec<Mesh> meshes;
-
-	AABB initial_aabb;
-	AABB current_aabb;
-	bool render_aabb;
-
-	bool has_propellers;
-	bool has_afterburner;
-	bool has_high_throttle_mesh;
 };
 
-void model_load_to_gpu(Model& self) {
-	for (auto& mesh : self.meshes) {
-		mesh_load_to_gpu(mesh);
-	}
-}
-
-void model_unload_from_gpu(Model& self) {
-	for (auto& mesh : self.meshes) {
-		mesh_unload_from_gpu(mesh);
-	}
-}
-
-Mesh mesh_from_srf_str(Parser& parser, mu::StrView name) {
+Mesh _mesh_from_srf_str(Parser& parser, mu::StrView name) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
 	if (parser_accept(parser, "SURF\n") == false) {
 		parser_expect(parser, "Surf\n");
@@ -593,54 +621,33 @@ _str_unquote(mu::Str& s) {
 }
 
 void _model_adjust_after_loading(Model& self) {
-	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
-	mu::Vec<Mesh*> meshes_stack(mu::memory::tmp());
 	for (auto& mesh : self.meshes) {
 		mesh.transformation = glm::identity<glm::mat4>();
-		meshes_stack.push_back(&mesh);
-	}
-	while (meshes_stack.empty() == false) {
-		Mesh* mesh = *meshes_stack.rbegin();
-		meshes_stack.pop_back();
-
-		for (auto& v : mesh->vertices) {
-			v -= mesh->cnt;
-
-			// apply mesh transformation to get model space vertex
-			mesh->transformation = glm::translate(mesh->transformation, mesh->translation);
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->rotation[2], glm::vec3{0, 0, 1});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->rotation[1], glm::vec3{1, 0, 0});
-			mesh->transformation = glm::rotate(mesh->transformation, mesh->rotation[0], glm::vec3{0, 1, 0});
-			const auto model_v = mesh->transformation * glm::vec4(v, 1.0);
-
-			// update AABB
-			for (int i = 0; i < 3; i++) {
-				if (model_v[i] < self.initial_aabb.min[i]) {
-					self.initial_aabb.min[i] = model_v[i];
-				}
-				if (model_v[i] > self.initial_aabb.max[i]) {
-					self.initial_aabb.max[i] = model_v[i];
-				}
-			}
-		}
-
-		for (auto& child : mesh->children) {
-			child.cnt += mesh->cnt;
-			meshes_stack.push_back(&child);
-		}
 	}
 
-	self.current_aabb = self.initial_aabb;
+	// for each mesh: vertex -= mesh.CNT, mesh.children.each.cnt += mesh.cnt
+	meshes_foreach(self.meshes, [&self](Mesh& mesh) {
+		mesh.transformation = glm::translate(mesh.transformation, mesh.translation);
+		mesh.transformation = glm::rotate(mesh.transformation, mesh.rotation[2], glm::vec3{0, 0, 1});
+		mesh.transformation = glm::rotate(mesh.transformation, mesh.rotation[1], glm::vec3{1, 0, 0});
+		mesh.transformation = glm::rotate(mesh.transformation, mesh.rotation[0], glm::vec3{0, 1, 0});
+
+		for (auto& v : mesh.vertices) {
+			v -= mesh.cnt;
+		}
+
+		for (auto& child : mesh.children) {
+			child.cnt += mesh.cnt;
+			child.transformation = mesh.transformation;
+		}
+
+		return true;
+	});
 }
 
 Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 	auto parser = parser_from_file(dnm_file_abs_path, mu::memory::tmp());
-	Model model {
-		.initial_aabb = AABB {
-			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
-			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
-		},
-	};
+	Model model {};
 
 	parser_expect(parser, "DYNAMODEL\nDNMVER ");
 	const uint8_t dnm_version = parser_token_u8(parser);
@@ -659,7 +666,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		const auto pck_first_lineno = parser.curr_line;
 
 		auto subparser = parser_fork(parser, pck_expected_no_lines);
-		const auto mesh = mesh_from_srf_str(subparser, name);
+		const auto mesh = _mesh_from_srf_str(subparser, name);
 		while (parser_accept(parser, "\n")) {}
 
 		const auto current_lineno = parser.curr_line;
@@ -692,15 +699,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 		surf.name = name;
 
 		parser_expect(parser, "CLA ");
-		auto animation_type = parser_token_u8(parser);
-		surf.animation_type = (AnimationClass) animation_type;
-		if (surf.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER || surf.animation_type == AnimationClass::AIRCRAFT_SPINNER_PROPELLER_Z) {
-			model.has_propellers = true;
-		} else if (surf.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-			model.has_afterburner = true;
-		} else if (surf.animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE) {
-			model.has_high_throttle_mesh = true;
-		}
+		surf.animation_type = (AnimationClass) parser_token_u8(parser);
 		parser_expect(parser, '\n');
 
 		parser_expect(parser, "NST ");
@@ -870,11 +869,7 @@ Model model_from_srf_file(mu::StrView srf_file_abs_path) {
 	auto name = srf_file_abs_path.substr(i, j-i);
 
 	Model model {
-		.meshes = { mesh_from_srf_str(main_srf_parser, name) },
-		.initial_aabb = AABB {
-			.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
-			.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
-		},
+		.meshes = { _mesh_from_srf_str(main_srf_parser, name) }
 	};
 
 	_model_adjust_after_loading(model);
@@ -1677,7 +1672,7 @@ Field _field_from_fld_str(Parser& parser) {
 			field.pictures.push_back(picture);
 		} else if (parser_peek(parser, "Surf\n")) {
 			auto subparser = parser_fork(parser, total_lines_count);
-			auto mesh = mesh_from_srf_str(subparser, name);
+			auto mesh = _mesh_from_srf_str(subparser, name);
 			field.meshes.push_back(mesh);
 		} else {
 			parser_panic(parser, "{}: invalid type '{}'", parser.curr_line+1, parser_token_str(parser, mu::memory::tmp()));

@@ -1,4 +1,3 @@
-- remove model
 - store rudder/elevetor/aileron configs and change them by keyboard
 - add: aileron applies torque
 - add: aileron adds drag
