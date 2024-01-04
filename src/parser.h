@@ -263,60 +263,60 @@ Parser parser_fork(Parser& self, size_t lines) {
 }
 
 void test_parser() {
+	mu_test_suite("test_parser");
+
 	Parser parser = parser_from_str("hello world \r\n m", mu::memory::tmp());
 	auto orig = parser;
 
-	mu_assert(parser_peek(parser, "hello"));
-	mu_assert(parser_peek(parser, "ello") == false);
+	mu_test(parser_peek(parser, "hello"));
+	mu_test(parser_peek(parser, "ello") == false);
 
 	{
 		parser = orig;
-		mu_assert(parser_accept(parser, "hello"));
-		mu_assert(parser_accept(parser, ' '));
-		mu_assert(parser_finished(parser) == false);
-		mu_assert(parser.curr_line == 0);
-		mu_assert(parser_accept(parser, "world \n"));
-		mu_assert(parser.curr_line == 1);
-		mu_assert(parser_accept(parser, " m"));
-		mu_assert(parser_finished(parser));
+		mu_test(parser_accept(parser, "hello"));
+		mu_test(parser_accept(parser, ' '));
+		mu_test(parser_finished(parser) == false);
+		mu_test(parser.curr_line == 0);
+		mu_test(parser_accept(parser, "world \n"));
+		mu_test(parser.curr_line == 1);
+		mu_test(parser_accept(parser, " m"));
+		mu_test(parser_finished(parser));
 
 		parser = orig;
-		mu_assert(parser_accept(parser, "ello") == false);
+		mu_test(parser_accept(parser, "ello") == false);
 	}
 
 	{
 		parser = orig;
 		parser_expect(parser, "hello");
 		parser_expect(parser, ' ');
-		mu_assert(parser.curr_line == 0);
+		mu_test(parser.curr_line == 0);
 		parser_expect(parser, "world \n");
-		mu_assert(parser.curr_line == 1);
+		mu_test(parser.curr_line == 1);
 		parser_expect(parser, " m");
 	}
 
 	parser = parser_from_str("5\n-1.4\nhello 1%", mu::memory::tmp());
-	mu_assert(parser_token_u64(parser) == 5);
+	mu_test(parser_token_u64(parser) == 5);
 	parser_expect(parser, '\n');
-	mu_assert(parser_token_float(parser) == -1.4f);
+	mu_test(parser_token_float(parser) == -1.4f);
 	parser_expect(parser, '\n');
-	mu_assert(parser_token_str(parser, mu::memory::tmp()) == "hello");
+	mu_test(parser_token_str(parser, mu::memory::tmp()) == "hello");
 	parser_expect(parser, ' ');
-	mu_assert(parser_token_u64(parser) == 1);
+	mu_test(parser_token_u64(parser) == 1);
 	parser_expect(parser, '%');
-	mu_assert(parser.curr_line == 2);
+	mu_test(parser.curr_line == 2);
 
 	parser = parser_from_str("0deg 0.2ft 15HP 1.2 2%", mu::memory::tmp());
-	mu_assert(parser_token_float(parser) == 0);
-	mu_assert(parser_accept_unit(parser) == 1);
+	mu_test(parser_token_float(parser) == 0);
+	mu_test(parser_accept_unit(parser) == 1);
 	parser_expect(parser, ' ');
-	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.06096f));
+	mu_test(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.06096f));
 	parser_expect(parser, ' ');
-	mu_assert(almost_equal((float)parser_token_i64(parser) * parser_accept_unit(parser), 15.0f));
+	mu_test(almost_equal((float)parser_token_i64(parser) * parser_accept_unit(parser), 15.0f));
 	parser_expect(parser, ' ');
-	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 1.2));
+	mu_test(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 1.2));
 	parser_expect(parser, ' ');
-	mu_assert(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.02));
-	mu_assert(parser_finished(parser));
-
-	mu::log_debug("test_parser: all tests pass");
+	mu_test(almost_equal(parser_token_float(parser) * parser_accept_unit(parser), 0.02));
+	mu_test(parser_finished(parser));
 }

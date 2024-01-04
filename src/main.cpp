@@ -700,7 +700,7 @@ struct SysMon {
 		static const auto __sysmon_index = _sysmon_register_system(world.sysmon, __FUNCTION_NAME__);	\
 		if (world.sysmon.systems[__sysmon_index].enabled == false) { return; }							\
 		const auto __sysmon_start = std::chrono::high_resolution_clock::now();							\
-		defer(_sysinfo_update(world.sysmon.systems[__sysmon_index], __sysmon_start));
+		mu_defer(_sysinfo_update(world.sysmon.systems[__sysmon_index], __sysmon_start));
 #else
 	#define DEF_SYSTEM(_) void();
 #endif
@@ -1725,7 +1725,7 @@ namespace sys {
 		audio_device_init(&world.audio_device);
 
 		// load audio buffers
-		auto file_paths = _dir_list_files_with(ASSETS_DIR "/sound", [](const auto& s) { return s.ends_with(".wav"); });
+		auto file_paths = mu::dir_list_files_with(ASSETS_DIR "/sound", [](const auto& s) { return s.ends_with(".wav"); });
 		for (const auto& file_path : file_paths) {
 			auto base = mu::file_get_base_name(file_path);
 			base.remove_suffix(mu::StrView(".wav").length());
@@ -2090,13 +2090,13 @@ namespace sys {
 		if (FT_Init_FreeType(&ft)) {
 			mu::panic("could not init FreeType Library");
 		}
-		defer(FT_Done_FreeType(ft));
+		mu_defer(FT_Done_FreeType(ft));
 
 		FT_Face face;
 		if (FT_New_Face(ft, ASSETS_DIR "/fonts/zig.ttf", 0, &face)) {
 			mu::panic("failed to load font");
 		}
-		defer(FT_Done_Face(face));
+		mu_defer(FT_Done_Face(face));
 
 		uint16_t face_height = 48;
 		uint16_t face_width = 0; // auto
@@ -3274,7 +3274,7 @@ namespace sys {
 					case Primitive2D::Kind::GRADATION_QUAD_STRIPS:
 						gl_primitive_type = GL_TRIANGLES;
 						break;
-					default: unreachable();
+					default: mu_unreachable();
 					}
 
 					gnd_pic.list_primitives.push_back(canvas::GndPic::Primitive {
@@ -3677,27 +3677,27 @@ int main() {
 	test_line_segments_to_lines();
 
 	sys::sdl_init(world);
-	defer(sys::sdl_free(world));
+	mu_defer(sys::sdl_free(world));
 
 	sys::projection_init(world);
 
 	sys::imgui_init(world);
-	defer(sys::imgui_free(world));
+	mu_defer(sys::imgui_free(world));
 
 	sys::canvas_init(world);
-	defer(sys::canvas_free(world));
+	mu_defer(sys::canvas_free(world));
 
 	sys::audio_init(world);
-	defer(sys::audio_free(world));
+	mu_defer(sys::audio_free(world));
 
 	sys::scenery_init(world);
-	defer(sys::scenery_free(world));
+	mu_defer(sys::scenery_free(world));
 
 	sys::aircrafts_init(world);
-	defer(sys::aircrafts_free(world));
+	mu_defer(sys::aircrafts_free(world));
 
 	sys::ground_objs_init(world);
-	defer(sys::ground_objs_free(world));
+	mu_defer(sys::ground_objs_free(world));
 
 	signal_listen(world.signals.quit);
 	while (!signal_handle(world.signals.quit)) {

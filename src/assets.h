@@ -882,26 +882,6 @@ Model model_from_srf_file(mu::StrView srf_file_abs_path) {
 	return model;
 }
 
-// trim from start (in place)
-void _str_ltrim(mu::Str& s) {
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }));
-}
-
-// trim from end (in place)
-void _str_rtrim(mu::Str& s) {
-    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base(), s.end());
-}
-
-// trim from both ends (in place)
-void _str_trim(mu::Str& s) {
-    _str_rtrim(s);
-    _str_ltrim(s);
-}
-
 struct DATMap {
 	mu::Map<mu::Str, mu::Str> map;
 };
@@ -943,7 +923,7 @@ DATMap datmap_from_dat_file(mu::StrView dat_file_path) {
 			}
 
 			auto value = parser_token_str_with(parser, [](char c){ return c != '#' && c != '\n'; });
-			_str_trim(value);
+			mu::str_trim_spaces(value);
 
 			parser_skip_after(parser, '\n');
 
@@ -1073,26 +1053,8 @@ void _aircraft_templates_from_lst_file(mu::StrView lst_file_path, mu::Map<mu::St
 	}
 }
 
-template<typename Function>
-mu::Vec<mu::Str> _dir_list_files_with(mu::StrView dir_abs_path, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
-	mu::Vec<mu::Str> out;
-
-	for (const auto & entry : std::filesystem::directory_iterator(dir_abs_path)) {
-		if (entry.is_regular_file()) {
-			auto filename = entry.path().filename().string();
-			auto path = entry.path().string();
-
-			if (predicate(filename)) {
-				out.push_back(mu::Str(path, allocator));
-			}
-		}
-	}
-
-	return out;
-}
-
 mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_dir(mu::StrView dir_abs_path) {
-	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
+	auto sce_lst_files = mu::dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("air") && filename.ends_with(".lst");
 	}, mu::memory::tmp());
 
@@ -1287,7 +1249,7 @@ namespace fmt {
 			case AreaKind::NOAREA: return fmt::format_to(ctx.out(), "AreaKind::NOAREA");
 			case AreaKind::LAND:   return fmt::format_to(ctx.out(), "AreaKind::LAND");
 			case AreaKind::WATER:  return fmt::format_to(ctx.out(), "AreaKind::WATER");
-			default: unreachable();
+			default: mu_unreachable();
 			}
 			return fmt::format_to(ctx.out(), "????????");
 		}
@@ -1331,10 +1293,6 @@ struct Field {
 	glm::vec3 rotation; // roll, pitch, yaw
 	bool visible = true;
 };
-
-void _str_to_lower(mu::Str& s) {
-	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
-}
 
 Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, "FIELD\n");
@@ -2106,7 +2064,7 @@ void _scenery_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str
 }
 
 mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs_path) {
-	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
+	auto sce_lst_files = mu::dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("sce") && filename.ends_with(".lst");
 	}, mu::memory::tmp());
 
@@ -2181,7 +2139,7 @@ void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::
 }
 
 mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates_from_dir(mu::StrView dir_abs_path) {
-	auto sce_lst_files = _dir_list_files_with(dir_abs_path, [](const auto& filename) {
+	auto sce_lst_files = mu::dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("gro") && filename.ends_with(".lst");
 	}, mu::memory::tmp());
 

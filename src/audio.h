@@ -180,7 +180,7 @@ bool audio_device_is_playing(const AudioDevice& self, const AudioBuffer& audio) 
 
 void audio_device_stop(AudioDevice& self, const AudioBuffer& audio) {
     SDL_LockAudioDevice(self.id);
-	defer(SDL_UnlockAudioDevice(self.id));
+	mu_defer(SDL_UnlockAudioDevice(self.id));
 
 	for (size_t i = 0; i < self.playbacks.size(); i++) {
 		if (self.playbacks[i].audio == &audio) {

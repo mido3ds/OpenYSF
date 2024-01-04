@@ -16,106 +16,6 @@ constexpr float YS_MAX      = 0xFFFF;
 constexpr float RADIANS_MAX = 6.283185307179586f;
 constexpr float DEGREES_MAX = 360.0f;
 
-namespace fmt {
-	template<>
-	struct formatter<glm::uvec2> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const glm::uvec2 &v, FormatContext &ctx) {
-			return fmt::format_to(ctx.out(), "glm::uvec2{{{}, {}}}", v.x, v.y);
-		}
-	};
-}
-
-namespace fmt {
-	template<>
-	struct formatter<glm::vec2> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const glm::vec2 &v, FormatContext &ctx) {
-			return fmt::format_to(ctx.out(), "glm::vec2{{{}, {}}}", v.x, v.y);
-		}
-	};
-}
-
-namespace fmt {
-	template<>
-	struct formatter<glm::vec3> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const glm::vec3 &v, FormatContext &ctx) {
-			return fmt::format_to(ctx.out(), "glm::vec3{{{}, {}, {}}}", v.x, v.y, v.z);
-		}
-	};
-}
-
-namespace fmt {
-	template<>
-	struct formatter<glm::vec4> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const glm::vec4 &v, FormatContext &ctx) {
-			return fmt::format_to(ctx.out(), "glm::vec4{{{}, {}, {}, {}}}", v.x, v.y, v.z, v.w);
-		}
-	};
-}
-
-namespace fmt {
-	template<>
-	struct formatter<glm::mat3> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const glm::mat3 &m, FormatContext &ctx) {
-			return fmt::format_to(
-				ctx.out(),
-				"glm::mat3{{\n"
-				" {} {} {}\n"
-				" {} {} {}\n"
-				" {} {} {}\n"
-				"}}",
-				m[0][0], m[0][1], m[0][2],
-				m[1][0], m[1][1], m[1][2],
-				m[2][0], m[2][1], m[2][2]
-			);
-		}
-	};
-}
-
-namespace fmt {
-	template<>
-	struct formatter<glm::mat4> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const glm::mat4 &m, FormatContext &ctx) {
-			return fmt::format_to(
-				ctx.out(),
-				"glm::mat4{{\n"
-				" {} {} {} {}\n"
-				" {} {} {} {}\n"
-				" {} {} {} {}\n"
-				" {} {} {} {}\n"
-				"}}",
-				m[0][0], m[0][1], m[0][2], m[0][3],
-				m[1][0], m[1][1], m[1][2], m[1][3],
-				m[2][0], m[2][1], m[2][2], m[2][3],
-				m[3][0], m[3][1], m[3][2], m[3][3]
-			);
-		}
-	};
-}
-
 // euclidean modulo (https://stackoverflow.com/a/52529440)
 // always positive
 constexpr
@@ -139,19 +39,6 @@ struct AABB {
 	glm::vec3 min, max;
 };
 
-namespace fmt {
-	template<>
-	struct formatter<AABB> {
-		template <typename ParseContext>
-		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
-
-		template <typename FormatContext>
-		auto format(const AABB &s, FormatContext &ctx) {
-			return fmt::format_to(ctx.out(), "AABB{{max: {}, min: {}}}", s.min, s.max);
-		}
-	};
-}
-
 // no intersection if separated along an axis
 // overlapping on all axes means AABBs are intersecting
 bool aabbs_intersect(const AABB& a, const AABB& b) {
@@ -159,6 +46,8 @@ bool aabbs_intersect(const AABB& a, const AABB& b) {
 }
 
 void test_aabbs_intersection() {
+	mu_test_suite("test_aabbs_intersection");
+
 	{
 		const AABB x {
 			.min={0.0f, 0.0f, 2.0f},
@@ -168,7 +57,7 @@ void test_aabbs_intersection() {
 			.min={0.5f, 0.5f, 3.0f},
 			.max={3.0f, 3.0f, 4.0f},
 		};
-		mu_assert(aabbs_intersect(x, y));
+		mu_test(aabbs_intersect(x, y));
 	}
 
 	{
@@ -180,7 +69,7 @@ void test_aabbs_intersection() {
 			.min={0.5f, 0.5f, -3.0f},
 			.max={3.0f, 3.0f, -4.0f},
 		};
-		mu_assert(aabbs_intersect(x, y) == false);
+		mu_test(aabbs_intersect(x, y) == false);
 	}
 
 	{
@@ -192,10 +81,8 @@ void test_aabbs_intersection() {
 			.min={0.5f, 0.5f, -3.0f},
 			.max={3.0f, 3.0f, 4.0f},
 		};
-		mu_assert(aabbs_intersect(x, y));
+		mu_test(aabbs_intersect(x, y));
 	}
-
-	mu::log_debug(__FUNCTION__ ": all passed");
 }
 
 // margin of error
@@ -459,6 +346,8 @@ polygons2d_to_triangles(const mu::Vec<glm::vec2>& vertices, mu::memory::Allocato
 }
 
 void test_polygons_to_triangles() {
+	mu_test_suite("test_polygons_to_triangles");
+
 	{
 		const mu::Vec<glm::vec3> vertices {
 			{2,4,0},
@@ -469,7 +358,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = mu::Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		mu_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
+		mu_test(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
@@ -479,7 +368,7 @@ void test_polygons_to_triangles() {
 		glm::vec3 c {4,3,0};
 		glm::vec3 d {3,2,0};
 
-		mu_assert(lines_intersect(a, b, c, d) == false);
+		mu_test(lines_intersect(a, b, c, d) == false);
 	}
 
 	{
@@ -489,7 +378,7 @@ void test_polygons_to_triangles() {
 		glm::vec3 c {1.311345, -0.000053,  1.717336};
 		glm::vec3 d {1.311345,  0.512254,  2.414495};
 
-		mu_assert(lines_intersect(a, b, c, d) == false);
+		mu_test(lines_intersect(a, b, c, d) == false);
 	}
 
 	{
@@ -501,7 +390,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = mu::Vec<uint32_t>({0,1,2,3});
 		const glm::vec3 center {4, 3, 0};
-		mu_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
+		mu_test(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({3, 0, 1, 1, 2, 3}));
 	}
 
 	{
@@ -514,7 +403,7 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = mu::Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {3, 3, 0};
-		mu_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
+		mu_test(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({4, 0, 1, 4, 1, 2, 2, 3, 4}));
 	}
 
 	{
@@ -527,10 +416,8 @@ void test_polygons_to_triangles() {
 		};
 		const auto indices = mu::Vec<uint32_t>({0,1,2,3,4});
 		const glm::vec3 center {0.25, -0.742, 0.492};
-		mu_assert(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
+		mu_test(polygons_to_triangles(vertices, indices, center) == mu::Vec<uint32_t>({2, 3, 4, 1, 2, 4, 0, 1, 4}));
 	}
-
-	mu::log_debug(__FUNCTION__ ": all passed");
 }
 
 template<typename T>
@@ -611,6 +498,8 @@ mu::Vec<glm::vec2> line_segments_to_lines(const mu::Vec<glm::vec2>& line_segment
 }
 
 void test_line_segments_to_lines() {
+	mu_test_suite("test_line_segments_to_lines");
+
 	constexpr glm::vec2 P[] = {
 		glm::vec2{-3, 5},
 		glm::vec2{3, 5},
@@ -618,11 +507,109 @@ void test_line_segments_to_lines() {
 		glm::vec2{0, 1},
 	};
 
-	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({})) == mu::Vec<glm::vec2>({}));
-	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1]})) == mu::Vec<glm::vec2>({P[0], P[1]}));
-	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2]}));
-	mu_assert(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2], P[3]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2], P[2], P[3]}));
-
-	mu::log_debug(__FUNCTION__ ": all passed");
+	mu_test(line_segments_to_lines(mu::Vec<glm::vec2>({})) == mu::Vec<glm::vec2>({}));
+	mu_test(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1]})) == mu::Vec<glm::vec2>({P[0], P[1]}));
+	mu_test(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2]}));
+	mu_test(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2], P[3]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2], P[2], P[3]}));
 }
 
+namespace fmt {
+	template<>
+	struct formatter<glm::uvec2> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::uvec2 &v, FormatContext &ctx) {
+			return fmt::format_to(ctx.out(), "glm::uvec2{{{}, {}}}", v.x, v.y);
+		}
+	};
+
+	template<>
+	struct formatter<glm::vec2> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::vec2 &v, FormatContext &ctx) {
+			return fmt::format_to(ctx.out(), "glm::vec2{{{}, {}}}", v.x, v.y);
+		}
+	};
+
+	template<>
+	struct formatter<glm::vec3> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::vec3 &v, FormatContext &ctx) {
+			return fmt::format_to(ctx.out(), "glm::vec3{{{}, {}, {}}}", v.x, v.y, v.z);
+		}
+	};
+
+	template<>
+	struct formatter<glm::vec4> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::vec4 &v, FormatContext &ctx) {
+			return fmt::format_to(ctx.out(), "glm::vec4{{{}, {}, {}, {}}}", v.x, v.y, v.z, v.w);
+		}
+	};
+
+	template<>
+	struct formatter<glm::mat3> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::mat3 &m, FormatContext &ctx) {
+			return fmt::format_to(
+				ctx.out(),
+				"glm::mat3{{\n"
+				" {} {} {}\n"
+				" {} {} {}\n"
+				" {} {} {}\n"
+				"}}",
+				m[0][0], m[0][1], m[0][2],
+				m[1][0], m[1][1], m[1][2],
+				m[2][0], m[2][1], m[2][2]
+			);
+		}
+	};
+
+	template<>
+	struct formatter<glm::mat4> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const glm::mat4 &m, FormatContext &ctx) {
+			return fmt::format_to(
+				ctx.out(),
+				"glm::mat4{{\n"
+				" {} {} {} {}\n"
+				" {} {} {} {}\n"
+				" {} {} {} {}\n"
+				" {} {} {} {}\n"
+				"}}",
+				m[0][0], m[0][1], m[0][2], m[0][3],
+				m[1][0], m[1][1], m[1][2], m[1][3],
+				m[2][0], m[2][1], m[2][2], m[2][3],
+				m[3][0], m[3][1], m[3][2], m[3][3]
+			);
+		}
+	};
+
+	template<>
+	struct formatter<AABB> {
+		template <typename ParseContext>
+		constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
+
+		template <typename FormatContext>
+		auto format(const AABB &s, FormatContext &ctx) {
+			return fmt::format_to(ctx.out(), "AABB{{max: {}, min: {}}}", s.min, s.max);
+		}
+	};
+}
