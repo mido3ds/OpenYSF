@@ -148,7 +148,13 @@ struct Aircraft {
 	float thrust_multiplier = 500; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
-	LinearFuncConsts cl_consts;
+
+	struct {
+		float aoa_crit_neg, aoa_crit_pos;
+		QuadraticFuncConsts quad_neg;
+		LinearFuncConsts linear;
+		QuadraticFuncConsts quad_pos;
+	} cl_consts;
 	QuadraticFuncConsts cd_consts;
 
 	struct {
@@ -271,8 +277,25 @@ void aircraft_load(Aircraft& self) {
 				aoa1 = arr[0]; cl1 = arr[1]; aoa2 = arr[2]; cl2 = arr[3];
 			}
 		}
+		self.cl_consts.linear = linear_func_new({aoa1, cl1}, {aoa2, cl2});
 
-		self.cl_consts = linear_func_new({aoa1, cl1}, {aoa2, cl2});
+		self.cl_consts.aoa_crit_pos = 20;
+		if (auto arr = datmap_get_floats(self.dat, "CRITAOAP", mu::memory::tmp()); arr.size() == 1) {
+			self.cl_consts.aoa_crit_pos = arr[0];
+		}
+		self.cl_consts.aoa_crit_neg = -15;
+		if (auto arr = datmap_get_floats(self.dat, "CRITAOAM", mu::memory::tmp()); arr.size() == 1) {
+			self.cl_consts.aoa_crit_neg = arr[0];
+		}
+
+		self.cl_consts.quad_neg = quad_func_new(
+			{self.cl_consts.aoa_crit_neg, linear_func_eval(self.cl_consts.linear, self.cl_consts.aoa_crit_neg)},
+			{-100, 2}
+		);
+		self.cl_consts.quad_pos = quad_func_new(
+			{self.cl_consts.aoa_crit_pos, linear_func_eval(self.cl_consts.linear, self.cl_consts.aoa_crit_pos)},
+			{100, -2}
+		);
 	}
 
 	// Cd
@@ -307,7 +330,13 @@ float aircraft_calc_drag_coeff(const Aircraft& self, float angle_of_attack) {
 }
 
 float aircraft_calc_lift_coeff(const Aircraft& self, float angle_of_attack) {
-	return linear_func_eval(self.cl_consts, angle_of_attack);
+	if (angle_of_attack < self.cl_consts.aoa_crit_neg) {
+		return quad_func_eval(self.cl_consts.quad_neg, angle_of_attack);
+	}
+	if (angle_of_attack > self.cl_consts.aoa_crit_pos) {
+		return quad_func_eval(self.cl_consts.quad_pos, angle_of_attack);
+	}
+	return linear_func_eval(self.cl_consts.linear, angle_of_attack);
 }
 
 void aircraft_unload(Aircraft& self) {
@@ -1499,9 +1528,6 @@ namespace sys {
 							ImGui::DragFloat("Cd.x", &aircraft.cd_consts.x, 0.0001, 0, 0.08);
 							ImGui::DragFloat("Cd.y", &aircraft.cd_consts.y, 0.1);
 							ImGui::DragFloat("Cd.z", &aircraft.cd_consts.z, 0.1);
-							ImGui::Spacing();
-							ImGui::DragFloat("Cl.x", &aircraft.cl_consts.x, 0.01, 0, 0.1);
-							ImGui::DragFloat("Cl.y", &aircraft.cl_consts.y, 0.05, 0, 0.8);
 
 							ImGui::TreePop();
 						}

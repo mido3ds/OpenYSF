@@ -517,13 +517,16 @@ void test_line_segments_to_lines() {
 // consts = {a,b,c}
 using QuadraticFuncConsts = glm::vec3;
 
-QuadraticFuncConsts quad_func_new(glm::vec2 min_p, glm::vec2 p) {
-	mu_assert(min_p.y < p.y);
-
-	glm::vec3 x { min_p.x, p.x, min_p.x - p.x };
-	glm::mat3 M { x * x, x, glm::vec3{1,1,1} };
-	glm::vec3 y { min_p.y, p.y, p.y };
-	return glm::inverse(M) * y;
+// using center and a point on parabola
+QuadraticFuncConsts quad_func_new(glm::vec2 c, glm::vec2 p) {
+	glm::vec2 t { c.x-p.x, p.y }; // 3rd point is mirrored
+	glm::mat3 M {
+		c.x*c.x, c.x, 1,
+		p.x*p.x, p.x, 1,
+		t.x*t.x, t.x, 1,
+	};
+	glm::vec3 y { c.y, p.y, t.y };
+	return glm::inverse(glm::transpose(M)) * y;
 }
 
 // f(x)
@@ -541,7 +544,7 @@ LinearFuncConsts linear_func_new(glm::vec2 p1, glm::vec2 p2) {
 		p2.x, 1,
 	};
 	glm::vec2 y { p1.y, p2.y };
-	return glm::inverse(M) * y;
+	return glm::inverse(glm::transpose(M)) * y;
 }
 
 // f(x)
