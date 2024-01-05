@@ -150,10 +150,11 @@ struct Aircraft {
 	float throttle = 0;
 
 	struct {
-		float aoa_crit_neg, aoa_crit_pos;
-		QuadraticFuncConsts quad_neg;
 		LinearFuncConsts linear;
-		QuadraticFuncConsts quad_pos;
+
+		bool quad_funcs_dirty;
+		float aoa_crit_neg, aoa_crit_pos;
+		QuadraticFuncConsts quad_neg, quad_pos;
 	} cl_consts;
 	QuadraticFuncConsts cd_consts;
 
@@ -271,31 +272,23 @@ void aircraft_load(Aircraft& self) {
 	// REALPROP 0 CL 0deg 0.2 15deg 1.2      # 4 argument.  AOA1 cl1 AOA2 cl2   (Approximated by a linear function)
 	{
 		float aoa1 = 0, cl1 = 0.2, aoa2 = 15, cl2 = 1.2;
+		self.cl_consts.aoa_crit_neg = -15;
+		self.cl_consts.aoa_crit_pos = 20;
 
 		if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
 			if (auto arr = datmap_get_floats(self.dat, "REALPROP 0 CL", mu::memory::tmp()); arr.size() == 4) {
 				aoa1 = arr[0]; cl1 = arr[1]; aoa2 = arr[2]; cl2 = arr[3];
 			}
 		}
-		self.cl_consts.linear = linear_func_new({aoa1, cl1}, {aoa2, cl2});
-
-		self.cl_consts.aoa_crit_pos = 20;
 		if (auto arr = datmap_get_floats(self.dat, "CRITAOAP", mu::memory::tmp()); arr.size() == 1) {
 			self.cl_consts.aoa_crit_pos = arr[0];
 		}
-		self.cl_consts.aoa_crit_neg = -15;
 		if (auto arr = datmap_get_floats(self.dat, "CRITAOAM", mu::memory::tmp()); arr.size() == 1) {
 			self.cl_consts.aoa_crit_neg = arr[0];
 		}
 
-		self.cl_consts.quad_neg = quad_func_new(
-			{self.cl_consts.aoa_crit_neg, linear_func_eval(self.cl_consts.linear, self.cl_consts.aoa_crit_neg)},
-			{-100, 2}
-		);
-		self.cl_consts.quad_pos = quad_func_new(
-			{self.cl_consts.aoa_crit_pos, linear_func_eval(self.cl_consts.linear, self.cl_consts.aoa_crit_pos)},
-			{100, -2}
-		);
+		self.cl_consts.linear = linear_func_new({aoa1, cl1}, {aoa2, cl2});
+		self.cl_consts.quad_funcs_dirty = true;
 	}
 
 	// Cd
@@ -1528,6 +1521,10 @@ namespace sys {
 							ImGui::DragFloat("Cd.x", &aircraft.cd_consts.x, 0.0001, 0, 0.08);
 							ImGui::DragFloat("Cd.y", &aircraft.cd_consts.y, 0.1);
 							ImGui::DragFloat("Cd.z", &aircraft.cd_consts.z, 0.1);
+							ImGui::Spacing();
+							aircraft.cl_consts.quad_funcs_dirty = false;
+							aircraft.cl_consts.quad_funcs_dirty |= ImGui::DragFloat("Cl.AoA_crit-", &aircraft.cl_consts.aoa_crit_neg, 5, -100, 0);
+							aircraft.cl_consts.quad_funcs_dirty |= ImGui::DragFloat("Cl.AoA_crit+", &aircraft.cl_consts.aoa_crit_pos, 5, 0, 100);
 
 							ImGui::TreePop();
 						}
@@ -3125,6 +3122,24 @@ namespace sys {
 		}
 	}
 
+	void _aircrafts_update_cl_function(World& world) {
+		DEF_SYSTEM
+
+		for (auto& aircraft : world.aircrafts) {
+			if (aircraft.cl_consts.quad_funcs_dirty) {
+				aircraft.cl_consts.quad_funcs_dirty = false;
+				aircraft.cl_consts.quad_neg = quad_func_new(
+					{aircraft.cl_consts.aoa_crit_neg, linear_func_eval(aircraft.cl_consts.linear, aircraft.cl_consts.aoa_crit_neg)},
+					{-100, 2}
+				);
+				aircraft.cl_consts.quad_pos = quad_func_new(
+					{aircraft.cl_consts.aoa_crit_pos, linear_func_eval(aircraft.cl_consts.linear, aircraft.cl_consts.aoa_crit_pos)},
+					{100, -2}
+				);
+			}
+		}
+	}
+
 	void aircrafts_update(World& world) {
 		DEF_SYSTEM
 
@@ -3136,6 +3151,7 @@ namespace sys {
 
 		_aircrafts_reload(world);
 		_aircrafts_remove(world);
+		_aircrafts_update_cl_function(world);
 		_aircrafts_apply_user_controls(world);
 		_aircrafts_apply_physics(world);
 	}
