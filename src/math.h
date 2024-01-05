@@ -513,6 +513,42 @@ void test_line_segments_to_lines() {
 	mu_test(line_segments_to_lines(mu::Vec<glm::vec2>({P[0], P[1], P[2], P[3]})) == mu::Vec<glm::vec2>({P[0], P[1], P[1], P[2], P[2], P[3]}));
 }
 
+// f(x) = a*x^2 + b*x + c
+// consts = {a,b,c}
+using QuadraticFuncConsts = glm::vec3;
+
+QuadraticFuncConsts quad_func_new(glm::vec2 min_p, glm::vec2 p) {
+	mu_assert(min_p.y < p.y);
+
+	glm::vec3 x { min_p.x, p.x, min_p.x - p.x };
+	glm::mat3 M { x * x, x, glm::vec3{1,1,1} };
+	glm::vec3 y { min_p.y, p.y, p.y };
+	return glm::inverse(M) * y;
+}
+
+// f(x)
+float quad_func_eval(QuadraticFuncConsts c, float x) {
+	return c[0]*x*x + c[1]*x + c[2];
+}
+
+// f(x) = a*x + b
+// consts = {a,b}
+using LinearFuncConsts = glm::vec2;
+
+LinearFuncConsts linear_func_new(glm::vec2 p1, glm::vec2 p2) {
+	glm::mat2 M {
+		p1.x, 1,
+		p2.x, 1,
+	};
+	glm::vec2 y { p1.y, p2.y };
+	return glm::inverse(M) * y;
+}
+
+// f(x)
+float linear_func_eval(LinearFuncConsts c, float x) {
+	return c[0]*x + c[1];
+}
+
 namespace fmt {
 	template<>
 	struct formatter<glm::uvec2> {
@@ -572,9 +608,9 @@ namespace fmt {
 				" {} {} {}\n"
 				" {} {} {}\n"
 				"}}",
-				m[0][0], m[0][1], m[0][2],
-				m[1][0], m[1][1], m[1][2],
-				m[2][0], m[2][1], m[2][2]
+				m[0][0], m[1][0], m[2][0],
+				m[0][1], m[1][1], m[2][1],
+				m[0][2], m[1][2], m[2][2]
 			);
 		}
 	};

@@ -148,14 +148,8 @@ struct Aircraft {
 	float thrust_multiplier = 500; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
-
-	struct {
-		float a = 0.0017f, b = 5.9f, c = 0.1f;
-	} cd_consts;
-
-	struct {
-		float a = 0.069f, b = 0.3f, c = 5.0f, aoa_critical = 30;
-	} cl_consts;
+	LinearFuncConsts cl_consts;
+	QuadraticFuncConsts cd_consts;
 
 	struct {
 		float speed_percent; // 0 -> 1
@@ -267,6 +261,34 @@ void aircraft_load(Aircraft& self) {
 		self.wing_area = arr[0];
 	}
 
+	// Cl
+	// REALPROP 0 CL 0deg 0.2 15deg 1.2      # 4 argument.  AOA1 cl1 AOA2 cl2   (Approximated by a linear function)
+	{
+		float aoa1 = 0, cl1 = 0.2, aoa2 = 15, cl2 = 1.2;
+
+		if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
+			if (auto arr = datmap_get_floats(self.dat, "REALPROP 0 CL", mu::memory::tmp()); arr.size() == 4) {
+				aoa1 = arr[0]; cl1 = arr[1]; aoa2 = arr[2]; cl2 = arr[3];
+			}
+		}
+
+		self.cl_consts = linear_func_new({aoa1, cl1}, {aoa2, cl2});
+	}
+
+	// Cd
+	// REALPROP 0 CD -5deg 0.006 20deg 0.4   # 4 argument.  AOAminCd minCd AOA1 cd1 (Approximated by a quadratic function)
+	{
+		float aoa_min = -5, cd_min = 0.006f, aoa1 = 20, cl1 = 0.4f;
+
+		if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
+			if (auto arr = datmap_get_floats(self.dat, "REALPROP 0 CD", mu::memory::tmp()); arr.size() == 4) {
+				aoa_min = arr[0]; cd_min = arr[1]; aoa1 = arr[2]; cl1 = arr[3];
+			}
+		}
+
+		self.cd_consts = quad_func_new({aoa_min, cd_min}, {aoa1, cl1});
+	}
+
 	self.should_be_loaded = false;
 }
 
@@ -281,14 +303,11 @@ float aircraft_angle_of_attack(const Aircraft& self) {
 }
 
 float aircraft_calc_drag_coeff(const Aircraft& self, float angle_of_attack) {
-	return self.cd_consts.a * pow(angle_of_attack + self.cd_consts.b, 2) + self.cd_consts.c;
+	return quad_func_eval(self.cd_consts, angle_of_attack);
 }
 
 float aircraft_calc_lift_coeff(const Aircraft& self, float angle_of_attack) {
-	if (angle_of_attack >= -self.cl_consts.aoa_critical && angle_of_attack <= self.cl_consts.aoa_critical) {
-		return self.cl_consts.a * angle_of_attack + self.cl_consts.b;
-	}
-	return self.cl_consts.a * angle_of_attack - self.cl_consts.c * self.cl_consts.b;
+	return linear_func_eval(self.cl_consts, angle_of_attack);
 }
 
 void aircraft_unload(Aircraft& self) {
@@ -1477,14 +1496,12 @@ namespace sys {
 								ImPlot::EndPlot();
 							}
 
-							ImGui::DragFloat("Cd.a", &aircraft.cd_consts.a, 0.0001, 0, 0.08);
-							ImGui::DragFloat("Cd.b", &aircraft.cd_consts.b, 0.1);
-							ImGui::DragFloat("Cd.c", &aircraft.cd_consts.c, 0.1);
+							ImGui::DragFloat("Cd.x", &aircraft.cd_consts.x, 0.0001, 0, 0.08);
+							ImGui::DragFloat("Cd.y", &aircraft.cd_consts.y, 0.1);
+							ImGui::DragFloat("Cd.z", &aircraft.cd_consts.z, 0.1);
 							ImGui::Spacing();
-							ImGui::DragFloat("Cl.a", &aircraft.cl_consts.a, 0.01, 0, 0.1);
-							ImGui::DragFloat("Cl.b", &aircraft.cl_consts.b, 0.05, 0, 0.8);
-							ImGui::DragFloat("Cl.c", &aircraft.cl_consts.c, 1, 10, 1);
-							ImGui::DragFloat("Cl.AoA_cr", &aircraft.cl_consts.aoa_critical, 5, 0, 90);
+							ImGui::DragFloat("Cl.x", &aircraft.cl_consts.x, 0.01, 0, 0.1);
+							ImGui::DragFloat("Cl.y", &aircraft.cl_consts.y, 0.05, 0, 0.8);
 
 							ImGui::TreePop();
 						}
