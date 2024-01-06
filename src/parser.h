@@ -234,6 +234,7 @@ mu::Str parser_token_any(Parser& self, std::initializer_list<mu::Str>&& args) {
 		}
 	}
 	parser_panic(self, "unexpected token");
+	return "";
 }
 
 bool parser_finished(Parser& self) {

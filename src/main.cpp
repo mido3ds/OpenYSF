@@ -790,7 +790,7 @@ struct SysMon {
 		return self.systems.size()-1;
 	}
 
-	void _sysinfo_update(SysInfo& self, std::chrono::steady_clock::time_point start_time) {
+	void _sysinfo_update(SysInfo& self, auto start_time) {
 		self.latency_micros = std::chrono::duration_cast<std::chrono::microseconds>(
 			std::chrono::high_resolution_clock::now() - start_time
 		).count();
