@@ -45,6 +45,9 @@ constexpr float ENGINE_PROPELLERS_RESISTENCE = 15.0f;
 
 constexpr float ZL_SCALE = 0.151f;
 
+// change speed of tilt% of ailerons/rudder/elevators
+constexpr float CTRL_SURFACE_SPEED = 1.9f;
+
 // flash anti collision lights
 constexpr double ANTI_COLL_LIGHT_PERIOD = 1;
 
@@ -148,6 +151,13 @@ struct Aircraft {
 	float thrust_multiplier = 500; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
+	float pitch_input_max;
+	float yaw_input_max;
+	float roll_input_max;
+
+	float elevator_perc; // [-1,1], +ve -> elevator upside, both wings
+	float rudder_perc; // [-1,1], +ve -> rudder is right-side
+	float right_aileron_perc; // [-1,1], +ve -> right aileron is right-side, left one is the opposite direction
 
 	struct {
 		LinearFuncConsts linear;
@@ -226,23 +236,30 @@ void aircraft_load(Aircraft& self) {
 	self.dat = datmap_from_dat_file(self.aircraft_template.dat);
 
 	// mass
+	// WEIGHCLN 19.0t                #WEIGHT CLEAN
 	self.mass.clean = 15.0f;
 	if (datmap_get_floats(self.dat, "WEIGHCLN", {&self.mass.clean})) { self.mass.clean /= 1e6; }
+	// WEIGFUEL  5.0t                #WEIGHT OF FUEL
 	self.mass.fuel = 5.0f;
 	if (datmap_get_floats(self.dat, "WEIGFUEL", {&self.mass.fuel}))  { self.mass.fuel /= 1e6; }
+	// WEIGLOAD  4.5t                #WEIGHT OF PAYLOAD
 	self.mass.load = 4.5f;
 	if (datmap_get_floats(self.dat, "WEIGLOAD", {&self.mass.load}))  { self.mass.load /= 1e6; }
 
 	// engine power, assume engines are equal
+	// REALPROP 0 MAXPOWER       3060HP      # 1 argument.  Maximum horse power or J/s
 	self.engine.max_power = 3060;
 	datmap_get_floats(self.dat, "REALPROP 0 MAXPOWER", {&self.engine.max_power});
 
+	// REALPROP 0 IDLEPOWER      30HP        # 1 argument.  Idling horse power or J/s
 	self.engine.idle_power = 30;
 	datmap_get_floats(self.dat, "REALPROP 0 IDLEPOWER", {&self.engine.idle_power});
 
+	// MAXSPEED 480km/h              #MAXIMUM SPEED
 	self.max_velocity = 133;
 	datmap_get_floats(self.dat, "MAXSPEED", {&self.max_velocity});
 
+	// WINGAREA 91m^2                #WING AREA
 	self.wing_area = 91;
 	datmap_get_floats(self.dat, "WINGAREA", {&self.wing_area});
 
@@ -255,9 +272,11 @@ void aircraft_load(Aircraft& self) {
 		self.cl_consts.quad_funcs_dirty = true;
 	}
 
+	// CRITAOAP  20deg               #CRITICAL AOA POSITIVE
 	self.cl_consts.aoa_crit_pos = 20;
 	datmap_get_floats(self.dat, "CRITAOAP", {&self.cl_consts.aoa_crit_pos});
 
+	// CRITAOAM -15deg               #CRITICAL AOA NEGATIVE
 	self.cl_consts.aoa_crit_neg = -15;
 	datmap_get_floats(self.dat, "CRITAOAM", {&self.cl_consts.aoa_crit_neg});
 
@@ -268,6 +287,18 @@ void aircraft_load(Aircraft& self) {
 		datmap_get_floats(self.dat, "REALPROP 0 CD", {&aoa_min, &cd_min, &aoa1, &cl1});
 		self.cd_consts = quad_func_new({aoa_min, cd_min}, {aoa1, cl1});
 	}
+
+	// MXIPTAOA 20.0deg              #MAX INPUT AOA
+	self.pitch_input_max = 20;
+	datmap_get_floats(self.dat, "MXIPTAOA", {&self.pitch_input_max});
+
+	// MXIPTSSA 5.0deg               #MAX INPUT SSA
+	self.yaw_input_max = 5;
+	datmap_get_floats(self.dat, "MXIPTSSA", {&self.yaw_input_max});
+
+	// MXIPTROL 60.0deg              #MAX INPUT ROLL
+	self.roll_input_max = 60;
+	datmap_get_floats(self.dat, "MXIPTROL", {&self.roll_input_max});
 
 	self.should_be_loaded = false;
 }
@@ -2814,6 +2845,46 @@ namespace sys {
 			return;
 		}
 		auto& self = *world.camera.aircraft;
+
+		if (world.events.stick_front) {
+			self.elevator_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+		} else if (world.events.stick_back) {
+			self.elevator_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+		} else {
+			self.elevator_perc -= glm::sign(self.elevator_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			if (std::abs(self.elevator_perc) <= 0.1f) {
+				self.elevator_perc = 0;
+			}
+		}
+		self.elevator_perc = glm::clamp(self.elevator_perc, -1.0f, 1.0f);
+
+		if (world.events.stick_right) {
+			self.right_aileron_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+		} else if (world.events.stick_left) {
+			self.right_aileron_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+		} else {
+			self.right_aileron_perc -= glm::sign(self.right_aileron_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			if (std::abs(self.right_aileron_perc) <= 0.1f) {
+				self.right_aileron_perc = 0;
+			}
+		}
+		self.right_aileron_perc = glm::clamp(self.right_aileron_perc, -1.0f, 1.0f);
+
+		if (world.events.rudder_right) {
+			self.rudder_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+		} else if (world.events.rudder_left) {
+			self.rudder_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+		} else {
+			self.rudder_perc -= glm::sign(self.rudder_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			if (std::abs(self.rudder_perc) <= 0.1f) {
+				self.rudder_perc = 0;
+			}
+		}
+		self.rudder_perc = glm::clamp(self.rudder_perc, -1.0f, 1.0f);
+
+		TEXT_OVERLAY("elevator = {}%", int(self.elevator_perc * 100));
+		TEXT_OVERLAY("aileron = {}%", int(self.right_aileron_perc * 100));
+		TEXT_OVERLAY("rudder = {}%", int(self.rudder_perc * 100));
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
