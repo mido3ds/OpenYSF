@@ -227,81 +227,45 @@ void aircraft_load(Aircraft& self) {
 
 	// mass
 	self.mass.clean = 15.0f;
+	if (datmap_get_floats(self.dat, "WEIGHCLN", {&self.mass.clean})) { self.mass.clean /= 1e6; }
 	self.mass.fuel = 5.0f;
+	if (datmap_get_floats(self.dat, "WEIGFUEL", {&self.mass.fuel}))  { self.mass.fuel /= 1e6; }
 	self.mass.load = 4.5f;
-	if (auto arr = datmap_get_floats(self.dat, "WEIGHCLN", mu::memory::tmp()); arr.size() == 1) {
-		self.mass.clean = arr[0] / 1e6;
-	}
-	if (auto arr = datmap_get_floats(self.dat, "WEIGFUEL", mu::memory::tmp()); arr.size() == 1) {
-		self.mass.fuel = arr[0] / 1e6;
-	}
-	if (auto arr = datmap_get_floats(self.dat, "WEIGLOAD", mu::memory::tmp()); arr.size() == 1) {
-		self.mass.load = arr[0] / 1e6;
-	}
+	if (datmap_get_floats(self.dat, "WEIGLOAD", {&self.mass.load}))  { self.mass.load /= 1e6; }
 
-	// engine power
-	self.engine.max_power = 3060; self.engine.idle_power = 30;
-	if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
-		size_t n = arr[0];
-		self.engine.max_power = 0; self.engine.idle_power = 0;
+	// engine power, assume engines are equal
+	self.engine.max_power = 3060;
+	datmap_get_floats(self.dat, "REALPROP 0 MAXPOWER", {&self.engine.max_power});
 
-		for (int i = 0; i < n; i++) {
-			if (auto arr = datmap_get_floats(self.dat, mu::str_tmpf("REALPROP {} MAXPOWER", i), mu::memory::tmp()); arr.size() == 1) {
-				self.engine.max_power += arr[0];
-			}
-			if (auto arr = datmap_get_floats(self.dat, mu::str_tmpf("REALPROP {} IDLEPOWER", i), mu::memory::tmp()); arr.size() == 1) {
-				self.engine.idle_power += arr[0];
-			}
-		}
-
-		self.engine.max_power /= float(n);
-		self.engine.idle_power /= float(n);
-	}
+	self.engine.idle_power = 30;
+	datmap_get_floats(self.dat, "REALPROP 0 IDLEPOWER", {&self.engine.idle_power});
 
 	self.max_velocity = 133;
-	if (auto arr = datmap_get_floats(self.dat, "MAXSPEED", mu::memory::tmp()); arr.size() == 1) {
-		self.max_velocity = arr[0];
-	}
+	datmap_get_floats(self.dat, "MAXSPEED", {&self.max_velocity});
 
 	self.wing_area = 91;
-	if (auto arr = datmap_get_floats(self.dat, "WINGAREA", mu::memory::tmp()); arr.size() == 1) {
-		self.wing_area = arr[0];
-	}
+	datmap_get_floats(self.dat, "WINGAREA", {&self.wing_area});
 
 	// Cl
 	// REALPROP 0 CL 0deg 0.2 15deg 1.2      # 4 argument.  AOA1 cl1 AOA2 cl2   (Approximated by a linear function)
 	{
 		float aoa1 = 0, cl1 = 0.2, aoa2 = 15, cl2 = 1.2;
-		self.cl_consts.aoa_crit_neg = -15;
-		self.cl_consts.aoa_crit_pos = 20;
-
-		if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
-			if (auto arr = datmap_get_floats(self.dat, "REALPROP 0 CL", mu::memory::tmp()); arr.size() == 4) {
-				aoa1 = arr[0]; cl1 = arr[1]; aoa2 = arr[2]; cl2 = arr[3];
-			}
-		}
-		if (auto arr = datmap_get_floats(self.dat, "CRITAOAP", mu::memory::tmp()); arr.size() == 1) {
-			self.cl_consts.aoa_crit_pos = arr[0];
-		}
-		if (auto arr = datmap_get_floats(self.dat, "CRITAOAM", mu::memory::tmp()); arr.size() == 1) {
-			self.cl_consts.aoa_crit_neg = arr[0];
-		}
-
+		datmap_get_floats(self.dat, "REALPROP 0 CL", {&aoa1, &cl1, &aoa2, &cl2});
 		self.cl_consts.linear = linear_func_new({aoa1, cl1}, {aoa2, cl2});
 		self.cl_consts.quad_funcs_dirty = true;
 	}
+
+	self.cl_consts.aoa_crit_pos = 20;
+	datmap_get_floats(self.dat, "CRITAOAP", {&self.cl_consts.aoa_crit_pos});
+
+	self.cl_consts.aoa_crit_neg = -15;
+	datmap_get_floats(self.dat, "CRITAOAM", {&self.cl_consts.aoa_crit_neg});
 
 	// Cd
 	// REALPROP 0 CD -5deg 0.006 20deg 0.4   # 4 argument.  AOAminCd minCd AOA1 cd1 (Approximated by a quadratic function)
 	{
 		float aoa_min = -5, cd_min = 0.006f, aoa1 = 20, cl1 = 0.4f;
-
-		if (auto arr = datmap_get_ints(self.dat, "NREALPRP", mu::memory::tmp()); arr.size() == 1 && arr[0] > 0) {
-			if (auto arr = datmap_get_floats(self.dat, "REALPROP 0 CD", mu::memory::tmp()); arr.size() == 4) {
-				aoa_min = arr[0]; cd_min = arr[1]; aoa1 = arr[2]; cl1 = arr[3];
-			}
-		}
-
+		datmap_get_floats(self.dat, "REALPROP 0 CD", {&aoa_min, &cd_min, &aoa1, &cl1});
 		self.cd_consts = quad_func_new({aoa_min, cd_min}, {aoa1, cl1});
 	}
 

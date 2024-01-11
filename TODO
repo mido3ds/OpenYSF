@@ -1,4 +1,6 @@
-- store rudder/elevetor/aileron configs and change them by keyboard
+- store rudder configs and change them by keyboard
+- store elevetor configs and change them by keyboard
+- store aileron configs and change them by keyboard
 - add: aileron applies torque
 - add: aileron adds drag
 - add: elevetor adds lift and drag

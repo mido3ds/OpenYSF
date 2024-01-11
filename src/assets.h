@@ -938,34 +938,52 @@ mu::Str datmap_get_str(const DATMap& self, const mu::Str& key,
 	return mu::Str(it->second, allocator);
 }
 
-mu::Vec<float> datmap_get_floats(const DATMap& self, const mu::Str& key,
-	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+bool datmap_get_floats(const DATMap& self, const mu::Str& key, mu::Vec<float*>&& ptrs) {
 	auto it = self.map.find(key);
 	if (it == self.map.end()) {
-		return {};
+		return false;
 	}
+
 	auto parser = parser_from_str(it->second, mu::memory::tmp());
-	mu::Vec<float> out(allocator);
-	while (!parser_finished(parser)) {
+	mu::Vec<float> out(mu::memory::tmp());
+	out.reserve(ptrs.size());
+	while (!parser_finished(parser) && out.size() < ptrs.size()) {
 		out.push_back(parser_token_float(parser) * parser_accept_unit(parser));
 		while (parser_accept(parser, ' ')) { }
 	}
-	return out;
+
+	if (out.size() < ptrs.size()) {
+		return false;
+	}
+	for (int i = 0; i < ptrs.size(); i++) {
+		(*ptrs[i]) = out[i];
+	}
+	return true;
 }
 
-mu::Vec<int64_t> datmap_get_ints(const DATMap& self, const mu::Str& key,
-	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+template<typename T>
+bool datmap_get_ints(const DATMap& self, const mu::Str& key, mu::Vec<T*>&& ptrs) {
+	static_assert(std::is_integral_v<T>);
 	auto it = self.map.find(key);
 	if (it == self.map.end()) {
-		return {};
+		return false;
 	}
+
 	auto parser = parser_from_str(it->second, mu::memory::tmp());
-	mu::Vec<int64_t> out(allocator);
-	while (!parser_finished(parser)) {
+	mu::Vec<int64_t> out(mu::memory::tmp());
+	out.reserve(ptrs.size());
+	while (!parser_finished(parser) && out.size() < ptrs.size()) {
 		out.push_back(parser_token_i64(parser) * parser_accept_unit(parser));
 		while (parser_accept(parser, ' ')) { }
 	}
-	return out;
+
+	if (out.size() < ptrs.size()) {
+		return false;
+	}
+	for (int i = 0; i < ptrs.size(); i++) {
+		(*ptrs[i]) = out[i];
+	}
+	return true;
 }
 
 struct ExternalCameraLocation {
