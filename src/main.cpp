@@ -371,7 +371,7 @@ glm::mat4 projection_calc_mat(PerspectiveProjection& self) {
 
 struct Camera {
 	Aircraft* aircraft;
-	float distance_from_model = 50;
+	float zoom_multiplier = 5;
 
 	float movement_speed    = 1000.0f;
 	float mouse_sensitivity = 1.4;
@@ -1090,7 +1090,7 @@ namespace sys {
 				}
 
 				if (world.camera.aircraft) {
-					ImGui::DragFloat("distance", &world.camera.distance_from_model, 1, 0);
+					ImGui::DragFloat("zoom", &world.camera.zoom_multiplier, 1, 5, 100);
 
 					ImGui::Checkbox("Rotate Around", &world.camera.enable_rotating_around);
 				} else {
@@ -2412,11 +2412,14 @@ namespace sys {
 		constexpr float CAMERA_ANGLES_MAX = 89.0f / DEGREES_MAX * RADIANS_MAX;
 		self.yaw = clamp(self.yaw, -CAMERA_ANGLES_MAX, CAMERA_ANGLES_MAX);
 
-		auto model_transformation = local_euler_angles_matrix(self.aircraft->angles, self.aircraft->translation);
+		// calc camera distance based on how large model is
+		auto dy = self.aircraft->initial_aabb.max.y - self.aircraft->initial_aabb.min.y;
+		auto dist_from_model = self.zoom_multiplier * dy;
 
+		auto model_transformation = local_euler_angles_matrix(self.aircraft->angles, self.aircraft->translation);
 		model_transformation = glm::rotate(model_transformation, self.pitch, glm::vec3{0, -1, 0});
 		model_transformation = glm::rotate(model_transformation, self.yaw, glm::vec3{-1, 0, 0});
-		self.position = model_transformation * glm::vec4{0, 0, -self.distance_from_model, 1};
+		self.position = model_transformation * glm::vec4{0, 0, -dist_from_model, 1};
 
 		self.target_pos = self.aircraft->translation;
 		self.up = self.aircraft->angles.up;

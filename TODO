@@ -4,7 +4,6 @@
 - add: engine reduces fuel as function of engine speed
 - when switch tracking of aircraft, turn off the audio for current aircraft
 - hear nearby aircrafts' sounds
-- calculate camera distance based on aircraft size
 - refactor rendering
 	- box should be turned into list of lines (remove its shader)
 - ground objects:
