@@ -172,6 +172,7 @@ struct Aircraft {
 		float speed_percent; // 0 -> 1
 		bool burner_enabled = false;
 		float max_power, idle_power; // HP
+		float fuel_cons_rate = 4000; // kg/h at full speed
 	} engine;
 
 	// in newtons
