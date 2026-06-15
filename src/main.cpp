@@ -3022,6 +3022,11 @@ namespace sys {
 				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
 			}
 
+			// reset cutoff if fuel was replenished (e.g. via debug UI)
+			if (aircraft.mass.fuel > 0.0f && aircraft.engine.cutoff) {
+				aircraft.engine.cutoff = false;
+			}
+
 			// fuel consumption: burn proportional to engine speed
 			{
 				float fuel_burn_tons = aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent
@@ -3053,8 +3058,8 @@ namespace sys {
 
 			// forces
 			{
-				float effective_max_power = aircraft.engine.cutoff ? 0.0f : aircraft.engine.max_power;
-				auto engine_power_hp = aircraft.engine.speed_percent * effective_max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
+				auto engine_power_hp = aircraft.engine.cutoff ? 0.0f
+					: aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
 				auto engine_power_j_s = engine_power_hp * 745.69;
 				aircraft.forces.thrust = engine_power_j_s * aircraft.thrust_multiplier;
 			}
