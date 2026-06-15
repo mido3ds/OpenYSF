@@ -256,6 +256,10 @@ void aircraft_load(Aircraft& self) {
 	self.engine.idle_power = 30;
 	datmap_get_floats(self.dat, "REALPROP 0 IDLEPOWER", {&self.engine.idle_power});
 
+	// FUELCONS 4000kg/h             # FUEL CONSUMPTION at full power
+	self.engine.fuel_cons_rate = 4000;
+	datmap_get_floats(self.dat, "FUELCONS", {&self.engine.fuel_cons_rate});
+
 	// MAXSPEED 480km/h              #MAXIMUM SPEED
 	self.max_velocity = 133;
 	datmap_get_floats(self.dat, "MAXSPEED", {&self.max_velocity});
