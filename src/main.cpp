@@ -171,6 +171,7 @@ struct Aircraft {
 	struct {
 		float speed_percent; // 0 -> 1
 		bool burner_enabled = false;
+		bool cutoff = false;
 		float max_power, idle_power; // HP
 		float fuel_cons_rate = 4000; // kg/h at full speed
 	} engine;
@@ -3029,8 +3030,9 @@ namespace sys {
 			}
 
 			// engine cutoff when fuel is empty
-			if (aircraft.mass.fuel <= 0.0f) {
-				aircraft.engine.max_power = 0;
+			if (aircraft.mass.fuel <= 1e-6f) {
+				aircraft.mass.fuel = 0.0f;
+				aircraft.engine.cutoff = true;
 			}
 
 			// air density, https://en.wikipedia.org/wiki/Density_of_air#Dry_air, https://www.mide.com/air-pressure-at-altitude-calculator
@@ -3051,7 +3053,8 @@ namespace sys {
 
 			// forces
 			{
-				auto engine_power_hp = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
+				float effective_max_power = aircraft.engine.cutoff ? 0.0f : aircraft.engine.max_power;
+				auto engine_power_hp = aircraft.engine.speed_percent * effective_max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
 				auto engine_power_j_s = engine_power_hp * 745.69;
 				aircraft.forces.thrust = engine_power_j_s * aircraft.thrust_multiplier;
 			}
