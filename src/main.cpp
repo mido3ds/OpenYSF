@@ -3021,6 +3021,18 @@ namespace sys {
 				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
 			}
 
+			// fuel consumption: burn proportional to engine speed
+			{
+				float fuel_burn_tons = aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent
+									* (float)world.loop_timer.delta_time / 3600.0f / 1000.0f;
+				aircraft.mass.fuel = std::max(aircraft.mass.fuel - fuel_burn_tons, 0.0f);
+			}
+
+			// engine cutoff when fuel is empty
+			if (aircraft.mass.fuel <= 0.0f) {
+				aircraft.engine.max_power = 0;
+			}
+
 			// air density, https://en.wikipedia.org/wiki/Density_of_air#Dry_air, https://www.mide.com/air-pressure-at-altitude-calculator
 			double air_density = 0; {
 				constexpr double BOT_PRESSURE = 101325.00; // Pa
