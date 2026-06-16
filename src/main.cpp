@@ -3031,12 +3031,14 @@ namespace sys {
 				aircraft.engine.burner_enabled = false;
 			}
 
-			if (aircraft.engine.speed_percent < aircraft.throttle) {
-				aircraft.engine.speed_percent += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, 0.0f, aircraft.throttle);
-			} else if (aircraft.engine.speed_percent > aircraft.throttle) {
-				aircraft.engine.speed_percent -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
+			if (!aircraft.engine.cutoff) {
+				if (aircraft.engine.speed_percent < aircraft.throttle) {
+					aircraft.engine.speed_percent += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+					aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, 0.0f, aircraft.throttle);
+				} else if (aircraft.engine.speed_percent > aircraft.throttle) {
+					aircraft.engine.speed_percent -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+					aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
+				}
 			}
 
 			// reset cutoff if fuel was replenished (e.g. via debug UI)

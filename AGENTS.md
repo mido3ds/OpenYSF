@@ -8,6 +8,9 @@ OpenYSF is a YS Flight Simulator clone in C++ (single-file monolith: `src/main.c
 - Stack: SDL2 + OpenGL 3.3 + ImGui + ImPlot + GLAD + FreeType + glm + mu (custom util lib)
 - Sole contributor: Mahmoud Adas (303/305 commits). Dormant since June 2024 (last: 2024-06-09).
 
+## Golden Rule: Assets Are Read-Only
+The `assets/` directory contains original YS Flight Simulator game files. **We must never modify these files.** All work is reverse-engineering: read the formats, parse the keys/values as they exist, and write code that interprets them correctly. We do NOT invent new DAT keys, FLD tokens, DNM blocks, or any other format terms — only implement support for what the actual files contain. If a key/value isn't in the shipped assets, we don't add it.
+
 ## Source Files (7527 total lines)
 
 | File | Lines | Role |
