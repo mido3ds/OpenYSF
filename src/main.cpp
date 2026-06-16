@@ -257,7 +257,7 @@ void aircraft_load(Aircraft& self) {
 	self.engine.idle_power = 30;
 	datmap_get_floats(self.dat, "REALPROP 0 IDLEPOWER", {&self.engine.idle_power});
 
-	// FUELCONS 4000kg/h             # FUEL CONSUMPTION at full power
+	// FUELCONS 4000                 # FUEL CONSUMPTION at full power (unitless, kg/h)
 	self.engine.fuel_cons_rate = 4000;
 	datmap_get_floats(self.dat, "FUELCONS", {&self.engine.fuel_cons_rate});
 
@@ -1562,7 +1562,7 @@ namespace sys {
 						ImGui::DragFloat("Load", &aircraft.mass.load, 0.05);
 
 						ImGui::BeginDisabled();
-						float burn_rate_kgph = aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent;
+						float burn_rate_kgph = aircraft.engine.cutoff ? 0.0f : aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent;
 						ImGui::DragFloat("Burn Rate (kg/h)", &burn_rate_kgph);
 						ImGui::EndDisabled();
 
@@ -2902,7 +2902,7 @@ namespace sys {
 		TEXT_OVERLAY("aileron = {}%", int(self.right_aileron_perc * 100));
 		TEXT_OVERLAY("rudder = {}%", int(self.rudder_perc * 100));
 		TEXT_OVERLAY("fuel = {:.1f}t", self.mass.fuel);
-		TEXT_OVERLAY("burn = {:.0f}kg/h", self.engine.fuel_cons_rate * self.engine.speed_percent);
+		TEXT_OVERLAY("burn = {:.0f}kg/h", (self.engine.cutoff ? 0.0f : self.engine.fuel_cons_rate * self.engine.speed_percent));
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3037,7 +3037,7 @@ namespace sys {
 			}
 
 			// fuel consumption: burn proportional to engine speed
-			{
+			if (aircraft.mass.fuel > 0.0f) {
 				float fuel_burn_tons = aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent
 									* (float)world.loop_timer.delta_time / 3600.0f / 1000.0f;
 				aircraft.mass.fuel = std::max(aircraft.mass.fuel - fuel_burn_tons, 0.0f);
@@ -3047,6 +3047,12 @@ namespace sys {
 			if (aircraft.mass.fuel <= 1e-6f) {
 				aircraft.mass.fuel = 0.0f;
 				aircraft.engine.cutoff = true;
+			}
+
+			// decay engine speed when cutoff
+			if (aircraft.engine.cutoff && aircraft.engine.speed_percent > 0) {
+				aircraft.engine.speed_percent -= (float)world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				aircraft.engine.speed_percent = std::max(aircraft.engine.speed_percent, 0.0f);
 			}
 
 			// air density, https://en.wikipedia.org/wiki/Density_of_air#Dry_air, https://www.mide.com/air-pressure-at-altitude-calculator
