@@ -2894,6 +2894,8 @@ namespace sys {
 		TEXT_OVERLAY("elevator = {}%", int(self.elevator_perc * 100));
 		TEXT_OVERLAY("aileron = {}%", int(self.right_aileron_perc * 100));
 		TEXT_OVERLAY("rudder = {}%", int(self.rudder_perc * 100));
+		TEXT_OVERLAY("fuel = {:.1f}t", self.mass.fuel);
+		TEXT_OVERLAY("burn = {:.0f}kg/h", self.engine.fuel_cons_rate * self.engine.speed_percent);
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
