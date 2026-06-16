@@ -1,7 +1,6 @@
 - add: aileron applies torque
 - add: aileron adds drag
 - add: elevetor adds lift and drag
-- add: engine reduces fuel as function of engine speed
 - when switch tracking of aircraft, turn off the audio for current aircraft
 - hear nearby aircrafts' sounds
 - refactor rendering
