@@ -173,7 +173,8 @@ struct Aircraft {
 		bool burner_enabled = false;
 		bool cutoff = false;
 		float max_power, idle_power; // HP
-		float fuel_cons_rate = 4000; // kg/h at full speed
+		float fuel_mili = 0.45f;     // kg/s at military power
+		float fuel_abrn = 0.0f;      // kg/s additional with afterburner
 	} engine;
 
 	// in newtons
@@ -257,9 +258,12 @@ void aircraft_load(Aircraft& self) {
 	self.engine.idle_power = 30;
 	datmap_get_floats(self.dat, "REALPROP 0 IDLEPOWER", {&self.engine.idle_power});
 
-	// FUELCONS 4000                 # FUEL CONSUMPTION at full power (unitless, kg/h)
-	self.engine.fuel_cons_rate = 4000;
-	datmap_get_floats(self.dat, "FUELCONS", {&self.engine.fuel_cons_rate});
+	// FUELMILI  0.45kg               # FUEL CONSUMPTION at military power
+	self.engine.fuel_mili = 0.45f;
+	if (datmap_get_floats(self.dat, "FUELMILI", {&self.engine.fuel_mili})) { self.engine.fuel_mili /= 1000; }
+	// FUELABRN  6.5kg                # FUEL CONSUMPTION additional with afterburner
+	self.engine.fuel_abrn = 0.0f;
+	if (datmap_get_floats(self.dat, "FUELABRN", {&self.engine.fuel_abrn})) { self.engine.fuel_abrn /= 1000; }
 
 	// MAXSPEED 480km/h              #MAXIMUM SPEED
 	self.max_velocity = 133;
@@ -1551,7 +1555,9 @@ namespace sys {
 							MyImGui::SliderMultiplier("Weight", &aircraft.forces.weight, 1);
 						ImGui::EndDisabled();
 
-						ImGui::DragFloat("Fuel Cons Rate (kg/h)", &aircraft.engine.fuel_cons_rate, 50, 0, 50000);
+						ImGui::Text("Fuel Consumption (kg/s)");
+						ImGui::DragFloat("Mil", &aircraft.engine.fuel_mili, 0.05f, 0, 50);
+						ImGui::DragFloat("AB", &aircraft.engine.fuel_abrn, 0.05f, 0, 50);
 
 						ImGui::TreePop();
 					}
@@ -1562,8 +1568,9 @@ namespace sys {
 						ImGui::DragFloat("Load", &aircraft.mass.load, 0.05);
 
 						ImGui::BeginDisabled();
-						float burn_rate_kgph = aircraft.engine.cutoff ? 0.0f : aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent;
-						ImGui::DragFloat("Burn Rate (kg/h)", &burn_rate_kgph);
+						float eff_rate = aircraft.engine.fuel_mili + (aircraft.engine.burner_enabled ? aircraft.engine.fuel_abrn : 0);
+						float burn_rate_kgs = aircraft.engine.cutoff ? 0.0f : eff_rate * aircraft.engine.speed_percent;
+						ImGui::DragFloat("Burn Rate (kg/s)", &burn_rate_kgs);
 						ImGui::EndDisabled();
 
 						ImGui::BeginDisabled();
@@ -2902,7 +2909,8 @@ namespace sys {
 		TEXT_OVERLAY("aileron = {}%", int(self.right_aileron_perc * 100));
 		TEXT_OVERLAY("rudder = {}%", int(self.rudder_perc * 100));
 		TEXT_OVERLAY("fuel = {:.1f}t", self.mass.fuel);
-		TEXT_OVERLAY("burn = {:.0f}kg/h", (self.engine.cutoff ? 0.0f : self.engine.fuel_cons_rate * self.engine.speed_percent));
+		float eff_burn = self.engine.fuel_mili + (self.engine.burner_enabled ? self.engine.fuel_abrn : 0);
+		TEXT_OVERLAY("burn = {:.2f}kg/s", (self.engine.cutoff ? 0.0f : eff_burn * self.engine.speed_percent));
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3038,8 +3046,9 @@ namespace sys {
 
 			// fuel consumption: burn proportional to engine speed
 			if (aircraft.mass.fuel > 0.0f) {
-				float fuel_burn_tons = aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent
-									* (float)world.loop_timer.delta_time / 3600.0f / 1000.0f;
+				float effective_rate = aircraft.engine.fuel_mili + (aircraft.engine.burner_enabled ? aircraft.engine.fuel_abrn : 0);
+				float fuel_burn_tons = effective_rate * aircraft.engine.speed_percent
+									* (float)world.loop_timer.delta_time / 1000.0f;
 				aircraft.mass.fuel = std::max(aircraft.mass.fuel - fuel_burn_tons, 0.0f);
 			}
 
