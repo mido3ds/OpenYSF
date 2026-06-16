@@ -171,7 +171,10 @@ struct Aircraft {
 	struct {
 		float speed_percent; // 0 -> 1
 		bool burner_enabled = false;
+		bool cutoff = false;
 		float max_power, idle_power; // HP
+		float fuel_mili = 0.45f;     // kg/s at military power
+		float fuel_abrn = 0.0f;      // kg/s additional with afterburner
 	} engine;
 
 	// in newtons
@@ -254,6 +257,13 @@ void aircraft_load(Aircraft& self) {
 	// REALPROP 0 IDLEPOWER      30HP        # 1 argument.  Idling horse power or J/s
 	self.engine.idle_power = 30;
 	datmap_get_floats(self.dat, "REALPROP 0 IDLEPOWER", {&self.engine.idle_power});
+
+	// FUELMILI  0.45kg               # FUEL CONSUMPTION at military power
+	self.engine.fuel_mili = 0.45f;
+	if (datmap_get_floats(self.dat, "FUELMILI", {&self.engine.fuel_mili})) { self.engine.fuel_mili /= 1000; }
+	// FUELABRN  6.5kg                # FUEL CONSUMPTION additional with afterburner
+	self.engine.fuel_abrn = 0.0f;
+	if (datmap_get_floats(self.dat, "FUELABRN", {&self.engine.fuel_abrn})) { self.engine.fuel_abrn /= 1000; }
 
 	// MAXSPEED 480km/h              #MAXIMUM SPEED
 	self.max_velocity = 133;
@@ -1545,6 +1555,10 @@ namespace sys {
 							MyImGui::SliderMultiplier("Weight", &aircraft.forces.weight, 1);
 						ImGui::EndDisabled();
 
+						ImGui::Text("Fuel Consumption (kg/s)");
+						ImGui::DragFloat("Mil", &aircraft.engine.fuel_mili, 0.05f, 0, 50);
+						ImGui::DragFloat("AB", &aircraft.engine.fuel_abrn, 0.05f, 0, 50);
+
 						ImGui::TreePop();
 					}
 
@@ -1552,6 +1566,12 @@ namespace sys {
 						ImGui::DragFloat("Clean", &aircraft.mass.clean, 0.05);
 						ImGui::DragFloat("Fuel", &aircraft.mass.fuel, 0.05);
 						ImGui::DragFloat("Load", &aircraft.mass.load, 0.05);
+
+						ImGui::BeginDisabled();
+						float eff_rate = aircraft.engine.fuel_mili + (aircraft.engine.burner_enabled ? aircraft.engine.fuel_abrn : 0);
+						float burn_rate_kgs = aircraft.engine.cutoff ? 0.0f : eff_rate * aircraft.engine.speed_percent;
+						ImGui::DragFloat("Burn Rate (kg/s)", &burn_rate_kgs);
+						ImGui::EndDisabled();
 
 						ImGui::BeginDisabled();
 						auto total = aircraft_mass_total(aircraft);
@@ -2888,6 +2908,9 @@ namespace sys {
 		TEXT_OVERLAY("elevator = {}%", int(self.elevator_perc * 100));
 		TEXT_OVERLAY("aileron = {}%", int(self.right_aileron_perc * 100));
 		TEXT_OVERLAY("rudder = {}%", int(self.rudder_perc * 100));
+		TEXT_OVERLAY("fuel = {:.1f}t", self.mass.fuel);
+		float eff_burn = self.engine.fuel_mili + (self.engine.burner_enabled ? self.engine.fuel_abrn : 0);
+		TEXT_OVERLAY("burn = {:.2f}kg/s", (self.engine.cutoff ? 0.0f : eff_burn * self.engine.speed_percent));
 
 		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
 		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
@@ -3008,12 +3031,39 @@ namespace sys {
 				aircraft.engine.burner_enabled = false;
 			}
 
-			if (aircraft.engine.speed_percent < aircraft.throttle) {
-				aircraft.engine.speed_percent += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, 0.0f, aircraft.throttle);
-			} else if (aircraft.engine.speed_percent > aircraft.throttle) {
-				aircraft.engine.speed_percent -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
-				aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
+			if (!aircraft.engine.cutoff) {
+				if (aircraft.engine.speed_percent < aircraft.throttle) {
+					aircraft.engine.speed_percent += world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+					aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, 0.0f, aircraft.throttle);
+				} else if (aircraft.engine.speed_percent > aircraft.throttle) {
+					aircraft.engine.speed_percent -= world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+					aircraft.engine.speed_percent = clamp(aircraft.engine.speed_percent, aircraft.throttle, 1.0f);
+				}
+			}
+
+			// reset cutoff if fuel was replenished (e.g. via debug UI)
+			if (aircraft.mass.fuel > 0.0f && aircraft.engine.cutoff) {
+				aircraft.engine.cutoff = false;
+			}
+
+			// fuel consumption: burn proportional to engine speed
+			if (aircraft.mass.fuel > 0.0f) {
+				float effective_rate = aircraft.engine.fuel_mili + (aircraft.engine.burner_enabled ? aircraft.engine.fuel_abrn : 0);
+				float fuel_burn_tons = effective_rate * aircraft.engine.speed_percent
+									* (float)world.loop_timer.delta_time / 1000.0f;
+				aircraft.mass.fuel = std::max(aircraft.mass.fuel - fuel_burn_tons, 0.0f);
+			}
+
+			// engine cutoff when fuel is empty
+			if (aircraft.mass.fuel <= 1e-6f) {
+				aircraft.mass.fuel = 0.0f;
+				aircraft.engine.cutoff = true;
+			}
+
+			// decay engine speed when cutoff
+			if (aircraft.engine.cutoff && aircraft.engine.speed_percent > 0) {
+				aircraft.engine.speed_percent -= (float)world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
+				aircraft.engine.speed_percent = std::max(aircraft.engine.speed_percent, 0.0f);
 			}
 
 			// air density, https://en.wikipedia.org/wiki/Density_of_air#Dry_air, https://www.mide.com/air-pressure-at-altitude-calculator
@@ -3034,7 +3084,8 @@ namespace sys {
 
 			// forces
 			{
-				auto engine_power_hp = aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
+				auto engine_power_hp = aircraft.engine.cutoff ? 0.0f
+					: aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
 				auto engine_power_j_s = engine_power_hp * 745.69;
 				aircraft.forces.thrust = engine_power_j_s * aircraft.thrust_multiplier;
 			}
