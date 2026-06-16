@@ -1551,6 +1551,8 @@ namespace sys {
 							MyImGui::SliderMultiplier("Weight", &aircraft.forces.weight, 1);
 						ImGui::EndDisabled();
 
+						ImGui::DragFloat("Fuel Cons Rate (kg/h)", &aircraft.engine.fuel_cons_rate, 50, 0, 50000);
+
 						ImGui::TreePop();
 					}
 
@@ -1558,6 +1560,11 @@ namespace sys {
 						ImGui::DragFloat("Clean", &aircraft.mass.clean, 0.05);
 						ImGui::DragFloat("Fuel", &aircraft.mass.fuel, 0.05);
 						ImGui::DragFloat("Load", &aircraft.mass.load, 0.05);
+
+						ImGui::BeginDisabled();
+						float burn_rate_kgph = aircraft.engine.fuel_cons_rate * aircraft.engine.speed_percent;
+						ImGui::DragFloat("Burn Rate (kg/h)", &burn_rate_kgph);
+						ImGui::EndDisabled();
 
 						ImGui::BeginDisabled();
 						auto total = aircraft_mass_total(aircraft);
