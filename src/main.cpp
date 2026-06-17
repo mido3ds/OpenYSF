@@ -551,10 +551,6 @@ namespace canvas {
 		glm::mat4 transformation;
 	};
 
-	struct Box {
-		glm::vec3 translation, scale, color;
-	};
-
 	struct Line {
 		// world coordinates
 		glm::vec3 p0, p1;
@@ -663,14 +659,6 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
-		GLBuf gl_buf; // single box vertices
-		GLfloat line_width = 1.0f;
-
-		mu::Vec<canvas::Box> list;
-	} boxes;
-
-	struct {
-		GLProgram program;
 		GLBuf gl_buf; // single character quad vertices
 
 		mu::Arr<canvas::Glyph, 128> glyphs;
@@ -698,10 +686,6 @@ void canvas_add(Canvas& self, canvas::hud::Text&& t) {
 
 void canvas_add(Canvas& self, canvas::Axis&& a) {
 	self.axes.list.push_back(std::move(a));
-}
-
-void canvas_add(Canvas& self, canvas::Box&& b) {
-	self.boxes.list.push_back(std::move(b));
 }
 
 void canvas_add(Canvas& self, canvas::ZLPoint&& z) {
@@ -1199,11 +1183,6 @@ namespace sys {
 			}
 
 			if (ImGui::TreeNode("Physics")) {
-				#ifndef OS_MACOS
-				ImGui::Text("AABB Rendering");
-				ImGui::DragFloat("Line Width", &world.canvas.boxes.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
-				#endif
-
 				ImGui::Checkbox("Handle Collision", &world.settings.handle_collision);
 				ImGui::TreePop();
 			}
@@ -1950,61 +1929,6 @@ namespace sys {
 			});
 		}
 
-		self.boxes.program = gl_program_new(
-			// vertex shader
-			R"GLSL(
-				#version 330 core
-				layout (location = 0) in vec3 attr_position;
-				uniform mat4 projection_view_model;
-				void main() {
-					gl_Position = projection_view_model * vec4(attr_position, 1.0);
-				}
-			)GLSL",
-
-			// fragment shader
-			R"GLSL(
-				#version 330 core
-				uniform vec3 color;
-				out vec4 out_fragcolor;
-				void main() {
-					out_fragcolor = vec4(color, 1.0f);
-				}
-			)GLSL"
-		);
-
-		self.boxes.gl_buf = gl_buf_new<glm::vec3>(mu::Vec<glm::vec3> {
-			{0, 0, 0}, // face x0
-			{0, 1, 0},
-			{0, 1, 1},
-			{0, 0, 1},
-			{0, 0, 0},
-			{1, 0, 0}, // face x1
-			{1, 1, 0},
-			{1, 1, 1},
-			{1, 0, 1},
-			{1, 0, 0},
-			{0, 0, 0}, // face y0
-			{1, 0, 0},
-			{1, 0, 1},
-			{0, 0, 1},
-			{0, 0, 0},
-			{0, 1, 0}, // face y1
-			{1, 1, 0},
-			{1, 1, 1},
-			{0, 1, 1},
-			{0, 1, 0},
-			{0, 0, 0}, // face z0
-			{1, 0, 0},
-			{1, 1, 0},
-			{0, 1, 0},
-			{0, 0, 0},
-			{0, 0, 1}, // face z1
-			{1, 0, 1},
-			{1, 1, 1},
-			{0, 1, 1},
-			{0, 0, 1},
-		});
-
 		self.gnd_pics.program = gl_program_new(
 			// vertex shader
 			R"GLSL(
@@ -2339,10 +2263,6 @@ namespace sys {
 		gl_program_free(self.ground.program);
 		gl_buf_free(self.ground.gl_buf);
 
-		// boxes
-		gl_program_free(self.boxes.program);
-		gl_buf_free(self.boxes.gl_buf);
-
 		// axes
 		gl_buf_free(self.axes.gl_buf);
 
@@ -2397,7 +2317,6 @@ namespace sys {
 		self.text.list_world       = mu::Vec<canvas::Text>(&self.arena);
 		self.text.list_hud         = mu::Vec<canvas::hud::Text>(&self.arena);
 		self.axes.list             = mu::Vec<canvas::Axis>(&self.arena);
-		self.boxes.list            = mu::Vec<canvas::Box>(&self.arena);
 		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self.arena);
 		self.lines.list            = mu::Vec<canvas::Line>(&self.arena);
 		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self.arena);
@@ -2645,16 +2564,40 @@ namespace sys {
 			}
 		}
 
-		// render boxes
-		constexpr glm::vec3 RED {1,0,0};
-		constexpr glm::vec3 BLU {0,0,1};
+		// render boxes as lines (12 edges per aabb)
+		constexpr glm::vec4 RED {1,0,0,1};
+		constexpr glm::vec4 BLU {0,0,1,1};
 		for (int i = 0; i < e.size(); i++) {
 			if (e[i].visible && e[i].render_aabb) {
-				canvas_add(world.canvas, canvas::Box {
-					.translation = e[i].aabb->min,
-					.scale = e[i].aabb->max - e[i].aabb->min,
-					.color = e[i].collided ? RED : BLU,
-				});
+				const auto& box_min = e[i].aabb->min;
+				const auto& box_max = e[i].aabb->max;
+				const auto color = e[i].collided ? RED : BLU;
+
+				// 8 corners
+				const glm::vec3 c000 = box_min;
+				const glm::vec3 c001{box_min.x, box_min.y, box_max.z};
+				const glm::vec3 c010{box_min.x, box_max.y, box_min.z};
+				const glm::vec3 c011{box_min.x, box_max.y, box_max.z};
+				const glm::vec3 c100{box_max.x, box_min.y, box_min.z};
+				const glm::vec3 c101{box_max.x, box_min.y, box_max.z};
+				const glm::vec3 c110{box_max.x, box_max.y, box_min.z};
+				const glm::vec3 c111 = box_max;
+
+				// 12 edges (4 per axis)
+				canvas_add(world.canvas, canvas::Line{c000, c001, color});
+				canvas_add(world.canvas, canvas::Line{c010, c011, color});
+				canvas_add(world.canvas, canvas::Line{c100, c101, color});
+				canvas_add(world.canvas, canvas::Line{c110, c111, color});
+
+				canvas_add(world.canvas, canvas::Line{c000, c010, color});
+				canvas_add(world.canvas, canvas::Line{c001, c011, color});
+				canvas_add(world.canvas, canvas::Line{c100, c110, color});
+				canvas_add(world.canvas, canvas::Line{c101, c111, color});
+
+				canvas_add(world.canvas, canvas::Line{c000, c100, color});
+				canvas_add(world.canvas, canvas::Line{c001, c101, color});
+				canvas_add(world.canvas, canvas::Line{c010, c110, color});
+				canvas_add(world.canvas, canvas::Line{c011, c111, color});
 			}
 		}
 	}
@@ -3625,32 +3568,6 @@ namespace sys {
 		}
 	}
 
-	void canvas_render_boxes(World& world) {
-		DEF_SYSTEM
-
-		if (world.canvas.boxes.list.empty()) {
-			return;
-		}
-
-		gl_program_use(world.canvas.boxes.program);
-		glEnable(GL_LINE_SMOOTH);
-		#ifndef OS_MACOS
-		glLineWidth(world.canvas.boxes.line_width);
-		#endif
-		glBindVertexArray(world.canvas.boxes.gl_buf.vao);
-
-		for (const auto& box : world.canvas.boxes.list) {
-			auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
-			transformation = glm::scale(transformation, box.scale);
-			const auto projection_view_model = world.mats.projection_view * transformation;
-			gl_program_uniform_set(world.canvas.boxes.program, "projection_view_model", projection_view_model);
-
-			gl_program_uniform_set(world.canvas.boxes.program, "color", box.color);
-
-			glDrawArrays(GL_LINE_LOOP, 0, world.canvas.boxes.gl_buf.len);
-		}
-	}
-
 	void canvas_render_text(World& world) {
 		DEF_SYSTEM
 
@@ -3919,7 +3836,6 @@ int main() {
 			sys::canvas_render_zlpoints(world);
 			sys::canvas_render_meshes(world);
 			sys::canvas_render_axes(world);
-			sys::canvas_render_boxes(world);
 			sys::canvas_render_lines(world);
 			sys::canvas_render_text(world);
 			sys::canvas_render_hud_text(world);
