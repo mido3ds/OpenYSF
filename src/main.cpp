@@ -557,6 +557,10 @@ namespace canvas {
 		glm::vec4 color;
 	};
 
+	struct Box {
+		glm::vec3 translation, scale, color;
+	};
+
 	struct Mesh {
 		GLuint vao;
 		size_t buf_len;
@@ -694,6 +698,36 @@ void canvas_add(Canvas& self, canvas::ZLPoint&& z) {
 
 void canvas_add(Canvas& self, canvas::Line&& l) {
 	self.lines.list.push_back(std::move(l));
+}
+
+void canvas_add(Canvas& self, canvas::Box&& b) {
+	const auto min = b.translation;
+	const auto max = b.translation + b.scale;
+	const glm::vec4 color{b.color, 1.0f};
+
+	const glm::vec3 c000 = min;
+	const glm::vec3 c001{min.x, min.y, max.z};
+	const glm::vec3 c010{min.x, max.y, min.z};
+	const glm::vec3 c011{min.x, max.y, max.z};
+	const glm::vec3 c100{max.x, min.y, min.z};
+	const glm::vec3 c101{max.x, min.y, max.z};
+	const glm::vec3 c110{max.x, max.y, min.z};
+	const glm::vec3 c111 = max;
+
+	canvas_add(self, canvas::Line{c000, c001, color});
+	canvas_add(self, canvas::Line{c010, c011, color});
+	canvas_add(self, canvas::Line{c100, c101, color});
+	canvas_add(self, canvas::Line{c110, c111, color});
+
+	canvas_add(self, canvas::Line{c000, c010, color});
+	canvas_add(self, canvas::Line{c001, c011, color});
+	canvas_add(self, canvas::Line{c100, c110, color});
+	canvas_add(self, canvas::Line{c101, c111, color});
+
+	canvas_add(self, canvas::Line{c000, c100, color});
+	canvas_add(self, canvas::Line{c001, c101, color});
+	canvas_add(self, canvas::Line{c010, c110, color});
+	canvas_add(self, canvas::Line{c011, c111, color});
 }
 
 void canvas_add(Canvas& self, canvas::Mesh&& m) {
@@ -2565,39 +2599,15 @@ namespace sys {
 		}
 
 		// render boxes as lines (12 edges per aabb)
-		constexpr glm::vec4 RED {1,0,0,1};
-		constexpr glm::vec4 BLU {0,0,1,1};
+		constexpr glm::vec3 RED {1,0,0};
+		constexpr glm::vec3 BLU {0,0,1};
 		for (int i = 0; i < e.size(); i++) {
 			if (e[i].visible && e[i].render_aabb) {
-				const auto& box_min = e[i].aabb->min;
-				const auto& box_max = e[i].aabb->max;
-				const auto color = e[i].collided ? RED : BLU;
-
-				// 8 corners
-				const glm::vec3 c000 = box_min;
-				const glm::vec3 c001{box_min.x, box_min.y, box_max.z};
-				const glm::vec3 c010{box_min.x, box_max.y, box_min.z};
-				const glm::vec3 c011{box_min.x, box_max.y, box_max.z};
-				const glm::vec3 c100{box_max.x, box_min.y, box_min.z};
-				const glm::vec3 c101{box_max.x, box_min.y, box_max.z};
-				const glm::vec3 c110{box_max.x, box_max.y, box_min.z};
-				const glm::vec3 c111 = box_max;
-
-				// 12 edges (4 per axis)
-				canvas_add(world.canvas, canvas::Line{c000, c001, color});
-				canvas_add(world.canvas, canvas::Line{c010, c011, color});
-				canvas_add(world.canvas, canvas::Line{c100, c101, color});
-				canvas_add(world.canvas, canvas::Line{c110, c111, color});
-
-				canvas_add(world.canvas, canvas::Line{c000, c010, color});
-				canvas_add(world.canvas, canvas::Line{c001, c011, color});
-				canvas_add(world.canvas, canvas::Line{c100, c110, color});
-				canvas_add(world.canvas, canvas::Line{c101, c111, color});
-
-				canvas_add(world.canvas, canvas::Line{c000, c100, color});
-				canvas_add(world.canvas, canvas::Line{c001, c101, color});
-				canvas_add(world.canvas, canvas::Line{c010, c110, color});
-				canvas_add(world.canvas, canvas::Line{c011, c111, color});
+				canvas_add(world.canvas, canvas::Box {
+					.translation = e[i].aabb->min,
+					.scale = e[i].aabb->max - e[i].aabb->min,
+					.color = e[i].collided ? RED : BLU,
+				});
 			}
 		}
 	}
