@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include <SDL.h>
+#include <glm/glm.hpp>
 #include <mu/utils.h>
 
 // for stream at callback, bigger is slower, should be power of 2
@@ -59,11 +60,14 @@ void audio_buffer_free(AudioBuffer& self) {
 struct AudioPlayback {
 	const AudioBuffer* audio;
 	uint32_t pos;
+	float gain = 1.0f;
+	uint64_t id = 0;
 };
 
 struct AudioDevice {
     SDL_AudioDeviceID id;
 	mu::Vec<AudioPlayback> playbacks, looped_playbacks;
+	uint64_t next_playback_id = 1;
 };
 
 constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
@@ -97,7 +101,8 @@ void audio_device_init(AudioDevice* self) {
 				mu_assert(playback.pos < playback.audio->len);
 
 				const uint32_t min_len = min_u32(stream_len, playback.audio->len - playback.pos);
-				SDL_MixAudioFormat(stream, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+				SDL_MixAudioFormat(stream, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len,
+					(int)(SDL_MIX_MAXVOLUME * glm::clamp(playback.gain, 0.0f, 1.0f)));
 				playback.pos += min_len;
 
 				silence_pos = min_u32(silence_pos + min_len, stream_len);
@@ -116,7 +121,8 @@ void audio_device_init(AudioDevice* self) {
 				uint32_t stream_pos = 0;
 				while (stream_pos < stream_len) {
 					const uint32_t min_len = min_u32(stream_len - stream_pos, playback.audio->len - playback.pos);
-					SDL_MixAudioFormat(stream+stream_pos, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len, SDL_MIX_MAXVOLUME);
+					SDL_MixAudioFormat(stream+stream_pos, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len,
+						(int)(SDL_MIX_MAXVOLUME * glm::clamp(playback.gain, 0.0f, 1.0f)));
 					stream_pos += min_len;
 					playback.pos += min_len;
 					playback.pos %= playback.audio->len;
@@ -158,10 +164,34 @@ void audio_device_play(AudioDevice& self, const AudioBuffer& audio) {
 }
 
 // `audio` must be alive as long as it's played
-void audio_device_play_looped(AudioDevice& self, const AudioBuffer& audio) {
+uint64_t audio_device_play_looped(AudioDevice& self, const AudioBuffer& audio) {
 	SDL_LockAudioDevice(self.id);
-	self.looped_playbacks.push_back(AudioPlayback { .audio = &audio });
-    SDL_UnlockAudioDevice(self.id);
+	uint64_t id = self.next_playback_id++;
+	self.looped_playbacks.push_back(AudioPlayback{&audio, 0, 1.0f, id});
+	SDL_UnlockAudioDevice(self.id);
+	return id;
+}
+
+void audio_device_set_gain(AudioDevice& self, uint64_t playback_id, float gain) {
+	SDL_LockAudioDevice(self.id);
+	for (auto& pb : self.looped_playbacks) {
+		if (pb.id == playback_id) {
+			pb.gain = gain;
+			break;
+		}
+	}
+	SDL_UnlockAudioDevice(self.id);
+}
+
+void audio_device_stop_by_id(AudioDevice& self, uint64_t playback_id) {
+	SDL_LockAudioDevice(self.id);
+	for (int i = self.looped_playbacks.size() - 1; i >= 0; i--) {
+		if (self.looped_playbacks[i].id == playback_id) {
+			mu::vec_remove_unordered(self.looped_playbacks, i);
+			break;
+		}
+	}
+	SDL_UnlockAudioDevice(self.id);
 }
 
 bool audio_device_is_playing(const AudioDevice& self, const AudioBuffer& audio) {
