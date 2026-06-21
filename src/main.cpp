@@ -135,6 +135,7 @@ struct Aircraft {
 	Model model;
 	DATMap dat;
 	AudioBuffer* engine_sound;
+	uint64_t audio_playback_id = 0;
 
 	AABB initial_aabb;
 	AABB current_aabb;
@@ -2840,8 +2841,9 @@ namespace sys {
 		DEF_SYSTEM
 
 		for (auto& aircraft : world.aircrafts) {
-			if (aircraft.engine_sound) {
-				audio_device_stop(world.audio_device, *aircraft.engine_sound);
+			if (aircraft.audio_playback_id != 0) {
+				audio_device_stop_by_id(world.audio_device, aircraft.audio_playback_id);
+				aircraft.audio_playback_id = 0;
 			}
 			aircraft_unload(aircraft);
 		}
@@ -2934,26 +2936,6 @@ namespace sys {
 		if (world.events.throttle_decrease) {
 			self.throttle -= THROTTLE_SPEED * world.loop_timer.delta_time;
 		}
-
-		// only currently controlled model has audio
-		int audio_index = self.engine.speed_percent * 9;
-
-		AudioBuffer* audio;
-		if (self.has_propellers) {
-			audio = &world.audio_buffers.at(mu::str_tmpf("prop{}", audio_index));
-		} else if (self.engine.burner_enabled && self.has_afterburner) {
-			audio = &world.audio_buffers.at("burner");
-		} else {
-			audio = &world.audio_buffers.at(mu::str_tmpf("engine{}", audio_index));
-		}
-
-		if (self.engine_sound != audio) {
-			if (self.engine_sound) {
-				audio_device_stop(world.audio_device, *self.engine_sound);
-			}
-			self.engine_sound = audio;
-			audio_device_play_looped(world.audio_device, *self.engine_sound);
-		}
 	}
 
 	void _aircrafts_reload(World& world) {
@@ -2973,6 +2955,11 @@ namespace sys {
 
 		for (int i = 0; i < world.aircrafts.size(); i++) {
 			if (world.aircrafts[i].should_be_removed) {
+				if (world.aircrafts[i].audio_playback_id != 0) {
+					audio_device_stop_by_id(world.audio_device, world.aircrafts[i].audio_playback_id);
+					world.aircrafts[i].audio_playback_id = 0;
+				}
+
 				int tracked_model_index = -1;
 				for (int i = 0; i < world.aircrafts.size(); i++) {
 					if (world.camera.aircraft == &world.aircrafts[i]) {
@@ -3051,6 +3038,35 @@ namespace sys {
 			if (aircraft.engine.cutoff && aircraft.engine.speed_percent > 0) {
 				aircraft.engine.speed_percent -= (float)world.loop_timer.delta_time / ENGINE_PROPELLERS_RESISTENCE;
 				aircraft.engine.speed_percent = std::max(aircraft.engine.speed_percent, 0.0f);
+			}
+
+			// engine sound — runs for every aircraft, not just tracked
+			int audio_index = aircraft.engine.speed_percent * 9;
+
+			AudioBuffer* audio;
+			if (aircraft.has_propellers) {
+				audio = &world.audio_buffers.at(mu::str_tmpf("prop{}", audio_index));
+			} else if (aircraft.engine.burner_enabled && aircraft.has_afterburner) {
+				audio = &world.audio_buffers.at("burner");
+			} else {
+				audio = &world.audio_buffers.at(mu::str_tmpf("engine{}", audio_index));
+			}
+
+			if (aircraft.engine_sound != audio) {
+				if (aircraft.audio_playback_id != 0) {
+					audio_device_stop_by_id(world.audio_device, aircraft.audio_playback_id);
+				}
+				aircraft.engine_sound = audio;
+				aircraft.audio_playback_id = audio_device_play_looped(world.audio_device, *aircraft.engine_sound);
+				audio_device_set_gain(world.audio_device, aircraft.audio_playback_id, 0.0f);
+			}
+
+			if (aircraft.engine.cutoff || aircraft.mass.fuel <= 0) {
+				if (aircraft.audio_playback_id != 0) {
+					audio_device_stop_by_id(world.audio_device, aircraft.audio_playback_id);
+					aircraft.audio_playback_id = 0;
+					aircraft.engine_sound = nullptr;
+				}
 			}
 
 			// air density, https://en.wikipedia.org/wiki/Density_of_air#Dry_air, https://www.mide.com/air-pressure-at-altitude-calculator
@@ -3230,6 +3246,16 @@ namespace sys {
 		_aircrafts_update_cl_function(world);
 		_aircrafts_apply_user_controls(world);
 		_aircrafts_apply_physics(world);
+
+		// distance-based audio gain
+		constexpr float MAX_AUDIBLE_DIST = 5000.0f;
+		for (int i = 0; i < world.aircrafts.size(); i++) {
+			Aircraft& aircraft = world.aircrafts[i];
+			if (aircraft.audio_playback_id == 0) continue;
+			float dist = glm::distance(world.camera.position, aircraft.translation);
+			float gain = 1.0f - glm::clamp(dist / MAX_AUDIBLE_DIST, 0.0f, 1.0f);
+			audio_device_set_gain(world.audio_device, aircraft.audio_playback_id, gain);
+		}
 	}
 
 	void aircrafts_prepare_render(World& world) {

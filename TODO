@@ -1,15 +1,10 @@
 - add: aileron applies torque
 - add: aileron adds drag
 - add: elevetor adds lift and drag
-- when switch tracking of aircraft, turn off the audio for current aircraft
-- hear nearby aircrafts' sounds
-- refactor rendering
-	- box should be turned into list of lines (remove its shader)
 - ground objects:
 	- heathrow: totally broken ground objects rotations
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
 - mac: fix change line width
-- shade using normals
 - render terrain texture
 - fog
 
