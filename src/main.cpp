@@ -509,6 +509,10 @@ struct Settings {
 
 		GLenum primitives_type = GL_TRIANGLES;
 		GLenum polygon_mode    = GL_FILL;
+
+		bool lighting = true;
+		glm::vec3 ambient_color {0.784f, 0.784f, 0.784f}; // RGB(200,200,200) / 255
+		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
 	} rendering;
 
 	struct {
@@ -565,12 +569,14 @@ namespace canvas {
 		GLuint vao;
 		size_t buf_len;
 		glm::mat4 projection_view_model;
+		glm::mat3 model_normal;
 	};
 
 	struct GradientMesh {
 		GLuint vao;
 		size_t buf_len;
 		glm::mat4 projection_view_model;
+		glm::mat3 model_normal;
 
 		float gradient_bottom_y, gradient_top_y;
 		glm::vec3 gradient_bottom_color, gradient_top_color;
@@ -1187,6 +1193,13 @@ namespace sys {
 
 				const GLfloat POINT_SIZE_GRANULARITY = gl_get_float(GL_POINT_SIZE_GRANULARITY);
 				ImGui::DragFloat("Point Size", &world.settings.rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
+
+				ImGui::Separator();
+				ImGui::Checkbox("Lighting", &world.settings.rendering.lighting);
+				if (world.settings.rendering.lighting) {
+					ImGui::ColorEdit3("Ambient", (float*)&world.settings.rendering.ambient_color);
+					ImGui::DragFloat3("Light Dir", (float*)&world.settings.rendering.light_dir, 0.01f, -1.0f, 1.0f);
+				}
 
 				ImGui::TreePop();
 			}
@@ -1910,16 +1923,20 @@ namespace sys {
 				#version 330 core
 				layout (location = 0) in vec3 attr_position;
 				layout (location = 1) in vec4 attr_color;
+				layout (location = 2) in vec3 attr_normal;
 
 				uniform mat4 projection_view_model;
+				uniform mat3 model_normal;
 
 				out float vs_vertex_y;
 				out vec4 vs_color;
+				out vec3 vs_normal;
 
 				void main() {
 					gl_Position = projection_view_model * vec4(attr_position, 1.0);
 					vs_color = attr_color;
 					vs_vertex_y = attr_position.y;
+					vs_normal = normalize(model_normal * attr_normal);
 				}
 			)GLSL",
 
@@ -1928,6 +1945,7 @@ namespace sys {
 				#version 330 core
 				in float vs_vertex_y;
 				in vec4 vs_color;
+				in vec3 vs_normal;
 
 				out vec4 out_fragcolor;
 
@@ -1935,15 +1953,30 @@ namespace sys {
 				uniform float gradient_bottom_y, gradient_top_y;
 				uniform vec3 gradient_bottom_color, gradient_top_color;
 
+				uniform vec3 light_dir;
+				uniform vec3 ambient_color;
+				uniform bool lighting_enabled;
+
 				void main() {
 					if (vs_color.a == 0) {
 						discard;
-					} else if (gradient_enabled) {
-						float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
-						out_fragcolor = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
-					} else {
-						out_fragcolor = vs_color;
 					}
+
+					vec4 base_color;
+					if (gradient_enabled) {
+						float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
+						base_color = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
+					} else {
+						base_color = vs_color;
+					}
+
+				// dot(light_dir) > 0 avoids normalize(0) undefined when user drags all axes to zero via UI
+				if (lighting_enabled && dot(light_dir, light_dir) > 0.0) {
+					float diff = max(dot(vs_normal, normalize(light_dir)), 0.0);
+					out_fragcolor = base_color * vec4(ambient_color + diff, 1.0);
+				} else {
+					out_fragcolor = base_color;
+				}
 				}
 			)GLSL"
 		);
@@ -2781,7 +2814,8 @@ namespace sys {
 				canvas_add(world.canvas, canvas::Mesh {
 					.vao = mesh.gl_buf.vao,
 					.buf_len = mesh.gl_buf.len,
-					.projection_view_model = world.mats.projection_view * mesh.transformation
+					.projection_view_model = world.mats.projection_view * mesh.transformation,
+					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
 				});
 
 				return true;
@@ -3278,7 +3312,8 @@ namespace sys {
 				canvas_add(world.canvas, canvas::Mesh {
 					.vao = mesh.gl_buf.vao,
 					.buf_len = mesh.gl_buf.len,
-					.projection_view_model = world.mats.projection_view * mesh.transformation
+					.projection_view_model = world.mats.projection_view * mesh.transformation,
+					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
 				});
 
 				// ZL
@@ -3448,6 +3483,7 @@ namespace sys {
 						.vao = terr_mesh.gl_buf.vao,
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
+						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation))),
 
 						.gradient_bottom_y = terr_mesh.gradient.bottom_y,
 						.gradient_top_y = terr_mesh.gradient.top_y,
@@ -3459,6 +3495,7 @@ namespace sys {
 						.vao = terr_mesh.gl_buf.vao,
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
+						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation)))
 					});
 				}
 			}
@@ -3475,7 +3512,9 @@ namespace sys {
 					.projection_view_model =
 						world.mats.projection_view
 						* mesh.transformation
-						* fld->transformation
+						* fld->transformation,
+					.model_normal = glm::transpose(glm::inverse(
+						glm::mat3(mesh.transformation * fld->transformation)))
 				});
 
 				return true;
@@ -3509,9 +3548,20 @@ namespace sys {
 
 		gl_program_use(world.canvas.meshes.program);
 
+		// normalize CPU-side once per frame instead of per-fragment
+		auto light_dir = world.settings.rendering.light_dir;
+		float len = glm::length(light_dir);
+		gl_program_uniform_set(world.canvas.meshes.program, "light_dir",
+			len > 0.0001f ? light_dir / len : light_dir);
+		gl_program_uniform_set(world.canvas.meshes.program, "ambient_color",
+			world.settings.rendering.ambient_color);
+		gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled",
+			world.settings.rendering.lighting);
+
 		// regular
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+			gl_program_uniform_set(world.canvas.meshes.program, "model_normal", mesh.model_normal);
 			glBindVertexArray(mesh.vao);
 			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.buf_len);
 		}
@@ -3521,6 +3571,7 @@ namespace sys {
 			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", true);
 			for (const auto& mesh : world.canvas.meshes.list_gradient) {
 				gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+				gl_program_uniform_set(world.canvas.meshes.program, "model_normal", mesh.model_normal);
 
 				gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_y", mesh.gradient_bottom_y);
 				gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_y", mesh.gradient_top_y);
@@ -3539,6 +3590,7 @@ namespace sys {
 
 		if (world.canvas.axes.list.empty() == false) {
 			gl_program_use(world.canvas.meshes.program);
+			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
@@ -3559,6 +3611,7 @@ namespace sys {
 
 		if (world.settings.world_axis.enabled) {
 			gl_program_use(world.canvas.meshes.program);
+			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);

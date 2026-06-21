@@ -245,17 +245,27 @@ void mesh_load_to_gpu(Mesh& self) {
 	struct Stride {
 		glm::vec3 vertex;
 		glm::vec4 color;
+		glm::vec3 normal;
 	};
 	mu::Vec<Stride> buffer(mu::memory::tmp());
 	for (const auto& face : self.faces) {
+		auto face_normal = face.normal;
+		// compute from first 3 vertices when SRF file has zero normal
+		if (glm::length(face_normal) < 0.0001f && face.vertices_ids.size() >= 3) {
+			auto& v0 = self.vertices[face.vertices_ids[0]];
+			auto& v1 = self.vertices[face.vertices_ids[1]];
+			auto& v2 = self.vertices[face.vertices_ids[2]];
+			face_normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+		}
 		for (size_t i = 0; i < face.vertices_ids.size(); i++) {
 			buffer.push_back(Stride {
 				.vertex=self.vertices[face.vertices_ids[i]],
 				.color=face.color,
+				.normal=face_normal,
 			});
 		}
 	}
-	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4>(buffer);
+	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4, glm::vec3>(buffer);
 
 	for (auto& child : self.children) {
 		mesh_load_to_gpu(child);
@@ -1113,6 +1123,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 	struct Stride {
 		glm::vec3 vertex;
 		glm::vec4 color;
+		glm::vec3 normal;
 	};
 	mu::Vec<Stride> buffer(mu::memory::tmp());
 
@@ -1185,7 +1196,18 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		stride.vertex.z *= self.scale.y;
 	}
 
-	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4>(buffer);
+	// compute face normals from the scaled geometry
+	for (size_t i = 0; i < buffer.size(); i += 3) {
+		glm::vec3 v0 = buffer[i+0].vertex;
+		glm::vec3 v1 = buffer[i+1].vertex;
+		glm::vec3 v2 = buffer[i+2].vertex;
+		glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+		buffer[i+0].normal = normal;
+		buffer[i+1].normal = normal;
+		buffer[i+2].normal = normal;
+	}
+
+	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4, glm::vec3>(buffer);
 }
 
 void terr_mesh_unload_from_gpu(TerrMesh& self) {
