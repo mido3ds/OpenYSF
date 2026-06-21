@@ -510,6 +510,10 @@ struct Settings {
 
 		GLenum primitives_type = GL_TRIANGLES;
 		GLenum polygon_mode    = GL_FILL;
+
+		bool lighting = true;
+		glm::vec3 ambient_color {0.784f, 0.784f, 0.784f}; // RGB(200,200,200) / 255
+		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
 	} rendering;
 
 	struct {
@@ -552,26 +556,28 @@ namespace canvas {
 		glm::mat4 transformation;
 	};
 
-	struct Box {
-		glm::vec3 translation, scale, color;
-	};
-
 	struct Line {
 		// world coordinates
 		glm::vec3 p0, p1;
 		glm::vec4 color;
 	};
 
+	struct Box {
+		glm::vec3 translation, scale, color;
+	};
+
 	struct Mesh {
 		GLuint vao;
 		size_t buf_len;
 		glm::mat4 projection_view_model;
+		glm::mat3 model_normal;
 	};
 
 	struct GradientMesh {
 		GLuint vao;
 		size_t buf_len;
 		glm::mat4 projection_view_model;
+		glm::mat3 model_normal;
 
 		float gradient_bottom_y, gradient_top_y;
 		glm::vec3 gradient_bottom_color, gradient_top_color;
@@ -664,14 +670,6 @@ struct Canvas {
 
 	struct {
 		GLProgram program;
-		GLBuf gl_buf; // single box vertices
-		GLfloat line_width = 1.0f;
-
-		mu::Vec<canvas::Box> list;
-	} boxes;
-
-	struct {
-		GLProgram program;
 		GLBuf gl_buf; // single character quad vertices
 
 		mu::Arr<canvas::Glyph, 128> glyphs;
@@ -701,16 +699,42 @@ void canvas_add(Canvas& self, canvas::Axis&& a) {
 	self.axes.list.push_back(std::move(a));
 }
 
-void canvas_add(Canvas& self, canvas::Box&& b) {
-	self.boxes.list.push_back(std::move(b));
-}
-
 void canvas_add(Canvas& self, canvas::ZLPoint&& z) {
 	self.zlpoints.list.push_back(std::move(z));
 }
 
 void canvas_add(Canvas& self, canvas::Line&& l) {
 	self.lines.list.push_back(std::move(l));
+}
+
+void canvas_add(Canvas& self, canvas::Box&& b) {
+	const auto min = b.translation;
+	const auto max = b.translation + b.scale;
+	const glm::vec4 color{b.color, 1.0f};
+
+	const glm::vec3 c000 = min;
+	const glm::vec3 c001{min.x, min.y, max.z};
+	const glm::vec3 c010{min.x, max.y, min.z};
+	const glm::vec3 c011{min.x, max.y, max.z};
+	const glm::vec3 c100{max.x, min.y, min.z};
+	const glm::vec3 c101{max.x, min.y, max.z};
+	const glm::vec3 c110{max.x, max.y, min.z};
+	const glm::vec3 c111 = max;
+
+	canvas_add(self, canvas::Line{c000, c001, color});
+	canvas_add(self, canvas::Line{c010, c011, color});
+	canvas_add(self, canvas::Line{c100, c101, color});
+	canvas_add(self, canvas::Line{c110, c111, color});
+
+	canvas_add(self, canvas::Line{c000, c010, color});
+	canvas_add(self, canvas::Line{c001, c011, color});
+	canvas_add(self, canvas::Line{c100, c110, color});
+	canvas_add(self, canvas::Line{c101, c111, color});
+
+	canvas_add(self, canvas::Line{c000, c100, color});
+	canvas_add(self, canvas::Line{c001, c101, color});
+	canvas_add(self, canvas::Line{c010, c110, color});
+	canvas_add(self, canvas::Line{c011, c111, color});
 }
 
 void canvas_add(Canvas& self, canvas::Mesh&& m) {
@@ -1171,6 +1195,13 @@ namespace sys {
 				const GLfloat POINT_SIZE_GRANULARITY = gl_get_float(GL_POINT_SIZE_GRANULARITY);
 				ImGui::DragFloat("Point Size", &world.settings.rendering.point_size, POINT_SIZE_GRANULARITY, 0.5, 100);
 
+				ImGui::Separator();
+				ImGui::Checkbox("Lighting", &world.settings.rendering.lighting);
+				if (world.settings.rendering.lighting) {
+					ImGui::ColorEdit3("Ambient", (float*)&world.settings.rendering.ambient_color);
+					ImGui::DragFloat3("Light Dir", (float*)&world.settings.rendering.light_dir, 0.01f, -1.0f, 1.0f);
+				}
+
 				ImGui::TreePop();
 			}
 
@@ -1200,11 +1231,6 @@ namespace sys {
 			}
 
 			if (ImGui::TreeNode("Physics")) {
-				#ifndef OS_MACOS
-				ImGui::Text("AABB Rendering");
-				ImGui::DragFloat("Line Width", &world.canvas.boxes.line_width, SMOOTH_LINE_WIDTH_GRANULARITY, 0.5, 100);
-				#endif
-
 				ImGui::Checkbox("Handle Collision", &world.settings.handle_collision);
 				ImGui::TreePop();
 			}
@@ -1898,16 +1924,20 @@ namespace sys {
 				#version 330 core
 				layout (location = 0) in vec3 attr_position;
 				layout (location = 1) in vec4 attr_color;
+				layout (location = 2) in vec3 attr_normal;
 
 				uniform mat4 projection_view_model;
+				uniform mat3 model_normal;
 
 				out float vs_vertex_y;
 				out vec4 vs_color;
+				out vec3 vs_normal;
 
 				void main() {
 					gl_Position = projection_view_model * vec4(attr_position, 1.0);
 					vs_color = attr_color;
 					vs_vertex_y = attr_position.y;
+					vs_normal = normalize(model_normal * attr_normal);
 				}
 			)GLSL",
 
@@ -1916,6 +1946,7 @@ namespace sys {
 				#version 330 core
 				in float vs_vertex_y;
 				in vec4 vs_color;
+				in vec3 vs_normal;
 
 				out vec4 out_fragcolor;
 
@@ -1923,15 +1954,30 @@ namespace sys {
 				uniform float gradient_bottom_y, gradient_top_y;
 				uniform vec3 gradient_bottom_color, gradient_top_color;
 
+				uniform vec3 light_dir;
+				uniform vec3 ambient_color;
+				uniform bool lighting_enabled;
+
 				void main() {
 					if (vs_color.a == 0) {
 						discard;
-					} else if (gradient_enabled) {
-						float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
-						out_fragcolor = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
-					} else {
-						out_fragcolor = vs_color;
 					}
+
+					vec4 base_color;
+					if (gradient_enabled) {
+						float alpha = (vs_vertex_y - gradient_bottom_y) / (gradient_top_y - gradient_bottom_y);
+						base_color = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
+					} else {
+						base_color = vs_color;
+					}
+
+				// dot(light_dir) > 0 avoids normalize(0) undefined when user drags all axes to zero via UI
+				if (lighting_enabled && dot(light_dir, light_dir) > 0.0) {
+					float diff = max(dot(vs_normal, normalize(light_dir)), 0.0);
+					out_fragcolor = base_color * vec4(ambient_color + diff, 1.0);
+				} else {
+					out_fragcolor = base_color;
+				}
 				}
 			)GLSL"
 		);
@@ -1950,61 +1996,6 @@ namespace sys {
 				Stride {{0, 0, 1}, {0, 0, 1, 1}},
 			});
 		}
-
-		self.boxes.program = gl_program_new(
-			// vertex shader
-			R"GLSL(
-				#version 330 core
-				layout (location = 0) in vec3 attr_position;
-				uniform mat4 projection_view_model;
-				void main() {
-					gl_Position = projection_view_model * vec4(attr_position, 1.0);
-				}
-			)GLSL",
-
-			// fragment shader
-			R"GLSL(
-				#version 330 core
-				uniform vec3 color;
-				out vec4 out_fragcolor;
-				void main() {
-					out_fragcolor = vec4(color, 1.0f);
-				}
-			)GLSL"
-		);
-
-		self.boxes.gl_buf = gl_buf_new<glm::vec3>(mu::Vec<glm::vec3> {
-			{0, 0, 0}, // face x0
-			{0, 1, 0},
-			{0, 1, 1},
-			{0, 0, 1},
-			{0, 0, 0},
-			{1, 0, 0}, // face x1
-			{1, 1, 0},
-			{1, 1, 1},
-			{1, 0, 1},
-			{1, 0, 0},
-			{0, 0, 0}, // face y0
-			{1, 0, 0},
-			{1, 0, 1},
-			{0, 0, 1},
-			{0, 0, 0},
-			{0, 1, 0}, // face y1
-			{1, 1, 0},
-			{1, 1, 1},
-			{0, 1, 1},
-			{0, 1, 0},
-			{0, 0, 0}, // face z0
-			{1, 0, 0},
-			{1, 1, 0},
-			{0, 1, 0},
-			{0, 0, 0},
-			{0, 0, 1}, // face z1
-			{1, 0, 1},
-			{1, 1, 1},
-			{0, 1, 1},
-			{0, 0, 1},
-		});
 
 		self.gnd_pics.program = gl_program_new(
 			// vertex shader
@@ -2340,10 +2331,6 @@ namespace sys {
 		gl_program_free(self.ground.program);
 		gl_buf_free(self.ground.gl_buf);
 
-		// boxes
-		gl_program_free(self.boxes.program);
-		gl_buf_free(self.boxes.gl_buf);
-
 		// axes
 		gl_buf_free(self.axes.gl_buf);
 
@@ -2398,7 +2385,6 @@ namespace sys {
 		self.text.list_world       = mu::Vec<canvas::Text>(&self.arena);
 		self.text.list_hud         = mu::Vec<canvas::hud::Text>(&self.arena);
 		self.axes.list             = mu::Vec<canvas::Axis>(&self.arena);
-		self.boxes.list            = mu::Vec<canvas::Box>(&self.arena);
 		self.zlpoints.list         = mu::Vec<canvas::ZLPoint>(&self.arena);
 		self.lines.list            = mu::Vec<canvas::Line>(&self.arena);
 		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self.arena);
@@ -2646,7 +2632,7 @@ namespace sys {
 			}
 		}
 
-		// render boxes
+		// render boxes as lines (12 edges per aabb)
 		constexpr glm::vec3 RED {1,0,0};
 		constexpr glm::vec3 BLU {0,0,1};
 		for (int i = 0; i < e.size(); i++) {
@@ -2829,7 +2815,8 @@ namespace sys {
 				canvas_add(world.canvas, canvas::Mesh {
 					.vao = mesh.gl_buf.vao,
 					.buf_len = mesh.gl_buf.len,
-					.projection_view_model = world.mats.projection_view * mesh.transformation
+					.projection_view_model = world.mats.projection_view * mesh.transformation,
+					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
 				});
 
 				return true;
@@ -3351,7 +3338,8 @@ namespace sys {
 				canvas_add(world.canvas, canvas::Mesh {
 					.vao = mesh.gl_buf.vao,
 					.buf_len = mesh.gl_buf.len,
-					.projection_view_model = world.mats.projection_view * mesh.transformation
+					.projection_view_model = world.mats.projection_view * mesh.transformation,
+					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
 				});
 
 				// ZL
@@ -3521,6 +3509,7 @@ namespace sys {
 						.vao = terr_mesh.gl_buf.vao,
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
+						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation))),
 
 						.gradient_bottom_y = terr_mesh.gradient.bottom_y,
 						.gradient_top_y = terr_mesh.gradient.top_y,
@@ -3532,6 +3521,7 @@ namespace sys {
 						.vao = terr_mesh.gl_buf.vao,
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
+						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation)))
 					});
 				}
 			}
@@ -3548,7 +3538,9 @@ namespace sys {
 					.projection_view_model =
 						world.mats.projection_view
 						* mesh.transformation
-						* fld->transformation
+						* fld->transformation,
+					.model_normal = glm::transpose(glm::inverse(
+						glm::mat3(mesh.transformation * fld->transformation)))
 				});
 
 				return true;
@@ -3582,9 +3574,20 @@ namespace sys {
 
 		gl_program_use(world.canvas.meshes.program);
 
+		// normalize CPU-side once per frame instead of per-fragment
+		auto light_dir = world.settings.rendering.light_dir;
+		float len = glm::length(light_dir);
+		gl_program_uniform_set(world.canvas.meshes.program, "light_dir",
+			len > 0.0001f ? light_dir / len : light_dir);
+		gl_program_uniform_set(world.canvas.meshes.program, "ambient_color",
+			world.settings.rendering.ambient_color);
+		gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled",
+			world.settings.rendering.lighting);
+
 		// regular
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+			gl_program_uniform_set(world.canvas.meshes.program, "model_normal", mesh.model_normal);
 			glBindVertexArray(mesh.vao);
 			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.buf_len);
 		}
@@ -3594,6 +3597,7 @@ namespace sys {
 			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", true);
 			for (const auto& mesh : world.canvas.meshes.list_gradient) {
 				gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
+				gl_program_uniform_set(world.canvas.meshes.program, "model_normal", mesh.model_normal);
 
 				gl_program_uniform_set(world.canvas.meshes.program, "gradient_bottom_y", mesh.gradient_bottom_y);
 				gl_program_uniform_set(world.canvas.meshes.program, "gradient_top_y", mesh.gradient_top_y);
@@ -3612,6 +3616,7 @@ namespace sys {
 
 		if (world.canvas.axes.list.empty() == false) {
 			gl_program_use(world.canvas.meshes.program);
+			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
@@ -3632,6 +3637,7 @@ namespace sys {
 
 		if (world.settings.world_axis.enabled) {
 			gl_program_use(world.canvas.meshes.program);
+			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
@@ -3648,32 +3654,6 @@ namespace sys {
 
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", translate * world.mats.projection * new_view_mat);
 			glDrawArrays(GL_LINES, 0, world.canvas.axes.gl_buf.len);
-		}
-	}
-
-	void canvas_render_boxes(World& world) {
-		DEF_SYSTEM
-
-		if (world.canvas.boxes.list.empty()) {
-			return;
-		}
-
-		gl_program_use(world.canvas.boxes.program);
-		glEnable(GL_LINE_SMOOTH);
-		#ifndef OS_MACOS
-		glLineWidth(world.canvas.boxes.line_width);
-		#endif
-		glBindVertexArray(world.canvas.boxes.gl_buf.vao);
-
-		for (const auto& box : world.canvas.boxes.list) {
-			auto transformation = glm::translate(glm::identity<glm::mat4>(), box.translation);
-			transformation = glm::scale(transformation, box.scale);
-			const auto projection_view_model = world.mats.projection_view * transformation;
-			gl_program_uniform_set(world.canvas.boxes.program, "projection_view_model", projection_view_model);
-
-			gl_program_uniform_set(world.canvas.boxes.program, "color", box.color);
-
-			glDrawArrays(GL_LINE_LOOP, 0, world.canvas.boxes.gl_buf.len);
 		}
 	}
 
@@ -3945,7 +3925,6 @@ int main() {
 			sys::canvas_render_zlpoints(world);
 			sys::canvas_render_meshes(world);
 			sys::canvas_render_axes(world);
-			sys::canvas_render_boxes(world);
 			sys::canvas_render_lines(world);
 			sys::canvas_render_text(world);
 			sys::canvas_render_hud_text(world);
