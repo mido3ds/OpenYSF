@@ -511,7 +511,7 @@ struct Settings {
 		GLenum polygon_mode    = GL_FILL;
 
 		bool lighting = true;
-		glm::vec3 ambient_color {0.25f, 0.25f, 0.25f};
+		glm::vec3 ambient_color {0.784f, 0.784f, 0.784f}; // RGB(200,200,200) / 255
 		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
 	} rendering;
 
