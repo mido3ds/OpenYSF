@@ -249,11 +249,19 @@ void mesh_load_to_gpu(Mesh& self) {
 	};
 	mu::Vec<Stride> buffer(mu::memory::tmp());
 	for (const auto& face : self.faces) {
+		auto face_normal = face.normal;
+		// compute from first 3 vertices when SRF file has zero normal
+		if (glm::length(face_normal) < 0.0001f && face.vertices_ids.size() >= 3) {
+			auto& v0 = self.vertices[face.vertices_ids[0]];
+			auto& v1 = self.vertices[face.vertices_ids[1]];
+			auto& v2 = self.vertices[face.vertices_ids[2]];
+			face_normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+		}
 		for (size_t i = 0; i < face.vertices_ids.size(); i++) {
 			buffer.push_back(Stride {
 				.vertex=self.vertices[face.vertices_ids[i]],
 				.color=face.color,
-				.normal=face.normal,
+				.normal=face_normal,
 			});
 		}
 	}

@@ -1957,12 +1957,13 @@ namespace sys {
 						base_color = vs_color;
 					}
 
-					if (lighting_enabled) {
-						float diff = max(dot(vs_normal, normalize(light_dir)), 0.0);
-						out_fragcolor = base_color * vec4(ambient_color + diff, 1.0);
-					} else {
-						out_fragcolor = base_color;
-					}
+				// dot(light_dir) > 0 avoids normalize(0) undefined when user drags all axes to zero via UI
+				if (lighting_enabled && dot(light_dir, light_dir) > 0.0) {
+					float diff = max(dot(vs_normal, normalize(light_dir)), 0.0);
+					out_fragcolor = base_color * vec4(ambient_color + diff, 1.0);
+				} else {
+					out_fragcolor = base_color;
+				}
 				}
 			)GLSL"
 		);
@@ -3594,8 +3595,11 @@ namespace sys {
 
 		gl_program_use(world.canvas.meshes.program);
 
+		// normalize CPU-side once per frame instead of per-fragment
+		auto light_dir = world.settings.rendering.light_dir;
+		float len = glm::length(light_dir);
 		gl_program_uniform_set(world.canvas.meshes.program, "light_dir",
-			world.settings.rendering.light_dir);
+			len > 0.0001f ? light_dir / len : light_dir);
 		gl_program_uniform_set(world.canvas.meshes.program, "ambient_color",
 			world.settings.rendering.ambient_color);
 		gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled",
