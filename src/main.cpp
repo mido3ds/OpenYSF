@@ -3633,6 +3633,7 @@ namespace sys {
 
 		if (world.canvas.axes.list.empty() == false) {
 			gl_program_use(world.canvas.meshes.program);
+			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
@@ -3653,6 +3654,7 @@ namespace sys {
 
 		if (world.settings.world_axis.enabled) {
 			gl_program_use(world.canvas.meshes.program);
+			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
