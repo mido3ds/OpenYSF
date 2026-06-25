@@ -1957,6 +1957,7 @@ namespace sys {
 				in float vs_vertex_y;
 				in vec4 vs_color;
 				in vec3 vs_normal;
+				in float vs_depth;
 
 				out vec4 out_fragcolor;
 
@@ -1967,6 +1968,10 @@ namespace sys {
 				uniform vec3 light_dir;
 				uniform vec3 ambient_color;
 				uniform bool lighting_enabled;
+
+				uniform bool fog_enabled;
+				uniform float fog_density;
+				uniform vec3 fog_color;
 
 				void main() {
 					if (vs_color.a == 0) {
@@ -1987,6 +1992,12 @@ namespace sys {
 					out_fragcolor = base_color * vec4(ambient_color + diff, 1.0);
 				} else {
 					out_fragcolor = base_color;
+				}
+
+				if (fog_enabled) {
+					float d = vs_depth * fog_density;
+					float fog_factor = exp(-d * d);
+					out_fragcolor = mix(vec4(fog_color, 1.0), out_fragcolor, fog_factor);
 				}
 				}
 			)GLSL"
