@@ -3610,6 +3610,14 @@ namespace sys {
 		gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled",
 			world.settings.rendering.lighting);
 
+		// fog
+		gl_program_uniform_set(world.canvas.meshes.program, "fog_enabled",
+			world.settings.rendering.fog_enabled);
+		gl_program_uniform_set(world.canvas.meshes.program, "fog_density",
+			world.settings.rendering.fog_density);
+		gl_program_uniform_set(world.canvas.meshes.program, "fog_color",
+			world.settings.rendering.fog_color);
+
 		// regular
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
