@@ -516,8 +516,8 @@ struct Settings {
 		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
 
 		bool fog_enabled = false;
-		float fog_density = 0.01f;
-		glm::vec3 fog_color {0.5f, 0.5f, 0.5f};
+		float fog_density = 0.0015f;
+		glm::vec3 fog_color {0.392f, 0.584f, 0.929f}; // CORNFLOWER_BLUE
 	} rendering;
 
 	struct {
@@ -575,7 +575,6 @@ namespace canvas {
 		size_t buf_len;
 		glm::mat4 projection_view_model;
 		glm::mat3 model_normal;
-		glm::mat4 model_view;
 	};
 
 	struct GradientMesh {
@@ -583,7 +582,6 @@ namespace canvas {
 		size_t buf_len;
 		glm::mat4 projection_view_model;
 		glm::mat3 model_normal;
-		glm::mat4 model_view;
 
 		float gradient_bottom_y, gradient_top_y;
 		glm::vec3 gradient_bottom_color, gradient_top_color;
@@ -1211,7 +1209,7 @@ namespace sys {
 				ImGui::Separator();
 				ImGui::Checkbox("Fog", &world.settings.rendering.fog_enabled);
 				if (world.settings.rendering.fog_enabled) {
-					ImGui::DragFloat("Density", &world.settings.rendering.fog_density, 0.001f, 0.0f, 0.5f, "%.4f");
+					ImGui::DragFloat("Density", &world.settings.rendering.fog_density, 0.0001f, 0.0f, 0.01f, "%.4f");
 					ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
 				}
 
@@ -1941,7 +1939,6 @@ namespace sys {
 
 				uniform mat4 projection_view_model;
 				uniform mat3 model_normal;
-				uniform mat4 model_view;
 
 				out float vs_vertex_y;
 				out vec4 vs_color;
@@ -1949,12 +1946,11 @@ namespace sys {
 				out float vs_depth;
 
 				void main() {
-					vec4 view_pos = model_view * vec4(attr_position, 1.0);
 					gl_Position = projection_view_model * vec4(attr_position, 1.0);
 					vs_color = attr_color;
 					vs_vertex_y = attr_position.y;
 					vs_normal = normalize(model_normal * attr_normal);
-					vs_depth = -view_pos.z;
+					vs_depth = gl_Position.w;
 				}
 			)GLSL",
 
@@ -2844,8 +2840,7 @@ namespace sys {
 					.vao = mesh.gl_buf.vao,
 					.buf_len = mesh.gl_buf.len,
 					.projection_view_model = world.mats.projection_view * mesh.transformation,
-					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation))),
-					.model_view = world.mats.view * mesh.transformation
+					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
 				});
 
 				return true;
@@ -3368,8 +3363,7 @@ namespace sys {
 					.vao = mesh.gl_buf.vao,
 					.buf_len = mesh.gl_buf.len,
 					.projection_view_model = world.mats.projection_view * mesh.transformation,
-					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation))),
-					.model_view = world.mats.view * mesh.transformation
+					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
 				});
 
 				// ZL
@@ -3540,7 +3534,6 @@ namespace sys {
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
 						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation))),
-						.model_view = world.mats.view * model_transformation,
 
 						.gradient_bottom_y = terr_mesh.gradient.bottom_y,
 						.gradient_top_y = terr_mesh.gradient.top_y,
@@ -3552,8 +3545,7 @@ namespace sys {
 						.vao = terr_mesh.gl_buf.vao,
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
-						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation))),
-						.model_view = world.mats.view * model_transformation
+						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation)))
 					});
 				}
 			}
@@ -3572,8 +3564,7 @@ namespace sys {
 						* mesh.transformation
 						* fld->transformation,
 					.model_normal = glm::transpose(glm::inverse(
-						glm::mat3(mesh.transformation * fld->transformation))),
-					.model_view = world.mats.view * mesh.transformation * fld->transformation
+						glm::mat3(mesh.transformation * fld->transformation)))
 				});
 
 				return true;
