@@ -31,7 +31,7 @@ include(CPM)
 CPMAddPackage(
     NAME             mu
     GIT_REPOSITORY   https://github.com/mido3ds/mu.git
-    GIT_TAG          5eb4f1a0d16cd9963d27437eafa4332a351c3975
+    GIT_TAG          844d57c3242a1a3663a6ba67a846276c3889ee22
     GIT_SHALLOW      TRUE
 )
 CPMAddPackage(
