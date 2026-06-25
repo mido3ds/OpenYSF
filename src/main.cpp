@@ -1208,6 +1208,13 @@ namespace sys {
 					ImGui::DragFloat3("Light Dir", (float*)&world.settings.rendering.light_dir, 0.01f, -1.0f, 1.0f);
 				}
 
+				ImGui::Separator();
+				ImGui::Checkbox("Fog", &world.settings.rendering.fog_enabled);
+				if (world.settings.rendering.fog_enabled) {
+					ImGui::DragFloat("Density", &world.settings.rendering.fog_density, 0.001f, 0.0f, 0.5f, "%.4f");
+					ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
+				}
+
 				ImGui::TreePop();
 			}
 
