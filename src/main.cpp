@@ -514,6 +514,10 @@ struct Settings {
 		bool lighting = true;
 		glm::vec3 ambient_color {0.784f, 0.784f, 0.784f}; // RGB(200,200,200) / 255
 		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
+
+		bool fog_enabled = false;
+		float fog_density = 0.01f;
+		glm::vec3 fog_color {0.5f, 0.5f, 0.5f};
 	} rendering;
 
 	struct {
