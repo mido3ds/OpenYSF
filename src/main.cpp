@@ -2901,27 +2901,7 @@ namespace sys {
 		float eff_burn = self.engine.fuel_mili + (self.engine.burner_enabled ? self.engine.fuel_abrn : 0);
 		TEXT_OVERLAY("burn = {:.2f}kg/s", (self.engine.cutoff ? 0.0f : eff_burn * self.engine.speed_percent));
 
-		float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
-		constexpr auto ROTATE_SPEED = 12.0f / DEGREES_MAX * RADIANS_MAX;
-		if (world.events.stick_back) {
-			delta_pitch -= ROTATE_SPEED * world.loop_timer.delta_time;
-		}
-		if (world.events.stick_front) {
-			delta_pitch += ROTATE_SPEED * world.loop_timer.delta_time;
-		}
-		if (world.events.stick_left) {
-			delta_roll -= ROTATE_SPEED * world.loop_timer.delta_time;
-		}
-		if (world.events.stick_right) {
-			delta_roll += ROTATE_SPEED * world.loop_timer.delta_time;
-		}
-		if (world.events.rudder_right) {
-			delta_yaw -= ROTATE_SPEED * world.loop_timer.delta_time;
-		}
-		if (world.events.rudder_left) {
-			delta_yaw += ROTATE_SPEED * world.loop_timer.delta_time;
-		}
-		local_euler_angles_rotate(self.angles, delta_yaw, delta_pitch, delta_roll);
+
 
 		if (world.events.afterburner_toggle) {
 			self.engine.burner_enabled = ! self.engine.burner_enabled;
