@@ -3122,10 +3122,10 @@ namespace sys {
 				delta_roll += aircraft.right_aileron_perc * ROLL_EFFICIENCY
 					* airspeed_factor * (float)world.loop_timer.delta_time;
 
-				delta_pitch += -aircraft.elevator_perc * ELEVATOR_EFFICIENCY
+				delta_pitch += aircraft.elevator_perc * ELEVATOR_EFFICIENCY
 					* airspeed_factor * (float)world.loop_timer.delta_time;
 
-				delta_yaw += aircraft.rudder_perc * RUDDER_EFFICIENCY
+				delta_yaw += -aircraft.rudder_perc * RUDDER_EFFICIENCY
 					* airspeed_factor * (float)world.loop_timer.delta_time;
 
 				// aileron adverse yaw
