@@ -40,4 +40,5 @@ assets/*
 
 open-ysf-imgui.ini
 docs/superpowers/
-.cache
+
+.cache/
