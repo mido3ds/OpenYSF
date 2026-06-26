@@ -21,7 +21,6 @@
 	- small.fld bugs:
 		- biggest pic doesn't render/(tesselat?) correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
-	- terrmesh sides colors
 	- read PST at end of fld
 	- aomori.fld:
 		- what is BASEELV?
