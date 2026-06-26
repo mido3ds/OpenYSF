@@ -1,6 +1,3 @@
-- add: aileron applies torque
-- add: aileron adds drag
-- add: elevetor adds lift and drag
 - ground objects:
 	- heathrow: totally broken ground objects rotations
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
