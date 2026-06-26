@@ -48,6 +48,12 @@ constexpr float ZL_SCALE = 0.151f;
 // change speed of tilt% of ailerons/rudder/elevators
 constexpr float CTRL_SURFACE_SPEED = 1.9f;
 
+// control surface efficiency coefficients (airspeed-scaled torques)
+constexpr float ROLL_EFFICIENCY     = 0.8f;
+constexpr float ELEVATOR_EFFICIENCY = 0.4f;
+constexpr float RUDDER_EFFICIENCY   = 0.3f;
+constexpr float ADVERSE_YAW_COEFF   = 0.2f;
+
 // flash anti collision lights
 constexpr double ANTI_COLL_LIGHT_PERIOD = 1;
 
@@ -3096,6 +3102,30 @@ namespace sys {
 				aircraft.forces.thrust = std::max(aircraft.forces.thrust - friction, 0.0f);
 
 				aircraft.forces.weight = 0;
+			}
+
+			// rotation — torque from control surfaces, scaled by airspeed
+			{
+				float vel = glm::length(aircraft.velocity);
+				float max_vel = aircraft.max_velocity;
+				float airspeed_factor = glm::clamp((vel * vel) / (max_vel * max_vel), 0.0f, 1.0f);
+
+				float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
+
+				delta_roll += aircraft.right_aileron_perc * ROLL_EFFICIENCY
+					* airspeed_factor * (float)world.loop_timer.delta_time;
+
+				delta_pitch += -aircraft.elevator_perc * ELEVATOR_EFFICIENCY
+					* airspeed_factor * (float)world.loop_timer.delta_time;
+
+				delta_yaw += aircraft.rudder_perc * RUDDER_EFFICIENCY
+					* airspeed_factor * (float)world.loop_timer.delta_time;
+
+				// aileron adverse yaw
+				delta_yaw += -aircraft.right_aileron_perc * ADVERSE_YAW_COEFF
+					* airspeed_factor * (float)world.loop_timer.delta_time;
+
+				local_euler_angles_rotate(aircraft.angles, delta_yaw, delta_pitch, delta_roll);
 			}
 
 			// translation
