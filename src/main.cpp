@@ -49,9 +49,9 @@ constexpr float ZL_SCALE = 0.151f;
 constexpr float CTRL_SURFACE_SPEED = 1.9f;
 
 // control surface efficiency coefficients (airspeed-scaled torques)
-constexpr float ROLL_EFFICIENCY     = 0.8f;
-constexpr float ELEVATOR_EFFICIENCY = 0.4f;
-constexpr float RUDDER_EFFICIENCY   = 0.3f;
+constexpr float ROLL_EFFICIENCY     = 0.5f;
+constexpr float ELEVATOR_EFFICIENCY = 0.3f;
+constexpr float RUDDER_EFFICIENCY   = 0.1f;
 constexpr float ADVERSE_YAW_COEFF   = 0.2f;
 
 // elevator deflection lift contribution (tail downforce)
