@@ -1190,6 +1190,86 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 		}
 	}
 
+	const float bottom_y = -self.gradient.bottom_y;
+	const size_t nx = self.nodes_height[0].size() - 1;
+	const size_t nz = self.nodes_height.size() - 1;
+
+	// side walls (only if gradient defines a meaningful bottom)
+	auto add_wall = [&](auto get_h_left, auto get_h_right,
+							auto get_pos, glm::vec4 color, size_t count) {
+		if (color.a == 0.0f) return;
+		for (size_t i = 0; i < count; i++) {
+			float hl = get_h_left(i);
+			float hr = get_h_right(i);
+			// triangle 1: bottom-left → bottom-right → top-left
+			buffer.push_back(Stride{get_pos(i, 0, false), color});
+			buffer.push_back(Stride{get_pos(i, 1, false), color});
+			buffer.push_back(Stride{get_pos(i, 0, true), color});
+			// triangle 2: bottom-right → top-right → top-left
+			buffer.push_back(Stride{get_pos(i, 1, false), color});
+			buffer.push_back(Stride{get_pos(i, 1, true), color});
+			buffer.push_back(Stride{get_pos(i, 0, true), color});
+		}
+	};
+
+	// BOT wall (z = 0, normal = -Z)
+	add_wall(
+		[&](size_t i) { return -self.nodes_height[0][i]; },
+		[&](size_t i) { return -self.nodes_height[0][i+1]; },
+		[&](size_t i, int side, bool top) {
+			float y = top ? (side == 0 ? -self.nodes_height[0][i] : -self.nodes_height[0][i+1]) : bottom_y;
+			return glm::vec3{(float)(i + side), y, 0.0f};
+		},
+		self.bottom_side_color, nx);
+
+	// RIG wall (x = nx, normal = +X)
+	add_wall(
+		[&](size_t i) { return -self.nodes_height[i][nx]; },
+		[&](size_t i) { return -self.nodes_height[i+1][nx]; },
+		[&](size_t i, int side, bool top) {
+			float y = top ? (side == 0 ? -self.nodes_height[i][nx] : -self.nodes_height[i+1][nx]) : bottom_y;
+			return glm::vec3{(float)nx, y, (float)(i + side)};
+		},
+		self.right_side_color, nz);
+
+	// TOP wall (z = nz, normal = +Z) — reversed winding for +Z
+	{
+		const auto& color = self.top_side_color;
+		if (color.a != 0.0f) {
+			for (size_t i = 0; i < nx; i++) {
+				float hl = -self.nodes_height[nz][i];
+				float hr = -self.nodes_height[nz][i+1];
+				// triangle 1: bottom-left → top-left → bottom-right
+				buffer.push_back(Stride{glm::vec3{(float)i,       bottom_y, (float)nz}, color});
+				buffer.push_back(Stride{glm::vec3{(float)i,       hl,       (float)nz}, color});
+				buffer.push_back(Stride{glm::vec3{(float)(i+1),   bottom_y, (float)nz}, color});
+				// triangle 2: bottom-right → top-left → top-right
+				buffer.push_back(Stride{glm::vec3{(float)(i+1),   bottom_y, (float)nz}, color});
+				buffer.push_back(Stride{glm::vec3{(float)i,       hl,       (float)nz}, color});
+				buffer.push_back(Stride{glm::vec3{(float)(i+1),   hr,       (float)nz}, color});
+			}
+		}
+	}
+
+	// LEF wall (x = 0, normal = -X) — reversed winding for -X
+	{
+		const auto& color = self.left_side_color;
+		if (color.a != 0.0f) {
+			for (size_t i = 0; i < nz; i++) {
+				float hl = -self.nodes_height[i][0];
+				float hr = -self.nodes_height[i+1][0];
+				// triangle 1: bottom-left → top-left → bottom-right
+				buffer.push_back(Stride{glm::vec3{0.0f, bottom_y, (float)i},     color});
+				buffer.push_back(Stride{glm::vec3{0.0f, hl,       (float)i},     color});
+				buffer.push_back(Stride{glm::vec3{0.0f, bottom_y, (float)(i+1)}, color});
+				// triangle 2: bottom-right → top-left → top-right
+				buffer.push_back(Stride{glm::vec3{0.0f, bottom_y, (float)(i+1)}, color});
+				buffer.push_back(Stride{glm::vec3{0.0f, hl,       (float)i},     color});
+				buffer.push_back(Stride{glm::vec3{0.0f, hr,       (float)(i+1)}, color});
+			}
+		}
+	}
+
 	// scale
 	for (auto& stride : buffer) {
 		stride.vertex.x *= self.scale.x;
