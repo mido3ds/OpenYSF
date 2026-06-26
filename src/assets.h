@@ -1900,9 +1900,39 @@ Field _field_from_fld_str(Parser& parser) {
 
 			field.regions.push_back(region);
 		} else if (parser_accept(parser, "PST\n")) {
-			// TODO
-			mu::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
-			parser_skip_after(parser, "END\n");
+			Picture2D picture {};
+			picture.name = mu::str_tmpf(".pst_{}", (int)field.pictures.size());
+			picture.visible = true;
+
+			Primitive2D primitive {};
+			primitive.kind = Primitive2D::Kind::POINTS;
+
+			parser_expect(parser, "COL ");
+			primitive.color.r = parser_token_u8(parser) / 255.0f;
+			parser_expect(parser, ' ');
+			primitive.color.g = parser_token_u8(parser) / 255.0f;
+			parser_expect(parser, ' ');
+			primitive.color.b = parser_token_u8(parser) / 255.0f;
+			parser_expect(parser, '\n');
+
+			mu::Vec<glm::vec2> tmp_verts(mu::memory::tmp());
+			while (parser_accept(parser, "ENDO\n") == false) {
+				parser_expect(parser, "VER ");
+				glm::vec2 vertex {};
+				vertex.x = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				vertex.y = parser_token_float(parser);
+				parser_expect(parser, '\n');
+				tmp_verts.push_back(vertex);
+			}
+
+			if (tmp_verts.size() == 0) {
+				parser_panic(parser, "{}: PST has no vertices", parser.curr_line+1);
+			}
+
+			primitive.vertices = std::move(tmp_verts);
+			picture.primitives.push_back(std::move(primitive));
+			field.pictures.push_back(std::move(picture));
 		} else if (parser_accept(parser, "GOB\n")) {
 			GroundObjSpawn gob {};
 
