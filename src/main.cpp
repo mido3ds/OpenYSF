@@ -514,6 +514,10 @@ struct Settings {
 		bool lighting = true;
 		glm::vec3 ambient_color {0.784f, 0.784f, 0.784f}; // RGB(200,200,200) / 255
 		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
+
+		bool fog_enabled = false;
+		float fog_density = 0.0015f;
+		glm::vec3 fog_color {0.392f, 0.584f, 0.929f}; // CORNFLOWER_BLUE
 	} rendering;
 
 	struct {
@@ -1200,6 +1204,13 @@ namespace sys {
 				if (world.settings.rendering.lighting) {
 					ImGui::ColorEdit3("Ambient", (float*)&world.settings.rendering.ambient_color);
 					ImGui::DragFloat3("Light Dir", (float*)&world.settings.rendering.light_dir, 0.01f, -1.0f, 1.0f);
+				}
+
+				ImGui::Separator();
+				ImGui::Checkbox("Fog", &world.settings.rendering.fog_enabled);
+				if (world.settings.rendering.fog_enabled) {
+					ImGui::DragFloat("Density", &world.settings.rendering.fog_density, 0.0001f, 0.0f, 0.01f, "%.4f");
+					ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
 				}
 
 				ImGui::TreePop();
@@ -1932,12 +1943,14 @@ namespace sys {
 				out float vs_vertex_y;
 				out vec4 vs_color;
 				out vec3 vs_normal;
+				out float vs_depth;
 
 				void main() {
 					gl_Position = projection_view_model * vec4(attr_position, 1.0);
 					vs_color = attr_color;
 					vs_vertex_y = attr_position.y;
 					vs_normal = normalize(model_normal * attr_normal);
+					vs_depth = gl_Position.w;
 				}
 			)GLSL",
 
@@ -1947,6 +1960,7 @@ namespace sys {
 				in float vs_vertex_y;
 				in vec4 vs_color;
 				in vec3 vs_normal;
+				in float vs_depth;
 
 				out vec4 out_fragcolor;
 
@@ -1957,6 +1971,10 @@ namespace sys {
 				uniform vec3 light_dir;
 				uniform vec3 ambient_color;
 				uniform bool lighting_enabled;
+
+				uniform bool fog_enabled;
+				uniform float fog_density;
+				uniform vec3 fog_color;
 
 				void main() {
 					if (vs_color.a == 0) {
@@ -1977,6 +1995,12 @@ namespace sys {
 					out_fragcolor = base_color * vec4(ambient_color + diff, 1.0);
 				} else {
 					out_fragcolor = base_color;
+				}
+
+				if (fog_enabled) {
+					float d = vs_depth * fog_density;
+					float fog_factor = exp(-d * d);
+					out_fragcolor = mix(vec4(fog_color, 1.0), out_fragcolor, fog_factor);
 				}
 				}
 			)GLSL"
@@ -3584,6 +3608,14 @@ namespace sys {
 		gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled",
 			world.settings.rendering.lighting);
 
+		// fog
+		gl_program_uniform_set(world.canvas.meshes.program, "fog_enabled",
+			world.settings.rendering.fog_enabled);
+		gl_program_uniform_set(world.canvas.meshes.program, "fog_density",
+			world.settings.rendering.fog_density);
+		gl_program_uniform_set(world.canvas.meshes.program, "fog_color",
+			world.settings.rendering.fog_color);
+
 		// regular
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
@@ -3617,6 +3649,7 @@ namespace sys {
 		if (world.canvas.axes.list.empty() == false) {
 			gl_program_use(world.canvas.meshes.program);
 			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
+			gl_program_uniform_set(world.canvas.meshes.program, "fog_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
@@ -3638,6 +3671,7 @@ namespace sys {
 		if (world.settings.world_axis.enabled) {
 			gl_program_use(world.canvas.meshes.program);
 			gl_program_uniform_set(world.canvas.meshes.program, "lighting_enabled", false);
+			gl_program_uniform_set(world.canvas.meshes.program, "fog_enabled", false);
 			glEnable(GL_LINE_SMOOTH);
 			#ifndef OS_MACOS
 			glLineWidth(world.canvas.axes.line_width);
