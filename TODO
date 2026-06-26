@@ -3,6 +3,7 @@
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
 - mac: fix change line width
 - render terrain texture
+- fog
 
 - what to do with StartInfo::speed if it's always calculated/overwritten?
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
