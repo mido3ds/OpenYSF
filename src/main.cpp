@@ -54,6 +54,9 @@ constexpr float ELEVATOR_EFFICIENCY = 0.4f;
 constexpr float RUDDER_EFFICIENCY   = 0.3f;
 constexpr float ADVERSE_YAW_COEFF   = 0.2f;
 
+// elevator deflection lift contribution (tail downforce)
+constexpr float ELEVATOR_LIFT_SCALE = 5.0f;
+
 // flash anti collision lights
 constexpr double ANTI_COLL_LIGHT_PERIOD = 1;
 
@@ -3096,6 +3099,10 @@ namespace sys {
 				air_density *
 				vel_sq *
 				aircraft.wing_area;
+
+			// elevator deflection → lift contribution (tail downforce)
+			aircraft.forces.airlift += aircraft.elevator_perc * ELEVATOR_LIFT_SCALE
+				* (float)air_density * vel_sq;
 
 			if (aircraft_on_ground(aircraft)) {
 				float friction = aircraft.friction_coeff * std::max(aircraft.forces.weight - aircraft.forces.airlift, 0.0f);
