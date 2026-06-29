@@ -1306,6 +1306,17 @@ struct GroundObjSpawn {
 	FieldID id;
 };
 
+// taxiways, runways, parking paths for AI traffic
+struct FieldGroundPath {
+	bool is_loop;
+	AreaKind area = AreaKind::NOAREA; // NOAREA = unspecified
+	mu::Vec<glm::vec3> points;
+	mu::Str fil;
+	glm::vec3 pos, rotation;
+	FieldID id;
+	mu::Str tag;
+};
+
 struct Field {
 	mu::Str name;
 	FieldID id;
@@ -1320,6 +1331,7 @@ struct Field {
 	mu::Vec<Field> subfields;
 	mu::Vec<Mesh> meshes;
 	mu::Vec<GroundObjSpawn> gobs;
+	mu::Vec<FieldGroundPath> ground_paths;
 
 	bool should_be_transformed = true;
 	glm::mat4 transformation;
@@ -1900,9 +1912,72 @@ Field _field_from_fld_str(Parser& parser) {
 
 			field.regions.push_back(region);
 		} else if (parser_accept(parser, "PST\n")) {
-			// TODO
-			mu::log_warning("{}: found PST, doesn't understand it, skip for now", parser.curr_line+1);
-			parser_skip_after(parser, "END\n");
+			FieldGroundPath path {};
+
+			parser_expect(parser, "ISLOOP ");
+			path.is_loop = parser_token_any(parser, {"TRUE", "FALSE"}) == "TRUE";
+			parser_expect(parser, '\n');
+
+			if (parser_accept(parser, "AREA ")) {
+				const auto area_str = parser_token_str(parser, mu::memory::tmp());
+				parser_expect(parser, '\n');
+				if (area_str == "LAND") {
+					path.area = AreaKind::LAND;
+				} else if (area_str == "WATER") {
+					path.area = AreaKind::WATER;
+				} else {
+					parser_panic(parser, "{}: unrecognized area '{}' in PST", parser.curr_line+1, area_str);
+				}
+			}
+
+			mu::Vec<glm::vec3> tmp_pts(mu::memory::tmp());
+			while (parser_accept(parser, "FIL ") == false) {
+				parser_expect(parser, "PNT ");
+				glm::vec3 pt {};
+				pt.x = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				pt.y = parser_token_float(parser);
+				parser_expect(parser, ' ');
+				pt.z = parser_token_float(parser);
+				parser_expect(parser, '\n');
+				tmp_pts.push_back(pt);
+			}
+
+			path.fil = parser_token_str(parser);
+			parser_expect(parser, '\n');
+			path.points = std::move(tmp_pts);
+
+			if (path.points.size() == 0) {
+				parser_panic(parser, "{}: PST has no points", parser.curr_line+1);
+			}
+
+			parser_expect(parser, "POS ");
+			path.pos.x = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			path.pos.y = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			path.pos.z = parser_token_float(parser);
+			parser_expect(parser, ' ');
+			path.rotation.x = -parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			path.rotation.y = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, ' ');
+			path.rotation.z = parser_token_float(parser) / YS_MAX * RADIANS_MAX;
+			parser_expect(parser, '\n');
+
+			parser_expect(parser, "ID ");
+			path.id = (FieldID) parser_token_u8(parser);
+			parser_expect(parser, '\n');
+
+			if (parser_accept(parser, "TAG ")) {
+				path.tag = parser_token_str(parser);
+				_str_unquote(path.tag);
+				parser_expect(parser, '\n');
+			}
+
+			parser_expect(parser, "END\n");
+
+			field.ground_paths.push_back(std::move(path));
 		} else if (parser_accept(parser, "GOB\n")) {
 			GroundObjSpawn gob {};
 
