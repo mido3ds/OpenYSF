@@ -3,7 +3,6 @@
 	- heathrow: STATION has incorrect AABB (always intersects with everything)
 - mac: fix change line width
 - render terrain texture
-- fog
 
 - what to do with StartInfo::speed if it's always calculated/overwritten?
 - tornado.dnm/f1.dnm: strobe lights and landing-gears not in their expected positions
@@ -19,7 +18,6 @@
 		- biggest pic doesn't render/(tesselat?) correctly (from left side)
 	- at end of FLD, what is PLT vs PC2? they both refer to Pict2 (!)
 	- terrmesh sides colors (what does it do? see: BOT/RIG/LEF)
-	- read PST at end of fld
 	- aomori.fld:
 		- what is BASEELV?
 		- what is MAGVAR?
