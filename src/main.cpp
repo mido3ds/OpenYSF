@@ -516,8 +516,8 @@ struct Settings {
 		glm::vec3 light_dir {0.577f, 0.577f, 0.577f}; // normalize(1,1,1)
 
 		bool fog_enabled = false;
-		float fog_density = 0.0015f;
-		glm::vec3 fog_color {0.392f, 0.584f, 0.929f}; // CORNFLOWER_BLUE
+		float fog_density = 0.0001f;
+		glm::vec3 fog_color {0.247f, 0.329f, 0.475f}; // (63, 84, 121)
 	} rendering;
 
 	struct {
