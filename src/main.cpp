@@ -79,7 +79,12 @@ namespace sys {
 
 		SDL_GL_DeleteContext(world.sdl_gl_context);
 		SDL_DestroyWindow(world.sdl_window);
+#ifndef OS_MACOS
+		// macOS: SDL_Quit → SDL_AudioQuit() → AudioUnitUninitialize blocks many ms.
+		// Process exit tears down CoreAudio instantly without the wait; the OS
+		// reclaims all resources. Guarding SDL_CloseAudioDevice too (see audio.h).
 		SDL_Quit();
+#endif
 	}
 
 	void imgui_init(World& world) {

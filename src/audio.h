@@ -153,7 +153,14 @@ inline void audio_device_init(AudioDevice* self) {
 
 inline void audio_device_free(AudioDevice& self) {
 	SDL_PauseAudioDevice(self.id, true);
+#ifndef OS_MACOS
+	// macOS: SDL_CloseAudioDevice blocks on CoreAudio AudioUnitUninitialize (many ms).
+	// SDL_Quit also triggers the same slow teardown, so both slow.
+	// Guarding both so the coreaudio close happens only in SDL_Quit (and even that
+	// is skipped — see sdl_free). On macOS we just pause and let the process exit;
+	// CoreAudio handles cleanup at process death without the long wait.
 	SDL_CloseAudioDevice(self.id);
+#endif
 }
 
 // `audio` must be alive as long as it's played
