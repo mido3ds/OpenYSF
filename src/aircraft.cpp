@@ -541,6 +541,37 @@ namespace sys {
 
 				return true;
 			});
+
+			// HUD for camera-tracked aircraft
+			if (world.camera.aircraft == &aircraft) {
+				float airspeed_kt = glm::length(aircraft.velocity) * 1.94384f;
+				float altitude_ft = (aircraft.translation.y + 1.0f) * 3.28084f;
+
+				canvas_add(world.canvas, canvas::hud::Text {
+					.text = mu::str_tmpf("SPD %3.0f kt", airspeed_kt),
+					.p = {0.02f, 0.95f},
+					.scale = 0.5f,
+					.color = {1,1,1,0.8f}
+				});
+				canvas_add(world.canvas, canvas::hud::Text {
+					.text = mu::str_tmpf("ALT %5.0f ft", altitude_ft),
+					.p = {0.02f, 0.90f},
+					.scale = 0.5f,
+					.color = {1,1,1,0.8f}
+				});
+				canvas_add(world.canvas, canvas::hud::Text {
+					.text = mu::str_tmpf("THR %3.0f%%", aircraft.throttle * 100.0f),
+					.p = {0.02f, 0.85f},
+					.scale = 0.5f,
+					.color = {1,1,1,0.8f}
+				});
+				canvas_add(world.canvas, canvas::hud::Text {
+					.text = mu::str_tmpf("GEAR %s", aircraft.landing_gear_alpha > 0.5f ? "UP" : "DOWN"),
+					.p = {0.02f, 0.80f},
+					.scale = 0.5f,
+					.color = {1,1,1,0.8f}
+				});
+			}
 		}
 	}
 
