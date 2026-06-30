@@ -37,3 +37,24 @@ struct Settings {
 		float scale = 0.48f;
 	} world_axis;
 };
+
+// Aircraft/physics constants
+constexpr float PROPOLLER_MAX_ANGLE_SPEED = 10 * RADIANS_MAX;
+constexpr float AFTERBURNER_THROTTLE_THRESHOLD = 0.80f;
+
+constexpr float THROTTLE_SPEED = 0.4f;
+
+constexpr float ENGINE_PROPELLERS_RESISTENCE = 15.0f;
+
+// control surface efficiency coefficients (airspeed-scaled torques)
+constexpr float CTRL_SURFACE_SPEED = 1.9f;
+constexpr float ROLL_EFFICIENCY     = 0.5f;
+constexpr float ELEVATOR_EFFICIENCY = 0.3f;
+constexpr float RUDDER_EFFICIENCY   = 0.1f;
+constexpr float ADVERSE_YAW_COEFF   = 0.2f;
+
+// elevator deflection lift contribution (tail downforce)
+constexpr float ELEVATOR_LIFT_SCALE = 5.0f;
+
+// 2D sprite scaling
+constexpr float ZL_SCALE = 0.151f;

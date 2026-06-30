@@ -167,4 +167,36 @@ namespace sys {
 	void projection_update(World& world);
 	void camera_update(World& world);
 	void cached_matrices_recalc(World& world);
+
+	void aircrafts_init(World& world);
+	void aircrafts_free(World& world);
+	void _aircrafts_apply_user_controls(World& world);
+	void _aircrafts_apply_physics(World& world);
+	void aircrafts_update(World& world);
+	void aircrafts_prepare_render(World& world);
+
+	void ground_objs_init(World& world);
+	void ground_objs_free(World& world);
+	void _ground_objs_apply_physics(World& world);
+	void ground_objs_update(World& world);
+	void ground_objs_prepare_render(World& world);
+
+	void scenery_init(World& world);
+	void scenery_free(World& world);
+	void scenery_update(World& world);
+	void scenery_prepare_render(World& world);
+	void models_handle_collision(World& world);
+
+	void canvas_init(World& world);
+	void canvas_free(World& world);
+	void canvas_rendering_begin(World& world);
+	void canvas_rendering_end(World& world);
+	void canvas_render_ground(World& world);
+	void canvas_render_gnd_pictures(World& world);
+	void canvas_render_zlpoints(World& world);
+	void canvas_render_meshes(World& world);
+	void canvas_render_axes(World& world);
+	void canvas_render_text(World& world);
+	void canvas_render_hud_text(World& world);
+	void canvas_render_lines(World& world);
 }
