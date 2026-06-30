@@ -19,7 +19,7 @@ constexpr float DEGREES_MAX = 360.0f;
 // euclidean modulo (https://stackoverflow.com/a/52529440)
 // always positive
 constexpr
-int mod(int a, int b) {
+inline int mod(int a, int b) {
 	const auto r = a % b;
 	if (r < 0) {
 		// return r + (b < 0) ? -b : b; // avoid this form: it is UB when b == INT_MIN
@@ -41,11 +41,11 @@ struct AABB {
 
 // no intersection if separated along an axis
 // overlapping on all axes means AABBs are intersecting
-bool aabbs_intersect(const AABB& a, const AABB& b) {
+inline bool aabbs_intersect(const AABB& a, const AABB& b) {
 	return glm::all(glm::greaterThanEqual(a.max, b.min)) && glm::all(glm::greaterThanEqual(b.max, a.min));
 }
 
-void test_aabbs_intersection() {
+inline void test_aabbs_intersection() {
 	mu_test_suite("test_aabbs_intersection");
 
 	{
@@ -88,32 +88,32 @@ void test_aabbs_intersection() {
 // margin of error
 constexpr double EPS = 0.001;
 
-bool
-almost_equal(const glm::vec3& a, const glm::vec3& b) {
+inline bool
+inline almost_equal(const glm::vec3& a, const glm::vec3& b) {
 	const auto c = a - b;
 	return ::fabs(c.x) < EPS && ::fabs(c.y) < EPS && ::fabs(c.z) < EPS;
 }
 
-bool
-almost_equal(const glm::vec2& a, const glm::vec2& b) {
+inline bool
+inline almost_equal(const glm::vec2& a, const glm::vec2& b) {
 	const auto c = a - b;
 	return ::fabs(c.x) < EPS && ::fabs(c.y) < EPS;
 }
 
-bool
-almost_equal(const glm::vec4& a, const glm::vec4& b) {
+inline bool
+inline almost_equal(const glm::vec4& a, const glm::vec4& b) {
 	const auto c = a - b;
 	return ::fabs(c.x) < EPS && ::fabs(c.y) < EPS && ::fabs(c.z) < EPS && ::fabs(c.w) < EPS;
 }
 
-bool
-almost_equal(const float& a, const float& b) {
+inline bool
+inline almost_equal(const float& a, const float& b) {
 	return ::fabs(a - b) < EPS;
 }
 
 // http://paulbourke.net/geometry/pointlineplane/
 // http://paulbourke.net/geometry/pointlineplane/lineline.c
-bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3, const glm::vec3& p4) {
+inline bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3, const glm::vec3& p4) {
 	const glm::vec3 p43 = p4 - p3;
 	if (almost_equal(p43, {0,0,0})) {
 		return false;
@@ -143,7 +143,7 @@ bool lines_intersect(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& 
 	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
-bool lines2d_intersect(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, const glm::vec2& p4) {
+inline bool lines2d_intersect(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, const glm::vec2& p4) {
 	const glm::vec2 p43 = p4 - p3;
 	if (almost_equal(p43, {0,0})) {
 		return false;
@@ -173,8 +173,8 @@ bool lines2d_intersect(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2
 	return mua >= 0 && mua <= 1 && mub >= 0 && mub <= 1;
 }
 
-mu::Vec<uint32_t>
-polygons_to_triangles(const mu::Vec<glm::vec3>& vertices, const mu::Vec<uint32_t>& orig_indices, const glm::vec3& center) {
+inline mu::Vec<uint32_t>
+inline polygons_to_triangles(const mu::Vec<glm::vec3>& vertices, const mu::Vec<uint32_t>& orig_indices, const glm::vec3& center) {
 	// dbl_indices -> orig_indices -> vertices
 	// vertex = vertices[orig_indices[dbl_indices[i]]]
 	// indices to indices to vertices
@@ -253,8 +253,8 @@ polygons_to_triangles(const mu::Vec<glm::vec3>& vertices, const mu::Vec<uint32_t
 	return out;
 }
 
-mu::Vec<uint32_t>
-polygons2d_to_triangles(const mu::Vec<glm::vec2>& vertices, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+inline mu::Vec<uint32_t>
+inline polygons2d_to_triangles(const mu::Vec<glm::vec2>& vertices, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	glm::vec2 center {};
 	for (const auto& vertex : vertices) {
 		center += vertex;
@@ -345,7 +345,7 @@ polygons2d_to_triangles(const mu::Vec<glm::vec2>& vertices, mu::memory::Allocato
 	return out;
 }
 
-void test_polygons_to_triangles() {
+inline void test_polygons_to_triangles() {
 	mu_test_suite("test_polygons_to_triangles");
 
 	{
@@ -420,8 +420,8 @@ void test_polygons_to_triangles() {
 	}
 }
 
-template<typename T>
-T clamp(T x, T lower_limit, T upper_limit) {
+inline template<typename T>
+inline T clamp(T x, T lower_limit, T upper_limit) {
 	if (x > upper_limit) {
 		return upper_limit;
 	}
@@ -436,7 +436,7 @@ struct LocalEulerAngles {
 	glm::vec3 up {0, -1, 0}, front {0, 0, 1};
 };
 
-glm::mat4 local_euler_angles_matrix(const LocalEulerAngles& self, glm::vec3 pos) {
+inline glm::mat4 local_euler_angles_matrix(const LocalEulerAngles& self, glm::vec3 pos) {
 	const auto& up = self.up;
 	const auto& front = self.front;
 	const auto right = glm::cross(up, front);
@@ -448,7 +448,7 @@ glm::mat4 local_euler_angles_matrix(const LocalEulerAngles& self, glm::vec3 pos)
 	};
 }
 
-void local_euler_angles_rotate(LocalEulerAngles& self, float delta_yaw, float delta_pitch, float delta_roll) {
+inline void local_euler_angles_rotate(LocalEulerAngles& self, float delta_yaw, float delta_pitch, float delta_roll) {
 	auto right = glm::cross(self.up, self.front);
 
 	const glm::mat3 yaw_m = glm::rotate(delta_yaw, self.up);
@@ -468,7 +468,7 @@ void local_euler_angles_rotate(LocalEulerAngles& self, float delta_yaw, float de
 }
 
 static LocalEulerAngles
-local_euler_angles_from_attitude(glm::vec3 attitude) {
+inline local_euler_angles_from_attitude(glm::vec3 attitude) {
 	LocalEulerAngles self {};
 	local_euler_angles_rotate(self, attitude.z, attitude.y, attitude.x);
 	return self;
@@ -476,7 +476,7 @@ local_euler_angles_from_attitude(glm::vec3 attitude) {
 
 // line segments: [0, 1, 2, 3]
 // lines:         [0, 1, 1, 2, 2, 3]
-mu::Vec<glm::vec2> line_segments_to_lines(const mu::Vec<glm::vec2>& line_segments) {
+inline mu::Vec<glm::vec2> line_segments_to_lines(const mu::Vec<glm::vec2>& line_segments) {
 	if (line_segments.size() == 0) {
 		return {};
 	}
@@ -497,7 +497,7 @@ mu::Vec<glm::vec2> line_segments_to_lines(const mu::Vec<glm::vec2>& line_segment
 	return lines;
 }
 
-void test_line_segments_to_lines() {
+inline void test_line_segments_to_lines() {
 	mu_test_suite("test_line_segments_to_lines");
 
 	constexpr glm::vec2 P[] = {
@@ -518,7 +518,7 @@ void test_line_segments_to_lines() {
 using QuadraticFuncConsts = glm::vec3;
 
 // using center and a point on parabola
-QuadraticFuncConsts quad_func_new(glm::vec2 c, glm::vec2 p) {
+inline QuadraticFuncConsts quad_func_new(glm::vec2 c, glm::vec2 p) {
 	glm::vec2 t { c.x-p.x, p.y }; // 3rd point is mirrored
 	glm::mat3 M {
 		c.x*c.x, c.x, 1,
@@ -530,7 +530,7 @@ QuadraticFuncConsts quad_func_new(glm::vec2 c, glm::vec2 p) {
 }
 
 // f(x)
-float quad_func_eval(QuadraticFuncConsts c, float x) {
+inline float quad_func_eval(QuadraticFuncConsts c, float x) {
 	return c[0]*x*x + c[1]*x + c[2];
 }
 
@@ -538,7 +538,7 @@ float quad_func_eval(QuadraticFuncConsts c, float x) {
 // consts = {a,b}
 using LinearFuncConsts = glm::vec2;
 
-LinearFuncConsts linear_func_new(glm::vec2 p1, glm::vec2 p2) {
+inline LinearFuncConsts linear_func_new(glm::vec2 p1, glm::vec2 p2) {
 	glm::mat2 M {
 		p1.x, 1,
 		p2.x, 1,
@@ -548,7 +548,7 @@ LinearFuncConsts linear_func_new(glm::vec2 p1, glm::vec2 p2) {
 }
 
 // f(x)
-float linear_func_eval(LinearFuncConsts c, float x) {
+inline float linear_func_eval(LinearFuncConsts c, float x) {
 	return c[0]*x + c[1];
 }
 
