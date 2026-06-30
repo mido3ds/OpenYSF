@@ -3,7 +3,7 @@
 #include <glad/glad.h>
 #include <mu/utils.h>
 
-void gl_process_errors() {
+inline void gl_process_errors() {
 	#ifndef NDEBUG
 		GLenum err_code;
 		int errors = 0;
@@ -25,7 +25,7 @@ void gl_process_errors() {
 	#endif
 }
 
-GLfloat gl_get_float(GLenum e) {
+inline GLfloat gl_get_float(GLenum e) {
 	GLfloat out;
 	glGetFloatv(e, &out);
 	return out;
@@ -35,7 +35,7 @@ struct GLProgram {
 	GLuint id;
 };
 
-GLProgram gl_program_new(const char* vertex_shader_src, const char* fragment_shader_src) {
+inline GLProgram gl_program_new(const char* vertex_shader_src, const char* fragment_shader_src) {
 	// vertex shader
     const GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertex_shader, 1, &vertex_shader_src, NULL);
@@ -81,44 +81,44 @@ GLProgram gl_program_new(const char* vertex_shader_src, const char* fragment_sha
 	return GLProgram { .id = gpu_program };
 }
 
-void gl_program_free(GLProgram& self) {
+inline void gl_program_free(GLProgram& self) {
 	glDeleteProgram(self.id);
 	self.id = 0;
 }
 
-void gl_program_use(GLProgram& self) {
+inline void gl_program_use(GLProgram& self) {
 	glUseProgram(self.id);
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, bool b) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, bool b) {
 	glUniform1i(glGetUniformLocation(self.id, uniform), b? 1 : 0);
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, int i) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, int i) {
 	glUniform1i(glGetUniformLocation(self.id, uniform), i);
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, float f) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, float f) {
 	glUniform1f(glGetUniformLocation(self.id, uniform), f);
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec2& f) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec2& f) {
 	glUniform2fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec3& f) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec3& f) {
 	glUniform3fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec4& f) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::vec4& f) {
 	glUniform4fv(glGetUniformLocation(self.id, uniform), 1, glm::value_ptr(f));
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat3& f, bool transpose = false) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat3& f, bool transpose = false) {
 	glUniformMatrix3fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
 
-void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat4& f, bool transpose = false) {
+inline void gl_program_uniform_set(GLProgram& self, const char* uniform, const glm::mat4& f, bool transpose = false) {
 	glUniformMatrix4fv(glGetUniformLocation(self.id, uniform), 1, transpose, glm::value_ptr(f));
 }
 
@@ -234,7 +234,7 @@ GLBuf gl_buf_new_dyn(size_t len) {
 	return self;
 }
 
-void gl_buf_free(GLBuf& self) {
+inline void gl_buf_free(GLBuf& self) {
 	glDeleteBuffers(1, &self.vbo);
 	glBindVertexArray(0);
 	glDeleteVertexArrays(1, &self.vao);

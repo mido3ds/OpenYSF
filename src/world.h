@@ -160,3 +160,11 @@ struct World {
 };
 
 #define TEXT_OVERLAY(...) world.text_overlay_list.push_back(mu::str_tmpf(__VA_ARGS__))
+
+// Forward declarations for sys functions defined in separate .cpp files
+namespace sys {
+	void projection_init(World& world);
+	void projection_update(World& world);
+	void camera_update(World& world);
+	void cached_matrices_recalc(World& world);
+}

@@ -24,7 +24,7 @@ struct AudioBuffer {
 	uint32_t len;
 };
 
-AudioBuffer audio_buffer_from_wav(mu::StrView filename) {
+inline AudioBuffer audio_buffer_from_wav(mu::StrView filename) {
 	AudioBuffer self { .file_path = mu::Str(filename) };
 	SDL_AudioSpec spec {};
 	if (SDL_LoadWAV(filename.data(), &spec, &self.data, &self.len) == nullptr) {
@@ -53,7 +53,7 @@ AudioBuffer audio_buffer_from_wav(mu::StrView filename) {
 	return self;
 }
 
-void audio_buffer_free(AudioBuffer& self) {
+inline void audio_buffer_free(AudioBuffer& self) {
 	SDL_FreeWAV(self.data);
 }
 
@@ -74,7 +74,7 @@ constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
 	return a < b ? a : b;
 }
 
-void memset_u16(void* dst, uint16_t val, size_t len) {
+inline void memset_u16(void* dst, uint16_t val, size_t len) {
 	mu_assert(len % 2 == 0);
 	uint16_t* dst_as_16 = (uint16_t*) dst;
 	const size_t len_as_16 = len / 2;
@@ -83,7 +83,7 @@ void memset_u16(void* dst, uint16_t val, size_t len) {
 	}
 }
 
-void audio_device_init(AudioDevice* self) {
+inline void audio_device_init(AudioDevice* self) {
 	const SDL_AudioSpec spec {
 		.freq = AUDIO_FREQUENCY,
 		.format = AUDIO_FORMAT,
@@ -151,20 +151,20 @@ void audio_device_init(AudioDevice* self) {
 	SDL_PauseAudioDevice(self->id, false);
 }
 
-void audio_device_free(AudioDevice& self) {
+inline void audio_device_free(AudioDevice& self) {
 	SDL_PauseAudioDevice(self.id, true);
 	SDL_CloseAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
-void audio_device_play(AudioDevice& self, const AudioBuffer& audio) {
+inline void audio_device_play(AudioDevice& self, const AudioBuffer& audio) {
 	SDL_LockAudioDevice(self.id);
 	self.playbacks.push_back(AudioPlayback { .audio = &audio });
     SDL_UnlockAudioDevice(self.id);
 }
 
 // `audio` must be alive as long as it's played
-uint64_t audio_device_play_looped(AudioDevice& self, const AudioBuffer& audio) {
+inline uint64_t audio_device_play_looped(AudioDevice& self, const AudioBuffer& audio) {
 	SDL_LockAudioDevice(self.id);
 	uint64_t id = self.next_playback_id++;
 	self.looped_playbacks.push_back(AudioPlayback{&audio, 0, 1.0f, id});
@@ -172,7 +172,7 @@ uint64_t audio_device_play_looped(AudioDevice& self, const AudioBuffer& audio) {
 	return id;
 }
 
-void audio_device_set_gain(AudioDevice& self, uint64_t playback_id, float gain) {
+inline void audio_device_set_gain(AudioDevice& self, uint64_t playback_id, float gain) {
 	SDL_LockAudioDevice(self.id);
 	for (auto& pb : self.looped_playbacks) {
 		if (pb.id == playback_id) {
@@ -183,7 +183,7 @@ void audio_device_set_gain(AudioDevice& self, uint64_t playback_id, float gain) 
 	SDL_UnlockAudioDevice(self.id);
 }
 
-void audio_device_stop_by_id(AudioDevice& self, uint64_t playback_id) {
+inline void audio_device_stop_by_id(AudioDevice& self, uint64_t playback_id) {
 	SDL_LockAudioDevice(self.id);
 	for (int i = self.looped_playbacks.size() - 1; i >= 0; i--) {
 		if (self.looped_playbacks[i].id == playback_id) {
@@ -194,7 +194,7 @@ void audio_device_stop_by_id(AudioDevice& self, uint64_t playback_id) {
 	SDL_UnlockAudioDevice(self.id);
 }
 
-bool audio_device_is_playing(const AudioDevice& self, const AudioBuffer& audio) {
+inline bool audio_device_is_playing(const AudioDevice& self, const AudioBuffer& audio) {
 	for (const auto& playback : self.playbacks) {
 		if (playback.audio == &audio) {
 			return true;
@@ -208,7 +208,7 @@ bool audio_device_is_playing(const AudioDevice& self, const AudioBuffer& audio) 
 	return false;
 }
 
-void audio_device_stop(AudioDevice& self, const AudioBuffer& audio) {
+inline void audio_device_stop(AudioDevice& self, const AudioBuffer& audio) {
     SDL_LockAudioDevice(self.id);
 	mu_defer(SDL_UnlockAudioDevice(self.id));
 

@@ -241,7 +241,7 @@ struct Mesh {
 	bool render_cnt_axis;
 };
 
-void mesh_load_to_gpu(Mesh& self) {
+inline void mesh_load_to_gpu(Mesh& self) {
 	struct Stride {
 		glm::vec3 vertex;
 		glm::vec4 color;
@@ -272,7 +272,7 @@ void mesh_load_to_gpu(Mesh& self) {
 	}
 }
 
-void mesh_unload_from_gpu(Mesh& self) {
+inline void mesh_unload_from_gpu(Mesh& self) {
 	gl_buf_free(self.gl_buf);
 
 	for (auto& child : self.children) {
@@ -280,7 +280,7 @@ void mesh_unload_from_gpu(Mesh& self) {
 	}
 }
 
-void meshes_foreach(mu::Vec<Mesh>& meshes, std::function<bool(Mesh&)> f) {
+inline void meshes_foreach(mu::Vec<Mesh>& meshes, std::function<bool(Mesh&)> f) {
 	mu::Vec<Mesh*> stack(mu::memory::tmp());
 	for (auto& mesh : meshes) {
 		stack.push_back(&mesh);
@@ -295,7 +295,7 @@ void meshes_foreach(mu::Vec<Mesh>& meshes, std::function<bool(Mesh&)> f) {
 	}
 }
 
-void meshes_foreach(const mu::Vec<Mesh>& meshes, std::function<bool(const Mesh&)> f) {
+inline void meshes_foreach(const mu::Vec<Mesh>& meshes, std::function<bool(const Mesh&)> f) {
 	mu::Vec<const Mesh*> stack(mu::memory::tmp());
 	for (const auto& mesh : meshes) {
 		stack.push_back(&mesh);
@@ -310,7 +310,7 @@ void meshes_foreach(const mu::Vec<Mesh>& meshes, std::function<bool(const Mesh&)
 	}
 }
 
-AABB aabb_from_meshes(const mu::Vec<Mesh>& meshes) {
+inline AABB aabb_from_meshes(const mu::Vec<Mesh>& meshes) {
 	AABB aabb {
 		.min={+FLT_MAX, +FLT_MAX, +FLT_MAX},
 		.max={-FLT_MAX, -FLT_MAX, -FLT_MAX},
@@ -337,7 +337,7 @@ struct StartInfo {
 	bool landing_gear_is_out = true;
 };
 
-mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
+inline mu::Vec<StartInfo> start_info_from_stp_file(mu::StrView stp_file_abs_path) {
 	auto parser = parser_from_file(stp_file_abs_path, mu::memory::tmp());
 
 	mu::Vec<StartInfo> start_infos;
@@ -399,7 +399,7 @@ struct Model {
 	mu::Vec<Mesh> meshes;
 };
 
-Mesh _mesh_from_srf_str(Parser& parser, mu::StrView name) {
+inline Mesh _mesh_from_srf_str(Parser& parser, mu::StrView name) {
 	// aircraft/cessna172r.dnm has Surf instead of SURF (and .fld files use Surf)
 	if (parser_accept(parser, "SURF\n") == false) {
 		parser_expect(parser, "Surf\n");
@@ -620,7 +620,7 @@ Mesh _mesh_from_srf_str(Parser& parser, mu::StrView name) {
 }
 
 inline static void
-_str_unquote(mu::Str& s) {
+inline _str_unquote(mu::Str& s) {
 	if (s.size() < 2) {
 		return;
 	}
@@ -630,7 +630,7 @@ _str_unquote(mu::Str& s) {
 	}
 }
 
-void _model_adjust_after_loading(Model& self) {
+inline void _model_adjust_after_loading(Model& self) {
 	for (auto& mesh : self.meshes) {
 		mesh.transformation = glm::identity<glm::mat4>();
 	}
@@ -655,7 +655,7 @@ void _model_adjust_after_loading(Model& self) {
 	});
 }
 
-Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
+inline Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 	auto parser = parser_from_file(dnm_file_abs_path, mu::memory::tmp());
 	Model model {};
 
@@ -871,7 +871,7 @@ Model model_from_dnm_file(mu::StrView dnm_file_abs_path) {
 	return model;
 }
 
-Model model_from_srf_file(mu::StrView srf_file_abs_path) {
+inline Model model_from_srf_file(mu::StrView srf_file_abs_path) {
 	auto main_srf_parser = parser_from_file(srf_file_abs_path, mu::memory::tmp());
 
 	auto i = srf_file_abs_path.find_last_of('/') + 1;
@@ -891,7 +891,7 @@ struct DATMap {
 	mu::Map<mu::Str, mu::Str> map;
 };
 
-DATMap datmap_from_dat_file(mu::StrView dat_file_path) {
+inline DATMap datmap_from_dat_file(mu::StrView dat_file_path) {
 	DATMap dat {};
 
 	auto parser = parser_from_file(dat_file_path, mu::memory::tmp());
@@ -939,7 +939,7 @@ DATMap datmap_from_dat_file(mu::StrView dat_file_path) {
 	return dat;
 }
 
-mu::Str datmap_get_str(const DATMap& self, const mu::Str& key,
+inline mu::Str datmap_get_str(const DATMap& self, const mu::Str& key,
 	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	auto it = self.map.find(key);
 	if (it == self.map.end()) {
@@ -948,7 +948,7 @@ mu::Str datmap_get_str(const DATMap& self, const mu::Str& key,
 	return mu::Str(it->second, allocator);
 }
 
-bool datmap_get_floats(const DATMap& self, const mu::Str& key, mu::Vec<float*>&& ptrs) {
+inline bool datmap_get_floats(const DATMap& self, const mu::Str& key, mu::Vec<float*>&& ptrs) {
 	auto it = self.map.find(key);
 	if (it == self.map.end()) {
 		return false;
@@ -971,8 +971,8 @@ bool datmap_get_floats(const DATMap& self, const mu::Str& key, mu::Vec<float*>&&
 	return true;
 }
 
-template<typename T>
-bool datmap_get_ints(const DATMap& self, const mu::Str& key, mu::Vec<T*>&& ptrs) {
+inline template<typename T>
+inline bool datmap_get_ints(const DATMap& self, const mu::Str& key, mu::Vec<T*>&& ptrs) {
 	static_assert(std::is_integral_v<T>);
 	auto it = self.map.find(key);
 	if (it == self.map.end()) {
@@ -1002,7 +1002,7 @@ struct ExternalCameraLocation {
 	bool inside;
 };
 
-mu::Vec<ExternalCameraLocation> datmap_get_excameras(const DATMap& self,
+inline mu::Vec<ExternalCameraLocation> datmap_get_excameras(const DATMap& self,
 	mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	constexpr mu::StrView SUFFIX = "EXCAMERA ";
 	mu::Vec<ExternalCameraLocation> out(allocator);
@@ -1042,7 +1042,7 @@ struct AircraftTemplate {
 	mu::Str coarse; // optional
 };
 
-void _aircraft_templates_from_lst_file(mu::StrView lst_file_path, mu::Map<mu::Str, AircraftTemplate>& aircraft_templates) {
+inline void _aircraft_templates_from_lst_file(mu::StrView lst_file_path, mu::Map<mu::Str, AircraftTemplate>& aircraft_templates) {
 	auto parser = parser_from_file(lst_file_path);
 
 	while (!parser_finished(parser)) {
@@ -1076,7 +1076,7 @@ void _aircraft_templates_from_lst_file(mu::StrView lst_file_path, mu::Map<mu::St
 	}
 }
 
-mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_dir(mu::StrView dir_abs_path) {
+inline mu::Map<mu::Str, AircraftTemplate> aircraft_templates_from_dir(mu::StrView dir_abs_path) {
 	auto sce_lst_files = mu::dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("air") && filename.ends_with(".lst");
 	}, mu::memory::tmp());
@@ -1119,7 +1119,7 @@ struct TerrMesh {
 	bool visible = true;
 };
 
-void terr_mesh_load_to_gpu(TerrMesh& self) {
+inline void terr_mesh_load_to_gpu(TerrMesh& self) {
 	struct Stride {
 		glm::vec3 vertex;
 		glm::vec4 color;
@@ -1210,7 +1210,7 @@ void terr_mesh_load_to_gpu(TerrMesh& self) {
 	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4, glm::vec3>(buffer);
 }
 
-void terr_mesh_unload_from_gpu(TerrMesh& self) {
+inline void terr_mesh_unload_from_gpu(TerrMesh& self) {
 	gl_buf_free(self.gl_buf);
 }
 
@@ -1235,11 +1235,11 @@ struct Primitive2D {
 	GLBuf gl_buf;
 };
 
-void primitive2d_load_to_gpu(Primitive2D& self) {
+inline void primitive2d_load_to_gpu(Primitive2D& self) {
 	self.gl_buf = gl_buf_new<glm::vec2>(self.vertices);
 }
 
-void primitive2d_unload_from_gpu(Primitive2D& self) {
+inline void primitive2d_unload_from_gpu(Primitive2D& self) {
 	gl_buf_free(self.gl_buf);
 }
 
@@ -1254,13 +1254,13 @@ struct Picture2D {
 	bool visible = true;
 };
 
-void picture2d_load_to_gpu(Picture2D& self) {
+inline void picture2d_load_to_gpu(Picture2D& self) {
 	for (auto& primitive : self.primitives) {
 		primitive2d_load_to_gpu(primitive);
 	}
 }
 
-void picture2d_unload_from_gpu(Picture2D& self) {
+inline void picture2d_unload_from_gpu(Picture2D& self) {
 	for (auto& primitive : self.primitives) {
 		primitive2d_unload_from_gpu(primitive);
 	}
@@ -1341,7 +1341,7 @@ struct Field {
 	bool visible = true;
 };
 
-Field _field_from_fld_str(Parser& parser) {
+inline Field _field_from_fld_str(Parser& parser) {
 	parser_expect(parser, "FIELD\n");
 
 	Field field {};
@@ -2065,7 +2065,7 @@ Field _field_from_fld_str(Parser& parser) {
 	return field;
 }
 
-Field field_from_fld_file(mu::StrView fld_file_abs_path) {
+inline Field field_from_fld_file(mu::StrView fld_file_abs_path) {
 	auto parser = parser_from_file(fld_file_abs_path, mu::memory::tmp());
 
 	auto field = _field_from_fld_str(parser);
@@ -2076,7 +2076,7 @@ Field field_from_fld_file(mu::StrView fld_file_abs_path) {
 	return field;
 }
 
-void field_load_to_gpu(Field& self) {
+inline void field_load_to_gpu(Field& self) {
 	for (auto& terr_mesh : self.terr_meshes) {
 		terr_mesh_load_to_gpu(terr_mesh);
 	}
@@ -2093,7 +2093,7 @@ void field_load_to_gpu(Field& self) {
 	}
 }
 
-void field_unload_from_gpu(Field& self) {
+inline void field_unload_from_gpu(Field& self) {
 	for (auto& terr_mesh : self.terr_meshes) {
 		terr_mesh_unload_from_gpu(terr_mesh);
 	}
@@ -2110,7 +2110,7 @@ void field_unload_from_gpu(Field& self) {
 	}
 }
 
-mu::Vec<Field*> field_list_recursively(Field& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+inline mu::Vec<Field*> field_list_recursively(Field& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	mu::Vec<Field*> buf(allocator);
 	buf.push_back(&self);
 
@@ -2131,7 +2131,7 @@ struct SceneryTemplate {
 	bool is_airrace;
 };
 
-void _scenery_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str, SceneryTemplate>& map) {
+inline void _scenery_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str, SceneryTemplate>& map) {
 	auto parser = parser_from_file(file_abs_path, mu::memory::tmp());
 
 	while (!parser_finished(parser)) {
@@ -2173,7 +2173,7 @@ void _scenery_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str
 	}
 }
 
-mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs_path) {
+inline mu::Map<mu::Str, SceneryTemplate> scenery_templates_from_dir(mu::StrView dir_abs_path) {
 	auto sce_lst_files = mu::dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("sce") && filename.ends_with(".lst");
 	}, mu::memory::tmp());
@@ -2193,7 +2193,7 @@ struct GroundObjTemplate {
 	mu::Str coll_srf, cockpit_srf, coarse_srf; // optional
 };
 
-void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str, GroundObjTemplate>& map) {
+inline void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::Str, GroundObjTemplate>& map) {
 	auto parser = parser_from_file(file_abs_path, mu::memory::tmp());
 
 	while (!parser_finished(parser)) {
@@ -2248,7 +2248,7 @@ void _ground_obj_templates_from_lst_file(mu::StrView file_abs_path, mu::Map<mu::
 	}
 }
 
-mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates_from_dir(mu::StrView dir_abs_path) {
+inline mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates_from_dir(mu::StrView dir_abs_path) {
 	auto sce_lst_files = mu::dir_list_files_with(dir_abs_path, [](const auto& filename) {
 		return filename.starts_with("gro") && filename.ends_with(".lst");
 	}, mu::memory::tmp());

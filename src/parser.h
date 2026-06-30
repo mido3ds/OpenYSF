@@ -9,13 +9,13 @@ struct Parser {
 	size_t curr_line; // 0 is first line
 };
 
-Parser parser_from_str(mu::StrView str, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+inline Parser parser_from_str(mu::StrView str, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	mu::Str str_clone(str, allocator);
 	mu::str_replace(str_clone, "\r\n", "\n");
 	return Parser { .str = str_clone };
 }
 
-Parser parser_from_file(mu::StrView file_path, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+inline Parser parser_from_file(mu::StrView file_path, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	auto str = mu::file_content_str(file_path.data(), mu::memory::tmp());
 	mu::str_replace(str, "\r\n", "\n");
 	return Parser {
@@ -24,7 +24,7 @@ Parser parser_from_file(mu::StrView file_path, mu::memory::Allocator* allocator 
 	};
 }
 
-bool parser_peek(const Parser& self, char c) {
+inline bool parser_peek(const Parser& self, char c) {
 	if ((self.pos + 1) > self.str.size()) {
 		return false;
 	}
@@ -36,7 +36,7 @@ bool parser_peek(const Parser& self, char c) {
 	return true;
 }
 
-bool parser_peek(const Parser& self, mu::StrView s) {
+inline bool parser_peek(const Parser& self, mu::StrView s) {
 	if ((self.pos + s.size()) > self.str.size()) {
 		return false;
 	}
@@ -48,7 +48,7 @@ bool parser_peek(const Parser& self, mu::StrView s) {
 	return true;
 }
 
-bool parser_accept(Parser& self, char c) {
+inline bool parser_accept(Parser& self, char c) {
 	if (parser_peek(self, c)) {
 		self.pos++;
 		if (c == '\n') {
@@ -60,7 +60,7 @@ bool parser_accept(Parser& self, char c) {
 	return false;
 }
 
-bool parser_accept(Parser& self, mu::StrView s) {
+inline bool parser_accept(Parser& self, mu::StrView s) {
 	if ((self.pos + s.size()) > self.str.size()) {
 		return false;
 	}
@@ -82,7 +82,7 @@ bool parser_accept(Parser& self, mu::StrView s) {
 
 // return multiplier that converts to standard unit (maybe 1 if no unit or standard unit)
 // standard units: m, g, m/s, HP, degrees
-double parser_accept_unit(Parser& self) {
+inline double parser_accept_unit(Parser& self) {
 	if (parser_accept(self, "ft"))   { return 0.3048;    }
 	if (parser_accept(self, "kt"))   { return 0.514444;  }
 	if (parser_accept(self, "km/h")) { return 0.277778;  }
@@ -101,8 +101,8 @@ double parser_accept_unit(Parser& self) {
 	return 1;
 }
 
-template<typename ... Args>
-void parser_panic(const Parser& self, mu::StrView err_msg, const Args& ... args) {
+inline template<typename ... Args>
+inline void parser_panic(const Parser& self, mu::StrView err_msg, const Args& ... args) {
 	mu::Str summary(self.str, mu::memory::tmp());
 	if (summary.size() > 90) {
 		summary.resize(90);
@@ -114,14 +114,14 @@ void parser_panic(const Parser& self, mu::StrView err_msg, const Args& ... args)
 	mu::panic("{}:{}: {}, parser.str='{}', parser.pos={}", file_path, self.curr_line+1, mu::str_tmpf(err_msg.data(), args...), summary, self.pos);
 }
 
-template<typename T>
-void parser_expect(Parser& self, T s) {
+inline template<typename T>
+inline void parser_expect(Parser& self, T s) {
 	if (!parser_accept(self, s)) {
 		parser_panic(self, "failed to find '{}'", s);
 	}
 }
 
-void parser_skip_after(Parser& self, char c) {
+inline void parser_skip_after(Parser& self, char c) {
 	size_t lines = 0;
 	for (size_t i = self.pos; i < self.str.size(); i++) {
 		if (self.str[i] == '\n') {
@@ -135,7 +135,7 @@ void parser_skip_after(Parser& self, char c) {
 	}
 }
 
-void parser_skip_after(Parser& self, mu::StrView s) {
+inline void parser_skip_after(Parser& self, mu::StrView s) {
 	const size_t index = self.str.find(s, self.pos);
 	if (index == mu::Str::npos) {
 		parser_panic(self, "failed to find '{}'", s);
@@ -149,7 +149,7 @@ void parser_skip_after(Parser& self, mu::StrView s) {
 	self.pos = index + s.size();
 }
 
-float parser_token_float(Parser& self) {
+inline float parser_token_float(Parser& self) {
 	if (self.pos >= self.str.size()) {
 		parser_panic(self, "can't find float at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
@@ -168,7 +168,7 @@ float parser_token_float(Parser& self) {
 	return d;
 }
 
-uint64_t parser_token_u64(Parser& self) {
+inline uint64_t parser_token_u64(Parser& self) {
 	if (self.pos >= self.str.size()) {
 		parser_panic(self, "can't find u64 at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
@@ -187,7 +187,7 @@ uint64_t parser_token_u64(Parser& self) {
 	return d;
 }
 
-uint8_t parser_token_u8(Parser& self) {
+inline uint8_t parser_token_u8(Parser& self) {
 	const uint64_t b = parser_token_u64(self);
 	if (b > UINT8_MAX) {
 		parser_panic(self, "out of range number, {} > {}", b, UINT8_MAX);
@@ -195,7 +195,7 @@ uint8_t parser_token_u8(Parser& self) {
 	return (uint8_t) b;
 }
 
-int64_t parser_token_i64(Parser& self) {
+inline int64_t parser_token_i64(Parser& self) {
 	if (self.pos >= self.str.size()) {
 		parser_panic(self, "can't find i64 at end of str");
 	} else if (!(::isdigit(self.str[self.pos]) || self.str[self.pos] == '-')) {
@@ -214,8 +214,8 @@ int64_t parser_token_i64(Parser& self) {
 	return d;
 }
 
-template<typename Function>
-mu::Str parser_token_str_with(Parser& self, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+inline template<typename Function>
+inline mu::Str parser_token_str_with(Parser& self, Function predicate, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	auto a = &self.str[self.pos];
 	while (self.pos < self.str.size() && predicate(self.str[self.pos])) {
 		self.pos++;
@@ -223,11 +223,11 @@ mu::Str parser_token_str_with(Parser& self, Function predicate, mu::memory::Allo
 	return mu::Str(a, &self.str[self.pos], allocator);
 }
 
-mu::Str parser_token_str(Parser& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+inline mu::Str parser_token_str(Parser& self, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
 	return parser_token_str_with(self, [](char c){ return !::isspace(c); }, allocator);
 }
 
-mu::Str parser_token_any(Parser& self, std::initializer_list<mu::Str>&& args) {
+inline mu::Str parser_token_any(Parser& self, std::initializer_list<mu::Str>&& args) {
 	for (const auto& arg : args) {
 		if (parser_accept(self, arg)) {
 			return arg;
@@ -237,11 +237,11 @@ mu::Str parser_token_any(Parser& self, std::initializer_list<mu::Str>&& args) {
 	return "";
 }
 
-bool parser_finished(Parser& self) {
+inline bool parser_finished(Parser& self) {
 	return self.pos >= self.str.size();
 }
 
-Parser parser_fork(Parser& self, size_t lines) {
+inline Parser parser_fork(Parser& self, size_t lines) {
 	auto other = self;
 
 	size_t i = other.pos;
@@ -263,7 +263,7 @@ Parser parser_fork(Parser& self, size_t lines) {
 	return other;
 }
 
-void test_parser() {
+inline void test_parser() {
 	mu_test_suite("test_parser");
 
 	Parser parser = parser_from_str("hello world \r\n m", mu::memory::tmp());
