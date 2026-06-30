@@ -125,14 +125,16 @@ target_link_libraries(_implot PRIVATE _imgui)
 
 # open-ysf
 add_executable(open-ysf
-	src/main.cpp
-	src/camera.cpp
-	src/parser.h
-	src/math.h
-	src/graphics.h
-	src/imgui.h
-	src/audio.h
-	src/assets.h
+    src/main.cpp
+    src/camera.cpp
+    src/aircraft.cpp
+    src/ground_obj.cpp
+    src/parser.h
+    src/math.h
+    src/graphics.h
+    src/imgui.h
+    src/audio.h
+    src/assets.h
 )
 
 target_link_libraries(open-ysf
