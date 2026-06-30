@@ -21,6 +21,7 @@
 #include "audio.h"
 #include "assets.h"
 #include "settings.h"
+#include "camera.h"
 
 constexpr auto WND_TITLE        = "OpenYSF";
 constexpr int  WND_INIT_WIDTH   = 1028;
@@ -379,42 +380,7 @@ glm::vec3 aircraft_forces_total(const Aircraft& self) {
 	return aircraft_weight(self)+ aircraft_airlift(self) + aircraft_drag(self) + aircraft_thrust(self);
 }
 
-struct PerspectiveProjection {
-	float near         = 0.1f;
-	float far          = 100000;
-	float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
-	float aspect       = (float) WND_INIT_WIDTH / WND_INIT_HEIGHT;
-};
 
-glm::mat4 projection_calc_mat(PerspectiveProjection& self) {
-	return glm::perspective(self.fovy, self.aspect, self.near, self.far);
-}
-
-struct Camera {
-	Aircraft* aircraft;
-	float zoom_multiplier = 5;
-
-	float movement_speed    = 1000.0f;
-	float mouse_sensitivity = 1.4;
-
-	glm::vec3 position = glm::vec3{0.0f, 0.0f, 3.0f};
-	glm::vec3 front    = glm::vec3{0.0f, 0.0f, -1.0f};
-	glm::vec3 world_up = glm::vec3{0.0f, -1.0f, 0.0f};
-	glm::vec3 right    = glm::vec3{1.0f, 0.0f, 0.0f};
-	glm::vec3 up       = world_up;
-	glm::vec3 target_pos;
-
-	float yaw   = 15.0f / DEGREES_MAX * RADIANS_MAX;
-	float pitch = 0.0f / DEGREES_MAX * RADIANS_MAX;
-
-	glm::ivec2 last_mouse_pos;
-
-	bool enable_rotating_around;
-};
-
-glm::mat4 camera_calc_view(const Camera& self) {
-	return glm::lookAt(self.position, self.target_pos, self.up);
-}
 
 struct ImGuiWindowLogger : public mu::ILogger {
 	mu::memory::Arena _arena;
@@ -751,16 +717,8 @@ void canvas_add(Canvas& self, const canvas::Vector& v) {
 	});
 }
 
-// precalculated matrices
-struct CachedMatrices {
-	glm::mat4 view;
-	glm::mat4 view_inverse;
 
-	glm::mat4 projection;
-	glm::mat4 projection_inverse;
 
-	glm::mat4 projection_view;
-};
 
 struct LoopTimer {
 	uint64_t _last_time_millis;
