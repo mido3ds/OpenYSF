@@ -130,6 +130,7 @@ add_executable(open-ysf
     src/aircraft.cpp
     src/ground_obj.cpp
     src/scenery.cpp
+    src/canvas.cpp
     src/parser.h
     src/math.h
     src/graphics.h
