@@ -653,26 +653,34 @@ namespace sys {
 					ImGui::Checkbox("visible", &aircraft.visible);
 					ImGui::DragFloat3("translation", glm::value_ptr(aircraft.translation));
 
-					glm::vec3 now_rotation {
-						aircraft.angles.roll,
-						aircraft.angles.pitch,
-						aircraft.angles.yaw,
-					};
-					if (MyImGui::SliderAngle3("rotation", &now_rotation, world.settings.current_angle_max)) {
-						local_euler_angles_rotate(
-							aircraft.angles,
-							now_rotation.z - aircraft.angles.yaw,
-							now_rotation.y - aircraft.angles.pitch,
-							now_rotation.x - aircraft.angles.roll
-						);
+					{
+						auto current_angles = aircraft.angles();
+						glm::vec3 now_rotation {
+							current_angles.roll,
+							current_angles.pitch,
+							current_angles.yaw,
+						};
+						if (MyImGui::SliderAngle3("rotation", &now_rotation, world.settings.current_angle_max)) {
+							auto right = glm::cross(current_angles.up, current_angles.front);
+							float dy = now_rotation.z - current_angles.yaw;
+							float dp = now_rotation.y - current_angles.pitch;
+							float dr = now_rotation.x - current_angles.roll;
+							glm::quat q_yaw = glm::angleAxis(dy, glm::vec3{0, 1, 0});
+							glm::quat q_pitch = glm::angleAxis(dp, right);
+							glm::quat q_roll = glm::angleAxis(dr, current_angles.front);
+							aircraft.orientation = glm::normalize(q_yaw * q_pitch * q_roll * aircraft.orientation);
+						}
 					}
 
-					ImGui::BeginDisabled();
-					auto x = glm::cross(aircraft.angles.up, aircraft.angles.front);
-					ImGui::DragFloat3("right", glm::value_ptr(x));
-					ImGui::DragFloat3("up", glm::value_ptr(aircraft.angles.up));
-					ImGui::DragFloat3("front", glm::value_ptr(aircraft.angles.front));
-					ImGui::EndDisabled();
+					{
+						auto ang = aircraft.angles();
+						ImGui::BeginDisabled();
+						auto x = glm::cross(ang.up, ang.front);
+						ImGui::DragFloat3("right", glm::value_ptr(x));
+						ImGui::DragFloat3("up", glm::value_ptr(ang.up));
+						ImGui::DragFloat3("front", glm::value_ptr(ang.front));
+						ImGui::EndDisabled();
+					}
 
 					ImGui::Checkbox("Render AABB", &aircraft.render_aabb);
 					ImGui::DragFloat3("AABB.min", glm::value_ptr(aircraft.current_aabb.min));
@@ -1144,6 +1152,7 @@ int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 	test_line_segments_to_lines();
+	test_rotational_physics();
 
 	sys::sdl_init(world);
 	mu_defer(sys::sdl_free(world));

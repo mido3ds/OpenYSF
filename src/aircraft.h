@@ -24,8 +24,15 @@ struct Aircraft {
 	bool render_aabb;
 
 	glm::vec3 translation;
-	LocalEulerAngles angles;
+	glm::quat orientation{1.0f, 0.0f, 0.0f, 0.0f};
+	glm::vec3 angular_velocity{0.0f};
+	glm::vec3 torque{0.0f};
+	glm::mat3 inertia_tensor_inv{0.0f};
 	bool visible = true;
+
+	LocalEulerAngles angles() const {
+		return local_euler_angles_from_quat(orientation);
+	}
 	glm::vec3 acceleration, velocity;
 	float max_velocity;
 
@@ -193,13 +200,25 @@ inline void aircraft_load(Aircraft& self) {
 	self.roll_input_max = 60;
 	datmap_get_floats(self.dat, "MXIPTROL", {&self.roll_input_max});
 
+	float mass_kg = (self.mass.clean + self.mass.fuel + self.mass.load) * 1e6f;
+	glm::vec3 size = self.initial_aabb.max - self.initial_aabb.min;
+	float ix = (1.0f/12.0f) * mass_kg * (size.y*size.y + size.z*size.z);
+	float iy = (1.0f/12.0f) * mass_kg * (size.x*size.x + size.z*size.z);
+	float iz = (1.0f/12.0f) * mass_kg * (size.x*size.x + size.y*size.y);
+	self.inertia_tensor_inv = glm::inverse(glm::mat3(
+		ix, 0, 0,
+		0, iy, 0,
+		0, 0, iz
+	));
+
 	self.should_be_loaded = false;
 }
 
 // degrees
 inline float aircraft_angle_of_attack(const Aircraft& self) {
-	bool other_side = glm::acos(-self.angles.up.y) > 1.5708f;
-	auto a = 90 + (other_side ? +1 : -1) * glm::acos(-self.angles.front.y) / RADIANS_MAX * DEGREES_MAX;
+	auto ang = self.angles();
+	bool other_side = glm::acos(-ang.up.y) > 1.5708f;
+	auto a = 90 + (other_side ? +1 : -1) * glm::acos(-ang.front.y) / RADIANS_MAX * DEGREES_MAX;
 	if (a > 180) {
 		return a - 360;
 	}
@@ -228,7 +247,10 @@ inline void aircraft_unload(Aircraft& self) {
 
 inline void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 	self.translation = start_info.position;
-	self.angles = local_euler_angles_from_attitude(start_info.attitude);
+	glm::quat q_yaw = glm::angleAxis(start_info.attitude.z, glm::vec3{0, 1, 0});
+	glm::quat q_pitch = glm::angleAxis(start_info.attitude.y, glm::vec3{1, 0, 0});
+	glm::quat q_roll = glm::angleAxis(start_info.attitude.x, glm::vec3{0, 0, 1});
+	self.orientation = glm::normalize(q_yaw * q_pitch * q_roll);
 	self.landing_gear_alpha = start_info.landing_gear_is_out? 0.0f : 1.0f;
 	self.throttle = start_info.throttle;
 	self.engine.speed_percent = start_info.throttle;
@@ -242,9 +264,9 @@ inline float aircraft_mass_total(const Aircraft& self) {
 	return (self.mass.clean + self.mass.fuel + self.mass.load) * 1e6;
 }
 
-inline glm::vec3 aircraft_thrust(const Aircraft& self)   { return self.angles.front * self.forces.thrust; }
-inline glm::vec3 aircraft_drag(const Aircraft& self)     { return -self.angles.front * self.forces.drag;  }
-inline glm::vec3 aircraft_airlift(const Aircraft& self)  { return self.angles.up * self.forces.airlift;   }
+inline glm::vec3 aircraft_thrust(const Aircraft& self)   { return self.angles().front * self.forces.thrust; }
+inline glm::vec3 aircraft_drag(const Aircraft& self)     { return -self.angles().front * self.forces.drag;  }
+inline glm::vec3 aircraft_airlift(const Aircraft& self)  { return self.angles().up * self.forces.airlift;   }
 inline glm::vec3 aircraft_weight(const Aircraft& self)   { return glm::vec3{0,1,0} * self.forces.weight;  }
 
 inline glm::vec3 aircraft_forces_total(const Aircraft& self) {

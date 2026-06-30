@@ -8,6 +8,7 @@
 #include <glm/gtc/type_ptr.hpp> // glm::value_ptr
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/norm.hpp> // glm::length2
+#include <glm/gtc/quaternion.hpp> // glm::quat, glm::angleAxis
 
 #include <mu/utils.h>
 
@@ -472,6 +473,50 @@ inline local_euler_angles_from_attitude(glm::vec3 attitude) {
 	LocalEulerAngles self {};
 	local_euler_angles_rotate(self, attitude.z, attitude.y, attitude.x);
 	return self;
+}
+
+inline LocalEulerAngles local_euler_angles_from_quat(const glm::quat& q) {
+	glm::vec3 front = q * glm::vec3(0.0f, 0.0f, 1.0f);
+	glm::vec3 up = -(q * glm::vec3(0.0f, 1.0f, 0.0f));
+	return LocalEulerAngles{0.0f, 0.0f, 0.0f, up, front};
+}
+
+inline void test_rotational_physics() {
+	mu_test_suite("test_rotational_physics");
+
+	// Identity quaternion → front = +Z, up = -Y (YS convention)
+	{
+		auto angles = local_euler_angles_from_quat(glm::quat{1,0,0,0});
+		mu_test(almost_equal(angles.front, glm::vec3{0,0,1}));
+		mu_test(almost_equal(angles.up, glm::vec3{0,-1,0}));
+	}
+
+	// 90° pitch: quaternion rotating around X axis (right-hand: Y→Z)
+	{
+		auto q = glm::angleAxis(glm::radians(90.0f), glm::vec3{1,0,0});
+		auto angles = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(angles.front, glm::vec3{0,-1,0})); // now facing down
+		mu_test(almost_equal(angles.up, glm::vec3{0,0,-1}));    // up = -q*(0,1,0) = -(0,0,1) = (0,0,-1)
+	}
+
+	// 90° yaw: quaternion rotating around Y axis
+	{
+		auto q = glm::angleAxis(glm::radians(90.0f), glm::vec3{0,1,0});
+		auto angles = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(angles.front, glm::vec3{1,0,0}));
+		mu_test(almost_equal(angles.up, glm::vec3{0,-1,0}));
+	}
+
+	// Test that from_quat(from_attitude) matches from_attitude for yaw-only
+	// (yaw axis in local_euler_angles_rotate is {0,-1,0})
+	{
+		glm::vec3 attitude{0.0f, 0.0f, glm::radians(30.0f)}; // yaw only
+		auto expected = local_euler_angles_from_attitude(attitude);
+		glm::quat q = glm::angleAxis(-attitude.z, glm::vec3{0,1,0}); // negate: yaw around -Y
+		auto actual = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(expected.front, actual.front));
+		mu_test(almost_equal(expected.up, actual.up));
+	}
 }
 
 // line segments: [0, 1, 2, 3]

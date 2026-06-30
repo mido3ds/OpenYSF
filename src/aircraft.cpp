@@ -319,7 +319,13 @@ namespace sys {
 				delta_yaw += -aircraft.right_aileron_perc * ADVERSE_YAW_COEFF
 					* airspeed_factor * (float)world.loop_timer.delta_time;
 
-				local_euler_angles_rotate(aircraft.angles, delta_yaw, delta_pitch, delta_roll);
+				// integrate quaternion using local-frame rotation deltas
+				auto ang = aircraft.angles();
+				auto right = glm::cross(ang.up, ang.front);
+				glm::quat q_yaw = glm::angleAxis(delta_yaw, glm::vec3{0, 1, 0});
+				glm::quat q_pitch = glm::angleAxis(delta_pitch, right);
+				glm::quat q_roll = glm::angleAxis(delta_roll, ang.front);
+				aircraft.orientation = glm::normalize(q_yaw * q_pitch * q_roll * aircraft.orientation);
 			}
 
 			// translation
@@ -341,7 +347,7 @@ namespace sys {
 			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
 
 			// transform AABB (estimate new AABB after rotation)
-			const auto model_transformation = local_euler_angles_matrix(aircraft.angles, aircraft.translation);
+			const auto model_transformation = local_euler_angles_matrix(aircraft.angles(), aircraft.translation);
 			{
 				// translate AABB
 				aircraft.current_aabb.min = aircraft.translation;
@@ -455,24 +461,25 @@ namespace sys {
 			}
 
 			if (aircraft.render_axes) {
+				auto ang = aircraft.angles();
 				canvas_add(world.canvas, canvas::Vector {
 					.label = "front",
 					.p = aircraft.translation,
-					.dir = aircraft.angles.front,
+					.dir = ang.front,
 					.len = 35.0f,
 					.color = glm::vec4{1,0,0,0.3}
 				});
 				canvas_add(world.canvas, canvas::Vector {
 					.label = "right",
 					.p = aircraft.translation,
-					.dir = glm::normalize(glm::cross(aircraft.angles.front, aircraft.angles.up)),
+					.dir = glm::normalize(glm::cross(ang.front, ang.up)),
 					.len = 20.0f,
 					.color = glm::vec4{0,1,0,0.3}
 				});
 				canvas_add(world.canvas, canvas::Vector {
 					.label = "up",
 					.p = aircraft.translation,
-					.dir = aircraft.angles.up,
+					.dir = ang.up,
 					.len = 10.0f,
 					.color = glm::vec4{0,0,1,0.3}
 				});
