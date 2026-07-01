@@ -96,7 +96,7 @@ inline void audio_device_init(AudioDevice* self) {
 				float gain = glm::clamp(playback.gain, 0.0f, 1.0f);
 				uint16_t* src = (uint16_t*)(playback.audio->data + playback.pos);
 				for (uint32_t i = 0; i < num; i++) {
-					float f = ((int)src[i] - 32768) / 32767.0f;
+					float f = ((int)src[i] - 32767) / 32767.0f;
 					accum[i] += f * gain;
 				}
 				playback.pos += to_mix;
@@ -119,7 +119,7 @@ inline void audio_device_init(AudioDevice* self) {
 					uint32_t accum_idx = stream_byte_pos / sizeof(uint16_t);
 					uint16_t* src = (uint16_t*)(playback.audio->data + playback.pos);
 					for (uint32_t i = 0; i < num; i++) {
-						float f = ((int)src[i] - 32768) / 32767.0f;
+						float f = ((int)src[i] - 32767) / 32767.0f;
 						accum[accum_idx + i] += f * gain;
 					}
 					stream_byte_pos += to_mix;
@@ -131,7 +131,7 @@ inline void audio_device_init(AudioDevice* self) {
 			// convert float accum back to U16
 			for (uint32_t i = 0; i < num_u16; i++) {
 				float s = glm::clamp(accum[i], -1.0f, 1.0f);
-				((uint16_t*)stream)[i] = (uint16_t)((int)(s * 32767.0f) + 32768);
+				((uint16_t*)stream)[i] = (uint16_t)((int)(s * 32767.0f) + 32767);
 			}
 		},
 		.userdata = self,
