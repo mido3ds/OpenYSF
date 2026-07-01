@@ -15,9 +15,6 @@ constexpr int AUDIO_FREQUENCY = 22050;
 constexpr SDL_AudioFormat AUDIO_FORMAT = AUDIO_U16SYS;
 constexpr uint8_t AUDIO_CHANNELS = 2;
 
-// calculated from original assets sound/silence.wav after converting to stereo/22050HZ/16LSB
-constexpr uint16_t AUDIO_SILENCE_VALUE = 0x7FFF;
-
 struct AudioBuffer {
 	mu::Str file_path;
 	uint8_t* data;
@@ -74,15 +71,6 @@ constexpr uint32_t min_u32(uint32_t a, uint32_t b) {
 	return a < b ? a : b;
 }
 
-inline void memset_u16(void* dst, uint16_t val, size_t len) {
-	mu_assert(len % 2 == 0);
-	uint16_t* dst_as_16 = (uint16_t*) dst;
-	const size_t len_as_16 = len / 2;
-	for (size_t i = 0; i < len_as_16; i++) {
-		dst_as_16[i] = val;
-	}
-}
-
 inline void audio_device_init(AudioDevice* self) {
 	const SDL_AudioSpec spec {
 		.freq = AUDIO_FREQUENCY,
@@ -92,48 +80,58 @@ inline void audio_device_init(AudioDevice* self) {
 		.callback = [](void* userdata, uint8_t* stream, int stream_len_int) {
 			auto dev = (AudioDevice*) userdata;
 			const uint32_t stream_len = stream_len_int;
-			uint32_t silence_pos = 0;
+			const uint32_t num_u16 = stream_len / sizeof(uint16_t);
 
-			SDL_memset(stream, 0, stream_len);
+			float accum[1024];
+			mu_assert(num_u16 <= 1024);
+			for (uint32_t i = 0; i < num_u16; i++)
+				accum[i] = 0.0f;
 
-			// one shot
+			// one-shot playbacks
 			for (auto& playback : dev->playbacks) {
 				mu_assert(playback.pos < playback.audio->len);
 
-				const uint32_t min_len = min_u32(stream_len, playback.audio->len - playback.pos);
-				SDL_MixAudioFormat(stream, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len,
-					(int)(SDL_MIX_MAXVOLUME * glm::clamp(playback.gain, 0.0f, 1.0f)));
-				playback.pos += min_len;
-
-				silence_pos = min_u32(silence_pos + min_len, stream_len);
+				uint32_t to_mix = min_u32(stream_len, playback.audio->len - playback.pos);
+				uint32_t num = to_mix / sizeof(uint16_t);
+				float gain = glm::clamp(playback.gain, 0.0f, 1.0f);
+				uint16_t* src = (uint16_t*)(playback.audio->data + playback.pos);
+				for (uint32_t i = 0; i < num; i++) {
+					float f = ((int)src[i] - 32767) / 32767.0f;
+					accum[i] += f * gain;
+				}
+				playback.pos += to_mix;
 			}
 			for (int i = dev->playbacks.size()-1; i >= 0; i--) {
 				mu_assert(dev->playbacks[i].pos <= dev->playbacks[i].audio->len);
-				if (dev->playbacks[i].pos == dev->playbacks[i].audio->len) {
+				if (dev->playbacks[i].pos == dev->playbacks[i].audio->len)
 					mu::vec_remove_unordered(dev->playbacks, i);
-				}
 			}
 
-			// looped
+			// looped playbacks
 			for (auto& playback : dev->looped_playbacks) {
 				mu_assert(playback.pos < playback.audio->len);
 
-				uint32_t stream_pos = 0;
-				while (stream_pos < stream_len) {
-					const uint32_t min_len = min_u32(stream_len - stream_pos, playback.audio->len - playback.pos);
-					SDL_MixAudioFormat(stream+stream_pos, playback.audio->data+playback.pos, AUDIO_FORMAT, min_len,
-						(int)(SDL_MIX_MAXVOLUME * glm::clamp(playback.gain, 0.0f, 1.0f)));
-					stream_pos += min_len;
-					playback.pos += min_len;
+				float gain = glm::clamp(playback.gain, 0.0f, 1.0f);
+				uint32_t stream_byte_pos = 0;
+				while (stream_byte_pos < stream_len) {
+					uint32_t to_mix = min_u32(stream_len - stream_byte_pos, playback.audio->len - playback.pos);
+					uint32_t num = to_mix / sizeof(uint16_t);
+					uint32_t accum_idx = stream_byte_pos / sizeof(uint16_t);
+					uint16_t* src = (uint16_t*)(playback.audio->data + playback.pos);
+					for (uint32_t i = 0; i < num; i++) {
+						float f = ((int)src[i] - 32767) / 32767.0f;
+						accum[accum_idx + i] += f * gain;
+					}
+					stream_byte_pos += to_mix;
+					playback.pos += to_mix;
 					playback.pos %= playback.audio->len;
 				}
-
-				silence_pos = stream_len;
 			}
 
-			// silence the rest of stream
-			if (silence_pos < stream_len) {
-				memset_u16(stream+silence_pos, AUDIO_SILENCE_VALUE, stream_len-silence_pos);
+			// convert float accum back to U16
+			for (uint32_t i = 0; i < num_u16; i++) {
+				float s = glm::clamp(accum[i], -1.0f, 1.0f);
+				((uint16_t*)stream)[i] = (uint16_t)((int)(s * 32767.0f) + 32767);
 			}
 		},
 		.userdata = self,
