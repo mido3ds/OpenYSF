@@ -517,6 +517,45 @@ inline void test_rotational_physics() {
 		mu_test(almost_equal(expected.front, actual.front));
 		mu_test(almost_equal(expected.up, actual.up));
 	}
+
+	// Sequential quaternion integration: yaw→pitch→roll from identity
+	{
+		glm::quat q{1,0,0,0};
+		float dy = glm::radians(30.0f);
+		float dp = glm::radians(15.0f);
+		float dr = glm::radians(10.0f);
+
+		// Yaw 30° around up(-Y) → front rotates toward -X by right-hand rule
+		auto ang = local_euler_angles_from_quat(q);
+		q = glm::normalize(glm::angleAxis(dy, ang.up) * q);
+		ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(ang.front.x, -0.5f));   // sin(30°), toward -X
+		mu_test(almost_equal(ang.front.z, 0.866f));  // cos(30°)
+		mu_test(almost_equal(ang.up, glm::vec3{0,-1,0}));
+
+		// Pitch 15° around right → front tilts toward up
+		auto right = glm::cross(ang.up, ang.front);
+		q = glm::normalize(glm::angleAxis(dp, right) * q);
+		ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(glm::length2(ang.front), 1.0f));
+		mu_test(almost_equal(glm::length2(ang.up), 1.0f));
+
+		// Roll 10° around front → up rotates around front
+		q = glm::normalize(glm::angleAxis(dr, ang.front) * q);
+		ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(glm::length2(ang.front), 1.0f));
+		mu_test(almost_equal(glm::length2(ang.up), 1.0f));
+		mu_test(almost_equal(glm::dot(ang.front, ang.up), 0.0f));
+	}
+
+	// Yaw 90° around up axis (-Y) → front should be -X
+	{
+		glm::quat q{1,0,0,0};
+		q = glm::normalize(glm::angleAxis(glm::radians(90.0f), glm::vec3{0,-1,0}) * q);
+		auto ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(ang.front, glm::vec3{-1,0,0}));
+		mu_test(almost_equal(ang.up, glm::vec3{0,-1,0}));
+	}
 }
 
 // line segments: [0, 1, 2, 3]

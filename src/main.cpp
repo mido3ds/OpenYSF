@@ -654,7 +654,7 @@ namespace sys {
 					ImGui::DragFloat3("translation", glm::value_ptr(aircraft.translation));
 
 					{
-						auto current_angles = aircraft.angles();
+						auto current_angles = aircraft_angles(aircraft);
 						glm::vec3 now_rotation {
 							current_angles.roll,
 							current_angles.pitch,
@@ -665,15 +665,15 @@ namespace sys {
 							float dy = now_rotation.z - current_angles.yaw;
 							float dp = now_rotation.y - current_angles.pitch;
 							float dr = now_rotation.x - current_angles.roll;
-							glm::quat q_yaw = glm::angleAxis(dy, glm::vec3{0, 1, 0});
+							glm::quat q_yaw = glm::angleAxis(dy, current_angles.up);
 							glm::quat q_pitch = glm::angleAxis(dp, right);
 							glm::quat q_roll = glm::angleAxis(dr, current_angles.front);
-							aircraft.orientation = glm::normalize(q_yaw * q_pitch * q_roll * aircraft.orientation);
+							aircraft.orientation = glm::normalize(q_roll * q_pitch * q_yaw * aircraft.orientation);
 						}
 					}
 
 					{
-						auto ang = aircraft.angles();
+						auto ang = aircraft_angles(aircraft);
 						ImGui::BeginDisabled();
 						auto x = glm::cross(ang.up, ang.front);
 						ImGui::DragFloat3("right", glm::value_ptr(x));
