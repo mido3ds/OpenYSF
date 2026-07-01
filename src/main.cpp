@@ -685,7 +685,7 @@ namespace sys {
 
 						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
 						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
-						ImGui::DragFloat("Thrust Coeff", &aircraft.thrust_multiplier);
+						ImGui::DragFloat("Prop Eff", &aircraft.prop_efficiency, 0.01f, 0.0f, 1.0f);
 						ImGui::SliderFloat("Friction Coeff", &aircraft.friction_coeff, 0.0f, 1.0f);
 
 						if (ImGui::TreeNode("Aerodynamic Coefficients")) {
@@ -1136,6 +1136,89 @@ namespace sys {
 
 }
 
+// Thrust becomes velocity-dependent: static at v<1, then P·η/v.
+// At idle (30 HP × 745.69 × 0.8 = 17,896 N), friction (0.032 × 24500 × 9.86 = 7,730 N)
+// leaves ~10,166 N net → plane accelerates from rest.
+inline void test_aircraft_mass_unit() {
+	mu_test_suite("test_aircraft_mass_unit");
+
+	// F-16 DAT: WEIGHCLN 5.0t, WEIGFUEL 2.5t, WEIGLOAD 5.0t
+	// parser: 5.0 * 1,000,000 (t→g) = 5,000,000 g → /1e6 = 5.0 stored
+	Aircraft a = {};
+	a.mass.clean = 5.0f;
+	a.mass.fuel = 2.5f;
+	a.mass.load = 5.0f;
+	// mass_total returns kg: (5.0+2.5+5.0) * 1000 = 12500 kg
+	mu_test(almost_equal(aircraft_mass_total(a), 12500.0f));
+
+	// Defaults (when DAT key missing): clean=15, fuel=5, load=4.5
+	Aircraft b = {};
+	b.mass.clean = 15.0f;
+	b.mass.fuel = 5.0f;
+	b.mass.load = 4.5f;
+	float mass_kg = aircraft_mass_total(b);
+	mu_test(almost_equal(mass_kg, 24500.0f));
+
+	// Weight from kg → N: consistent with thrust unit
+	float weight_N = mass_kg * 9.86f;
+	mu_test(weight_N > 241000.0f && weight_N < 242000.0f);
+
+	// Friction in N (same unit as thrust)
+	float friction_N = 0.032f * weight_N;
+	mu_test(friction_N > 7700.0f && friction_N < 7800.0f);
+
+	// Idle thrust exceeds friction → plane moves
+	float thrust_idle = 30.0f * 745.69f * 0.8f;   // 17896.56 N
+	mu_test(thrust_idle > friction_N);
+	mu_test(thrust_idle - friction_N > 10000.0f);
+
+	// OLD bug: *1e6 returned grams → weight in g·m/s² (mN),
+	// friction in mN dwarfed thrust in N → net=0
+	float mass_grams = (b.mass.clean + b.mass.fuel + b.mass.load) * 1e6f;
+	float weight_gms2 = mass_grams * 9.86f;           // g·m/s² = mN
+	float friction_mN = 0.032f * weight_gms2;
+	mu_test(std::max(thrust_idle - friction_mN, 0.0f) < 1.0f);
+}
+
+inline void test_velocity_dependent_thrust() {
+	mu_test_suite("test_velocity_dependent_thrust");
+
+	float engine_power_W = 100.0f * 745.69f;  // 100 HP
+	float eta = 0.8f;
+
+	// Static cap at v<1: thrust = P * η
+	auto thrust_at = [&](float v) {
+		return v < 1.0f ? engine_power_W * eta : engine_power_W * eta / v;
+	};
+
+	mu_test(almost_equal(thrust_at(0.0f), 59655.2f));
+	mu_test(almost_equal(thrust_at(0.5f), 59655.2f));
+
+	// Transition at v=1: same value for both branches
+	mu_test(almost_equal(thrust_at(1.0f), 59655.2f));
+
+	// Velocity-dependent drop-off
+	mu_test(almost_equal(thrust_at(100.0f), 596.552f));   // 59655.2 / 100
+	mu_test(almost_equal(thrust_at(133.0f), 448.535f));   // 59655.2 / 133
+}
+
+// glm::normalize(zero_vector) returns NaN components.
+// Our mag guard: `mag > 0.0001f ? v/mag : v` avoids this.
+inline void test_normalize_zero_nan() {
+	mu_test_suite("test_normalize_zero_nan");
+
+	glm::vec3 zero{0,0,0};
+
+	glm::vec3 nan_vec = glm::normalize(zero);
+	mu_test(nan_vec.x != nan_vec.x);  // NaN is never equal to itself
+	mu_test(nan_vec.y != nan_vec.y);
+	mu_test(nan_vec.z != nan_vec.z);
+
+	float mag = glm::length(zero);
+	glm::vec3 result = mag > 0.0001f ? zero / mag : zero;
+	mu_test(almost_equal(result, zero));
+}
+
 int main() {
 	World world {};
 	mu::log_global_logger = (mu::ILogger*) &world.imgui_window_logger;
@@ -1144,6 +1227,9 @@ int main() {
 	test_aabbs_intersection();
 	test_polygons_to_triangles();
 	test_line_segments_to_lines();
+	test_aircraft_mass_unit();
+	test_velocity_dependent_thrust();
+	test_normalize_zero_nan();
 
 	sys::sdl_init(world);
 	mu_defer(sys::sdl_free(world));

@@ -266,7 +266,10 @@ namespace sys {
 				auto engine_power_hp = aircraft.engine.cutoff ? 0.0f
 					: aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
 				auto engine_power_j_s = engine_power_hp * 745.69;
-				aircraft.forces.thrust = engine_power_j_s * aircraft.thrust_multiplier;
+				float v = glm::length(aircraft.velocity);
+				aircraft.forces.thrust = v < 1.0f
+					? engine_power_j_s * aircraft.prop_efficiency
+					: engine_power_j_s * aircraft.prop_efficiency / v;
 			}
 
 			aircraft.forces.weight = aircraft_mass_total(aircraft) * 9.86f;
@@ -294,7 +297,6 @@ namespace sys {
 			if (aircraft_on_ground(aircraft)) {
 				float friction = aircraft.friction_coeff * std::max(aircraft.forces.weight - aircraft.forces.airlift, 0.0f);
 				aircraft.forces.thrust = std::max(aircraft.forces.thrust - friction, 0.0f);
-
 				aircraft.forces.weight = 0;
 			}
 
@@ -326,13 +328,16 @@ namespace sys {
 			{
 				aircraft.acceleration = aircraft_forces_total(aircraft) / aircraft_mass_total(aircraft);
 
-				glm::vec3 accel_dir = glm::normalize(aircraft.acceleration);
 				float accel_mag = glm::length(aircraft.acceleration);
-				aircraft.velocity += accel_mag * accel_dir;
+				if (accel_mag > 0.0001f) {
+					aircraft.velocity += aircraft.acceleration;
+				}
 
-				glm::vec3 vel_dir = glm::normalize(aircraft.velocity);
 				float vel_mag = glm::length(aircraft.velocity);
-				aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
+				if (vel_mag > 0.0001f) {
+					glm::vec3 vel_dir = aircraft.velocity / vel_mag;
+					aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
+				}
 			}
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
