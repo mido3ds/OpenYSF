@@ -28,6 +28,7 @@ struct Aircraft {
 	glm::vec3 angular_velocity{0.0f};
 	glm::vec3 torque{0.0f};
 	glm::mat3 inertia_tensor_inv{0.0f};
+	float thrust_offset = 2.5f;  // CG-to-engine moment arm (m)
 	bool visible = true;
 
 	glm::vec3 acceleration, velocity;
@@ -208,6 +209,9 @@ inline void aircraft_load(Aircraft& self) {
 		0, 0, iz
 	));
 
+	float half_len_z = (self.initial_aabb.max.z - self.initial_aabb.min.z) * 0.5f;
+	self.thrust_offset = half_len_z * 0.5f;
+
 	self.should_be_loaded = false;
 }
 
@@ -270,4 +274,17 @@ inline glm::vec3 aircraft_weight(const Aircraft& self)   { return glm::vec3{0,1,
 
 inline glm::vec3 aircraft_forces_total(const Aircraft& self) {
 	return aircraft_weight(self)+ aircraft_airlift(self) + aircraft_drag(self) + aircraft_thrust(self);
+}
+
+inline void test_aircraft_ground_handling() {
+	mu_test_suite("test_aircraft_ground_handling");
+
+	// aircraft_on_ground
+	{
+		Aircraft a{};
+		a.translation.y = 0.0f;
+		mu_test(aircraft_on_ground(a));
+		a.translation.y = -2.0f;
+		mu_test(!aircraft_on_ground(a));
+	}
 }

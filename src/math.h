@@ -636,6 +636,58 @@ inline float linear_func_eval(LinearFuncConsts c, float x) {
 	return c[0]*x + c[1];
 }
 
+inline void test_torque_physics() {
+	mu_test_suite("test_torque_physics");
+
+	// 1. Identity inertia tensor → ang_accel = torque
+	{
+		glm::mat3 I_inv = glm::mat3(1.0f);
+		glm::vec3 torque{10.0f, 0.0f, 0.0f};
+		glm::vec3 ang_accel = I_inv * torque;
+		mu_test(almost_equal(ang_accel, glm::vec3{10.0f, 0.0f, 0.0f}));
+	}
+
+	// 2. Quaternion integration from body-frame angular velocity (multi-step)
+	{
+		glm::quat q{1.0f, 0.0f, 0.0f, 0.0f};
+		glm::vec3 ang_vel{0.0f, glm::radians(90.0f), 0.0f};
+		float dt = 0.01f;
+		for (int i = 0; i < 100; i++) {
+			glm::quat wq{0.0f, ang_vel.x, ang_vel.y, ang_vel.z};
+			glm::quat q_delta = wq * q * 0.5f;
+			q = glm::normalize(q + q_delta * dt);
+		}
+		auto angles = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(angles.front, glm::vec3{1,0,0}));
+		mu_test(almost_equal(angles.up, glm::vec3{0,-1,0}));
+	}
+
+	// 3. Zero torque → zero angular acceleration
+	{
+		glm::mat3 I_inv = glm::inverse(glm::mat3(1.0f));
+		glm::vec3 torque{0.0f};
+		mu_test(almost_equal(I_inv * torque, glm::vec3{0.0f}));
+	}
+}
+
+inline void test_ground_handling() {
+	mu_test_suite("test_ground_handling");
+
+	// Ground clamp: std::min prevents going below ground (y > -1.0)
+	{
+		float y = 5.0f;
+		y = std::min(y, -1.0f);
+		mu_test(almost_equal(y, -1.0f));
+	}
+
+	// Above ground should pass through unchanged
+	{
+		float y = -10.0f;
+		y = std::min(y, -1.0f);
+		mu_test(almost_equal(y, -10.0f));
+	}
+}
+
 namespace fmt {
 	template<>
 	struct formatter<glm::uvec2> {

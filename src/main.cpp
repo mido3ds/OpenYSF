@@ -1092,6 +1092,7 @@ namespace sys {
 		self.rudder_left           = sdl_keyb_pressed[SDL_SCANCODE_Z];
 		self.throttle_increase     = sdl_keyb_pressed[SDL_SCANCODE_Q];
 		self.throttle_decrease     = sdl_keyb_pressed[SDL_SCANCODE_A];
+		self.brake                 = sdl_keyb_pressed[SDL_SCANCODE_LSHIFT];
 
 		self.camera_tracking_up    = sdl_keyb_pressed[SDL_SCANCODE_U];
 		self.camera_tracking_down  = sdl_keyb_pressed[SDL_SCANCODE_M];
@@ -1153,6 +1154,9 @@ int main() {
 	test_polygons_to_triangles();
 	test_line_segments_to_lines();
 	test_rotational_physics();
+	test_torque_physics();
+	test_ground_handling();
+	test_aircraft_ground_handling();
 
 	sys::sdl_init(world);
 	mu_defer(sys::sdl_free(world));

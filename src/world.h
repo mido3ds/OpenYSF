@@ -60,6 +60,7 @@ struct Events {
 	bool rudder_left;
 	bool throttle_increase;
 	bool throttle_decrease;
+	bool brake;
 
 	// camera control
 	bool camera_tracking_up;

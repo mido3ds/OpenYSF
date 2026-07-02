@@ -48,10 +48,16 @@ constexpr float ENGINE_PROPELLERS_RESISTENCE = 15.0f;
 
 // control surface efficiency coefficients (airspeed-scaled torques)
 constexpr float CTRL_SURFACE_SPEED = 1.9f;
-constexpr float ROLL_EFFICIENCY     = 0.5f;
-constexpr float ELEVATOR_EFFICIENCY = 0.3f;
-constexpr float RUDDER_EFFICIENCY   = 0.1f;
-constexpr float ADVERSE_YAW_COEFF   = 0.2f;
+constexpr float ROLL_EFFICIENCY     = 0.08f;
+constexpr float ELEVATOR_EFFICIENCY = 0.05f;
+constexpr float RUDDER_EFFICIENCY   = 0.04f;
+constexpr float ADVERSE_YAW_COEFF   = 0.02f;
+constexpr float ANGULAR_DAMPING     = 0.5f;
+
+// ground handling
+constexpr float BRAKE_FORCE = 0.8f;
+constexpr float GROUND_RUDDER_BOOST = 3.0f;
+constexpr float GROUND_FRICTION = 0.3f;
 
 // elevator deflection lift contribution (tail downforce)
 constexpr float ELEVATOR_LIFT_SCALE = 5.0f;

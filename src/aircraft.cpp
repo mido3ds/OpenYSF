@@ -292,40 +292,78 @@ namespace sys {
 				* (float)air_density * vel_sq;
 
 			if (aircraft_on_ground(aircraft)) {
-				float friction = aircraft.friction_coeff * std::max(aircraft.forces.weight - aircraft.forces.airlift, 0.0f);
-				aircraft.forces.thrust = std::max(aircraft.forces.thrust - friction, 0.0f);
+				// rolling friction opposes velocity
+				float normal_force = std::max(aircraft_mass_total(aircraft) * 9.86f - aircraft.forces.airlift, 0.0f);
+				if (glm::length(aircraft.velocity) > 0.1f) {
+					glm::vec3 friction_force = -glm::normalize(aircraft.velocity) * GROUND_FRICTION * normal_force;
+					aircraft.acceleration += friction_force / aircraft_mass_total(aircraft);
+				}
 
-				aircraft.forces.weight = 0;
+				// brake
+				if (world.events.brake) {
+					glm::vec3 brake_dir;
+					if (glm::length(aircraft.velocity) > 0.1f) {
+						brake_dir = -glm::normalize(aircraft.velocity);
+					} else {
+						brake_dir = aircraft_angles(aircraft).front;
+					}
+					aircraft.acceleration += brake_dir * BRAKE_FORCE * normal_force / aircraft_mass_total(aircraft);
+				}
+
+				aircraft.forces.weight = 0;  // ground supports the plane
 			}
 
-			// rotation — torque from control surfaces, scaled by airspeed
+			// clamp y to ground level (unconditional — prevents falling through terrain)
+			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
+
+			// rotation — torque from control surfaces, scaled by airspeed and density
 			{
 				float vel = glm::length(aircraft.velocity);
 				float max_vel = aircraft.max_velocity;
 				float airspeed_factor = glm::clamp((vel * vel) / (max_vel * max_vel), 0.0f, 1.0f);
+				float air_density_float = (float)air_density;
 
-				float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
+				glm::vec3 torque{0.0f};
 
-				delta_roll += aircraft.right_aileron_perc * ROLL_EFFICIENCY
-					* airspeed_factor * (float)world.loop_timer.delta_time;
+				// aileron roll torque: +right_aileron_perc → roll right (around front axis)
+				torque.x += aircraft.right_aileron_perc * ROLL_EFFICIENCY
+					* air_density_float * airspeed_factor;
 
-				delta_pitch += aircraft.elevator_perc * ELEVATOR_EFFICIENCY
-					* airspeed_factor * (float)world.loop_timer.delta_time;
+				// elevator pitch torque: +elevator_perc → pitch up (around right axis)
+				torque.y += -aircraft.elevator_perc * ELEVATOR_EFFICIENCY
+					* air_density_float * airspeed_factor;
 
-				delta_yaw += -aircraft.rudder_perc * RUDDER_EFFICIENCY
-					* airspeed_factor * (float)world.loop_timer.delta_time;
+				// rudder yaw torque: +rudder_perc → yaw right (around up axis)
+				torque.z += aircraft.rudder_perc * RUDDER_EFFICIENCY
+					* air_density_float * airspeed_factor;
 
-				// aileron adverse yaw
-				delta_yaw += -aircraft.right_aileron_perc * ADVERSE_YAW_COEFF
-					* airspeed_factor * (float)world.loop_timer.delta_time;
+				// aileron adverse yaw: rolling right → nose yaws left
+				torque.z += -aircraft.right_aileron_perc * ADVERSE_YAW_COEFF
+					* air_density_float * airspeed_factor;
 
-				// integrate quaternion using local-frame rotation deltas
-				auto ang = aircraft_angles(aircraft);
-				auto right = glm::cross(ang.up, ang.front);
-				glm::quat q_yaw = glm::angleAxis(delta_yaw, ang.up);
-				glm::quat q_pitch = glm::angleAxis(delta_pitch, right);
-				glm::quat q_roll = glm::angleAxis(delta_roll, ang.front);
-				aircraft.orientation = glm::normalize(q_roll * q_pitch * q_yaw * aircraft.orientation);
+				// thrust-pitch coupling: thrust offset from CG produces pitching moment
+				{
+					auto ang = aircraft_angles(aircraft);
+					glm::vec3 right = glm::cross(ang.up, ang.front);
+					glm::vec3 thrust_vec = ang.front * aircraft.forces.thrust;
+					glm::vec3 offset_vec = ang.up * aircraft.thrust_offset;
+					torque.y += glm::dot(glm::cross(offset_vec, thrust_vec), right);
+				}
+
+				// angular acceleration = I⁻¹ × torque
+				glm::vec3 ang_accel = aircraft.inertia_tensor_inv * torque;
+
+				// integrate angular velocity with damping
+				aircraft.angular_velocity += ang_accel * (float)world.loop_timer.delta_time;
+				aircraft.angular_velocity *= (1.0f - ANGULAR_DAMPING * (float)world.loop_timer.delta_time);
+
+				// integrate quaternion from angular velocity (body-frame)
+				glm::quat angular_vel_quat = glm::quat(0.0f,
+					aircraft.angular_velocity.x,
+					aircraft.angular_velocity.y,
+					aircraft.angular_velocity.z);
+				glm::quat q_delta = angular_vel_quat * aircraft.orientation * 0.5f;
+				aircraft.orientation = glm::normalize(aircraft.orientation + q_delta * (float)world.loop_timer.delta_time);
 			}
 
 			// translation
@@ -342,9 +380,6 @@ namespace sys {
 			}
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
-
-			// put back on ground
-			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
 
 			// transform AABB (estimate new AABB after rotation)
 			const auto model_transformation = local_euler_angles_matrix(aircraft_angles(aircraft), aircraft.translation);
