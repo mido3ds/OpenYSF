@@ -31,7 +31,7 @@ struct Aircraft {
 
 	float wing_area; // m^2
 	float friction_coeff = 0.032f;
-	float prop_efficiency = 0.8f;
+	float thrust_multiplier = 500; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
 	float pitch_input_max;
@@ -239,7 +239,7 @@ inline bool aircraft_on_ground(const Aircraft& self) {
 }
 
 inline float aircraft_mass_total(const Aircraft& self) {
-	return (self.mass.clean + self.mass.fuel + self.mass.load) * 1000.0f;
+	return (self.mass.clean + self.mass.fuel + self.mass.load) * 1e6;
 }
 
 inline glm::vec3 aircraft_thrust(const Aircraft& self)   { return self.angles.front * self.forces.thrust; }
