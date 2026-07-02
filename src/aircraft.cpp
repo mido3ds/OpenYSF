@@ -263,8 +263,8 @@ namespace sys {
 
 			// forces
 			{
-				auto engine_power_hp = aircraft.engine.cutoff ? 0.0f
-					: aircraft.engine.speed_percent * aircraft.engine.max_power + (1-aircraft.engine.speed_percent) * aircraft.engine.idle_power;
+			auto engine_power_hp = (aircraft.engine.cutoff || aircraft.engine.speed_percent <= 0) ? 0.0f
+				: aircraft.engine.idle_power + aircraft.engine.speed_percent * (aircraft.engine.max_power - aircraft.engine.idle_power);
 				auto engine_power_j_s = engine_power_hp * 745.69;
 				aircraft.forces.thrust = engine_power_j_s * aircraft.thrust_multiplier;
 			}
@@ -312,9 +312,6 @@ namespace sys {
 
 				aircraft.forces.weight = 0;  // ground supports the plane
 			}
-
-			// clamp y to ground level (unconditional — prevents falling through terrain)
-			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
 
 			// rotation — torque from control surfaces, scaled by airspeed and density
 			{
@@ -370,16 +367,20 @@ namespace sys {
 			{
 				aircraft.acceleration = aircraft_forces_total(aircraft) / aircraft_mass_total(aircraft);
 
-				glm::vec3 accel_dir = glm::normalize(aircraft.acceleration);
-				float accel_mag = glm::length(aircraft.acceleration);
-				aircraft.velocity += accel_mag * accel_dir;
+				if (glm::length(aircraft.acceleration) > 0) {
+					aircraft.velocity += aircraft.acceleration;
+				}
 
-				glm::vec3 vel_dir = glm::normalize(aircraft.velocity);
 				float vel_mag = glm::length(aircraft.velocity);
-				aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
+				if (vel_mag > 0) {
+					aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * (aircraft.velocity / vel_mag);
+				}
 			}
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
+
+			// clamp y to ground level
+			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
 
 			// transform AABB (estimate new AABB after rotation)
 			const auto model_transformation = local_euler_angles_matrix(aircraft_angles(aircraft), aircraft.translation);

@@ -260,7 +260,7 @@ inline void aircraft_set_start(Aircraft& self, const StartInfo& start_info) {
 }
 
 inline bool aircraft_on_ground(const Aircraft& self) {
-	return self.translation.y >= -1.0f;
+	return self.translation.y >= -1.0f - 0.001f;
 }
 
 inline float aircraft_mass_total(const Aircraft& self) {
