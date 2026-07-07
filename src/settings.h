@@ -13,7 +13,7 @@ struct Settings {
 	bool custom_aspect_ratio = false;
 	float current_angle_max = DEGREES_MAX;
 	bool handle_collision = true;
-	float brake_coeff = 0.3f;
+	float brake_coeff = 1.0f;
 
 	struct {
 		bool smooth_lines = true;
