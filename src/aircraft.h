@@ -38,6 +38,7 @@ struct Aircraft {
 	float thrust_multiplier = 500; // too lazy to calculate real thrust
 	float landing_gear_alpha = 0; // 0 -> DOWN, 1 -> UP
 	float throttle = 0;
+	bool braking = true;
 	float pitch_input_max;
 	float yaw_input_max;
 	float roll_input_max;

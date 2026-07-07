@@ -395,6 +395,7 @@ namespace sys {
 
 			if (ImGui::TreeNode("Physics")) {
 				ImGui::Checkbox("Handle Collision", &world.settings.handle_collision);
+				ImGui::SliderFloat("Brake Coeff", &world.settings.brake_coeff, 0.0f, 1.0f);
 				ImGui::TreePop();
 			}
 
@@ -690,6 +691,7 @@ namespace sys {
 
 					if (ImGui::TreeNodeEx("Control", ImGuiTreeNodeFlags_DefaultOpen)) {
 						ImGui::Checkbox("Burner", &aircraft.engine.burner_enabled);
+						ImGui::Checkbox("Brakes", &aircraft.braking);
 
 						ImGui::SliderFloat("Landing Gear", &aircraft.landing_gear_alpha, 0, 1);
 						ImGui::SliderFloat("Throttle", &aircraft.throttle, 0.0f, 1.0f);
@@ -1115,9 +1117,15 @@ namespace sys {
 				case SDLK_ESCAPE:
 					signal_fire(world.signals.quit);
 					break;
-				case SDLK_TAB:
-					self.afterburner_toggle = true;
-					break;
+			case SDLK_TAB:
+				self.afterburner_toggle = true;
+				break;
+			case 'g':
+				self.landing_gear_toggle = true;
+				break;
+			case 'b':
+				self.brake = true;
+				break;
 				case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
 					signal_fire(world.signals.wnd_configs_changed);

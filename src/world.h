@@ -52,6 +52,8 @@ struct ImGuiWindowLogger : public mu::ILogger {
 struct Events {
 	// aircraft control
 	bool afterburner_toggle;
+	bool brake;
+	bool landing_gear_toggle;
 	bool stick_right;
 	bool stick_left;
 	bool stick_front;

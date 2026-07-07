@@ -156,6 +156,14 @@ namespace sys {
 		if (world.events.throttle_decrease) {
 			self.throttle -= THROTTLE_SPEED * world.loop_timer.delta_time;
 		}
+
+		if (world.events.brake) {
+			self.braking = !self.braking;
+		}
+
+		if (world.events.landing_gear_toggle) {
+			self.landing_gear_alpha = self.landing_gear_alpha > 0.5f ? 0.0f : 1.0f;
+		}
 	}
 
 	void _aircrafts_apply_physics(World& world) {
@@ -291,10 +299,10 @@ namespace sys {
 			aircraft.forces.airlift += aircraft.elevator_perc * ELEVATOR_LIFT_SCALE
 				* (float)air_density * vel_sq;
 
-			if (aircraft_on_ground(aircraft)) {
-				float friction = aircraft.friction_coeff * std::max(aircraft.forces.weight - aircraft.forces.airlift, 0.0f);
-				aircraft.forces.thrust = std::max(aircraft.forces.thrust - friction, 0.0f);
+			// ground proximity factor: 1 on ground (y=-1), 0 at 1m above (y=-2)
+			float ground_factor = glm::clamp(aircraft.translation.y + 2.0f, 0.0f, 1.0f);
 
+			if (ground_factor > 0.0f) {
 				aircraft.forces.weight = 0;
 			}
 
@@ -319,6 +327,18 @@ namespace sys {
 				delta_yaw += -aircraft.right_aileron_perc * ADVERSE_YAW_COEFF
 					* airspeed_factor * (float)world.loop_timer.delta_time;
 
+				// GROUND-SPECIFIC ROTATION
+				if (ground_factor > 0.0f) {
+					// nose-wheel steering effective at low speed
+					delta_yaw += -aircraft.rudder_perc * GROUND_RUDDER_EFFICIENCY
+						* ground_factor * (float)world.loop_timer.delta_time;
+
+					// pitch boost from main-gear lever arm at takeoff speed
+					float speed_norm = std::min(vel / max_vel, 1.0f);
+					delta_pitch += aircraft.elevator_perc * GROUND_PITCH_BOOST
+						* speed_norm * ground_factor * (float)world.loop_timer.delta_time;
+				}
+
 				// integrate quaternion using local-frame rotation deltas
 				auto ang = aircraft_angles(aircraft);
 				auto right = glm::cross(ang.up, ang.front);
@@ -339,11 +359,43 @@ namespace sys {
 				glm::vec3 vel_dir = glm::normalize(aircraft.velocity);
 				float vel_mag = glm::length(aircraft.velocity);
 				aircraft.velocity = std::min(vel_mag, aircraft.max_velocity) * vel_dir;
+
+				// GROUND EFFECTS: friction + brake as velocity damping
+				if (ground_factor > 0.0f && vel_mag > 0.01f) {
+					float mass = aircraft_mass_total(aircraft);
+					// airlift is in Newtons; weight is zeroed on ground, so recompute full weight here
+					float normal_force = std::max(mass * 9.86f - aircraft.forces.airlift, 0.0f);
+
+					// rolling friction opposes horizontal velocity
+					float hor_vel_sq = aircraft.velocity.x * aircraft.velocity.x + aircraft.velocity.z * aircraft.velocity.z;
+					if (hor_vel_sq > 0.0001f) {
+						float hor_vel = std::sqrt(hor_vel_sq);
+						// ponytail: no dt — physics velocity integration doesn't multiply other forces by dt
+						float friction_decel = aircraft.friction_coeff * normal_force / mass * ground_factor;
+						float friction_dv = std::min(friction_decel, hor_vel);
+						glm::vec2 hor_dir = glm::normalize(glm::vec2(aircraft.velocity.x, aircraft.velocity.z));
+						aircraft.velocity.x -= hor_dir.x * friction_dv;
+						aircraft.velocity.z -= hor_dir.y * friction_dv;
+					}
+
+					// brake opposes total velocity
+					if (aircraft.braking) {
+						// ponytail: no dt — matches thrust/everything else
+						float brake_decel = world.settings.brake_coeff * normal_force / mass * ground_factor;
+						float brake_dv = std::min(brake_decel, vel_mag);
+						aircraft.velocity -= glm::normalize(aircraft.velocity) * brake_dv;
+					}
+				}
 			}
 
 			aircraft.translation += (float)world.loop_timer.delta_time * aircraft.velocity;
 
-			// put back on ground
+			// soft push toward ground when proximity active
+			if (ground_factor > 0.0f) {
+				float ground_y = -1.0f;
+				aircraft.translation.y += (ground_y - aircraft.translation.y)
+										* ground_factor * (float)world.loop_timer.delta_time * 5.0f;
+			}
 			aircraft.translation.y = std::min(aircraft.translation.y, -1.0f);
 
 			// transform AABB (estimate new AABB after rotation)
@@ -572,12 +624,20 @@ namespace sys {
 					.scale = 0.5f,
 					.color = {1,1,1,0.8f}
 				});
+			canvas_add(world.canvas, canvas::hud::Text {
+				.text = mu::str_tmpf("GEAR {}", aircraft.landing_gear_alpha > 0.5f ? "UP" : "DOWN"),
+				.p = {0.02f, 0.80f},
+				.scale = 0.5f,
+				.color = {1,1,1,0.8f}
+			});
+			if (aircraft.braking) {
 				canvas_add(world.canvas, canvas::hud::Text {
-					.text = mu::str_tmpf("GEAR {}", aircraft.landing_gear_alpha > 0.5f ? "UP" : "DOWN"),
-					.p = {0.02f, 0.80f},
+					.text = mu::str_tmpf("BRK"),
+					.p = {0.02f, 0.75f},
 					.scale = 0.5f,
-					.color = {1,1,1,0.8f}
+					.color = {1,0.2f,0.2f,0.8f}
 				});
+			}
 			}
 		}
 	}

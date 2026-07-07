@@ -13,6 +13,7 @@ struct Settings {
 	bool custom_aspect_ratio = false;
 	float current_angle_max = DEGREES_MAX;
 	bool handle_collision = true;
+	float brake_coeff = 0.3f;
 
 	struct {
 		bool smooth_lines = true;
@@ -42,7 +43,7 @@ struct Settings {
 constexpr float PROPOLLER_MAX_ANGLE_SPEED = 10 * RADIANS_MAX;
 constexpr float AFTERBURNER_THROTTLE_THRESHOLD = 0.80f;
 
-constexpr float THROTTLE_SPEED = 0.4f;
+constexpr float THROTTLE_SPEED = 1.0f;
 
 constexpr float ENGINE_PROPELLERS_RESISTENCE = 15.0f;
 
@@ -55,6 +56,10 @@ constexpr float ADVERSE_YAW_COEFF   = 0.2f;
 
 // elevator deflection lift contribution (tail downforce)
 constexpr float ELEVATOR_LIFT_SCALE = 5.0f;
+
+// ground handling
+constexpr float GROUND_RUDDER_EFFICIENCY = 0.3f;
+constexpr float GROUND_PITCH_BOOST = 0.8f;
 
 // 2D sprite scaling
 constexpr float ZL_SCALE = 0.151f;
