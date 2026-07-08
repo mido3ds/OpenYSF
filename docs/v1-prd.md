@@ -31,6 +31,8 @@ Replace the point-mass/instant-Euler control model with full rigid-body rotation
 
 **Control torque model**: Per-axis torque proportional to dynamic pressure. `torque = control_perc * efficiency * 0.5 * ρ * v² * wing_area`. Existing `EFFICIENCY` constants in `src/settings.h` reinterpreted as torque gains.
 
+**v1 implementation note**: The actual torque pipeline uses `v²/max_v²` scaling instead of the full `0.5 * ρ * v² * wing_area` — air density and wing area factors are absent from the torque path. Functionally equivalent at sea level for YS-11 but torque won't change with altitude. **Full dynamic pressure torque deferred to v2.**
+
 **Thrust-pitch coupling**: Thrust applied with a moment arm offset from CG: `torque += cross(thrust_arm, thrust_vector)`. Thrust arm is a constant per aircraft type.
 
 **Ground handling model**: Rolling friction, rudder-steer on ground (yaw torque), elevator-up at speed triggers rotation, brakes on key. ~50 lines.

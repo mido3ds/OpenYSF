@@ -12,6 +12,7 @@ Current v1 physics covers basic takeoff→fly→land with rotational dynamics. v
 
 | Item | Detail | Priority |
 |---|---|---|
+| Full dynamic pressure torque | Torque uses `0.5 * ρ * v² * wing_area` instead of v²/max_v² ratio — adds altitude-dependent control feel | High |
 | Stall aerodynamics | Post-stall lift curve, deep stall behavior | High |
 | Spin / flat spin | Asymmetric stall across wings, autorotation | High |
 | P-factor / propeller torque | Gyroscopic precession from spinning mass, asymmetric blade loading at high AoA | Medium |
