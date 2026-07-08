@@ -98,29 +98,45 @@ namespace sys {
 		}
 		auto& self = *world.camera.aircraft;
 
-		if (world.events.stick_front) {
-			self.elevator_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
-		} else if (world.events.stick_back) {
-			self.elevator_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
-		} else {
+		if (world.events.mouse_plane_control_enabled) {
+			self.elevator_perc += -world.events.mouse_dy * MOUSE_SENSITIVITY;
 			self.elevator_perc -= glm::sign(self.elevator_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
 			if (std::abs(self.elevator_perc) <= 0.1f) {
 				self.elevator_perc = 0;
 			}
-		}
-		self.elevator_perc = glm::clamp(self.elevator_perc, -1.0f, 1.0f);
+			self.elevator_perc = glm::clamp(self.elevator_perc, -1.0f, 1.0f);
 
-		if (world.events.stick_right) {
-			self.right_aileron_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
-		} else if (world.events.stick_left) {
-			self.right_aileron_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
-		} else {
+			self.right_aileron_perc += world.events.mouse_dx * MOUSE_SENSITIVITY;
 			self.right_aileron_perc -= glm::sign(self.right_aileron_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
 			if (std::abs(self.right_aileron_perc) <= 0.1f) {
 				self.right_aileron_perc = 0;
 			}
+			self.right_aileron_perc = glm::clamp(self.right_aileron_perc, -1.0f, 1.0f);
+		} else {
+			if (world.events.stick_front) {
+				self.elevator_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			} else if (world.events.stick_back) {
+				self.elevator_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			} else {
+				self.elevator_perc -= glm::sign(self.elevator_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+				if (std::abs(self.elevator_perc) <= 0.1f) {
+					self.elevator_perc = 0;
+				}
+			}
+			self.elevator_perc = glm::clamp(self.elevator_perc, -1.0f, 1.0f);
+
+			if (world.events.stick_right) {
+				self.right_aileron_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			} else if (world.events.stick_left) {
+				self.right_aileron_perc -= CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+			} else {
+				self.right_aileron_perc -= glm::sign(self.right_aileron_perc) * CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
+				if (std::abs(self.right_aileron_perc) <= 0.1f) {
+					self.right_aileron_perc = 0;
+				}
+			}
+			self.right_aileron_perc = glm::clamp(self.right_aileron_perc, -1.0f, 1.0f);
 		}
-		self.right_aileron_perc = glm::clamp(self.right_aileron_perc, -1.0f, 1.0f);
 
 		if (world.events.rudder_right) {
 			self.rudder_perc += CTRL_SURFACE_SPEED * world.loop_timer.delta_time;
