@@ -1152,15 +1152,26 @@ namespace sys {
 
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+	bool run_tests = false;
+	for (int i = 1; i < argc; i++) {
+		if (argv[i] == mu::StrView("--test")) {
+			run_tests = true;
+			break;
+		}
+	}
+
+	if (run_tests) {
+		test_parser();
+		test_aabbs_intersection();
+		test_polygons_to_triangles();
+		test_line_segments_to_lines();
+		test_rotational_physics();
+		return 0;
+	}
+
 	World world {};
 	mu::log_global_logger = (mu::ILogger*) &world.imgui_window_logger;
-
-	test_parser();
-	test_aabbs_intersection();
-	test_polygons_to_triangles();
-	test_line_segments_to_lines();
-	test_rotational_physics();
 
 	sys::sdl_init(world);
 	mu_defer(sys::sdl_free(world));
