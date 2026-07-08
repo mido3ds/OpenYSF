@@ -48,6 +48,21 @@ namespace sys {
 		self.up = aircraft_angles(*self.aircraft).up;
 	}
 
+	void _camera_update_cockpit_mode(World& world) {
+		DEF_SYSTEM
+
+		auto& self = world.camera;
+		auto& ac = *self.aircraft;
+		auto& excamera = ac.cockpit_excameras[ac.cockpit_view_index];
+
+		auto ang = aircraft_angles(ac);
+		self.position = ac.translation + ac.orientation * excamera.pos;
+		self.front = ang.front;
+		self.target_pos = self.position + self.front;
+		self.up = ang.up;
+	}
+
+
 	void _camera_update_flying_mode(World& world) {
 		DEF_SYSTEM
 
@@ -97,8 +112,22 @@ namespace sys {
 	void camera_update(World& world) {
 		DEF_SYSTEM
 
+		if (world.events.camera_cycle && world.camera.aircraft) {
+			auto& ac = *world.camera.aircraft;
+			if (ac.cockpit_view_index >= 0) {
+				ac.cockpit_view_index++;
+				if (ac.cockpit_view_index >= (int)ac.cockpit_excameras.size())
+					ac.cockpit_view_index = -1;
+			} else if (!ac.cockpit_excameras.empty()) {
+				ac.cockpit_view_index = 0;
+			}
+		}
+
 		if (world.camera.aircraft) {
-			_camera_update_model_tracking_mode(world);
+			if (world.camera.aircraft->cockpit_view_index >= 0)
+				_camera_update_cockpit_mode(world);
+			else
+				_camera_update_model_tracking_mode(world);
 		} else {
 			_camera_update_flying_mode(world);
 		}

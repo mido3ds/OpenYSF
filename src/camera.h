@@ -11,7 +11,7 @@
 struct Aircraft;
 
 struct PerspectiveProjection {
-	float near         = 0.1f;
+	float near         = 0.01f;
 	float far          = 100000;
 	float fovy         = 45.0f / DEGREES_MAX * RADIANS_MAX;
 	float aspect       = (float) 1028 / 680;
