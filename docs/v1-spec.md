@@ -16,7 +16,7 @@ Extend the existing custom C++ physics. No physics engine dependency.
 |---|---|---|
 | Orientation | `glm::quat` internally, YS Euler at boundaries | Clean rotation integration, no gimbal lock. glm already a dep. |
 | Inertia tensor | Uniform-density box from aircraft AABB | Works for all types automatically, one-line calc on load |
-| Control torques | Per-axis torque ∝ ρv² × control deflection | Reuses existing `EFFICIENCY` constants as torque gains. **v1 impl uses v²/max_v² (no ρ or wing_area) — full dynamic pressure deferred to v2** |
+| Control torques | Per-axis torque ∝ ρv² × control deflection | Reuses existing `EFFICIENCY` constants as torque gains. **v1 impl uses v²/max_v² (no ρ or wing_area) — full dynamic pressure deferred to v3** |
 | Thrust-pitch coupling | Thrust offset from CG (moment arm × thrust) | One-line cross product, captures primary effect |
 | Ground handling | Rolling friction, rudder-steer, rotate at speed, brake | Gets you off ground and back. No tire models or shock absorbers |
 | Stall/spin | v2 | Deferred |

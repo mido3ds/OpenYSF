@@ -1,8 +1,8 @@
-# OpenYSF v2 Roadmap — What's Left After v1
+# OpenYSF v3 Roadmap — What's Left After v2
 
-Last updated: 2026-06-30
+Last updated: 2026-07-08
 
-This documents everything deferred beyond the v1 "playable flight" milestone, organized by domain. Items are rough-ordered by estimated impact on the flying experience.
+This documents everything deferred beyond the v2 "cockpit experience" milestone, organized by domain. Items are rough-ordered by estimated impact on the flying experience.
 
 ---
 
@@ -46,7 +46,6 @@ Current v1 physics covers basic takeoff→fly→land with rotational dynamics. v
 
 | Item | Detail |
 |---|---|
-| Cockpit view | Position camera at pilot eyepoint from DAT's EXCAMERA. Head movement / bobbing |
 | Tower view | Fixed camera at tower position from scenery |
 | Fly-by / chase-cam refinements | Smooth transitions, different follow distances |
 
@@ -54,9 +53,6 @@ Current v1 physics covers basic takeoff→fly→land with rotational dynamics. v
 
 | Item | Detail |
 |---|---|
-| Attitude Director Indicator (ADI) | Artificial horizon with pitch/roll |
-| Heading indicator / compass | With gyro drift |
-| Vertical speed indicator (VSI) | Climb/descent rate |
 | AOA indicator | Angle of attack gauge |
 | Radar altimeter | Low-altitude precision |
 | Nav instruments | VOR, ILS, ADF needles for instrument approaches |
