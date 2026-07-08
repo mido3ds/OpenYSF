@@ -365,9 +365,39 @@ namespace sys {
 				ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
 			}
 
-			ImGui::Checkbox("HUD Geoms Demo", &world.settings.rendering.hud_geoms_demo);
-
 			ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("HUD")) {
+				if (ImGui::Button("Reset")) {
+					world.settings.hud = {};
+				}
+
+				ImGui::Checkbox("Enable HUD", &world.settings.hud.enabled);
+				ImGui::Checkbox("Geoms Demo", &world.settings.hud.geoms_demo);
+
+				ImGui::Separator();
+				ImGui::Text("Heading Indicator");
+				ImGui::DragFloat2("Pos##hdg", glm::value_ptr(world.settings.hud.heading.position), 0.005f, 0.0f, 1.0f);
+				ImGui::DragFloat("Radius##hdg", &world.settings.hud.heading.radius, 0.002f, 0.01f, 0.5f);
+				ImGui::ColorEdit4("Color##hdg", glm::value_ptr(world.settings.hud.heading.color));
+
+				ImGui::Separator();
+				ImGui::Text("VSI");
+				ImGui::DragFloat2("Pos##vsi", glm::value_ptr(world.settings.hud.vsi.position), 0.005f, 0.0f, 1.0f);
+				ImGui::DragFloat("Radius##vsi", &world.settings.hud.vsi.radius, 0.002f, 0.01f, 0.5f);
+				ImGui::ColorEdit4("Color##vsi", glm::value_ptr(world.settings.hud.vsi.color));
+				ImGui::ColorEdit4("Arc Bg##vsi", glm::value_ptr(world.settings.hud.vsi.arc_color));
+
+				ImGui::Separator();
+				ImGui::Text("ADI");
+				ImGui::DragFloat2("Pos##adi", glm::value_ptr(world.settings.hud.adi.position), 0.005f, 0.0f, 1.0f);
+				ImGui::DragFloat("Radius##adi", &world.settings.hud.adi.radius, 0.002f, 0.01f, 0.5f);
+				ImGui::ColorEdit4("Outline##adi", glm::value_ptr(world.settings.hud.adi.color));
+				ImGui::ColorEdit4("Sky##adi", glm::value_ptr(world.settings.hud.adi.sky_color));
+				ImGui::ColorEdit4("Ground##adi", glm::value_ptr(world.settings.hud.adi.ground_color));
+
+				ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Axes Rendering")) {
@@ -1248,7 +1278,7 @@ int main(int argc, char* argv[]) {
 			sys::canvas_render_lines(world);
 			sys::canvas_render_text(world);
 			sys::canvas_render_hud_text(world);
-			if (world.settings.rendering.hud_geoms_demo) {
+			if (world.settings.hud.geoms_demo) {
 				auto& c = world.canvas;
 				canvas_add(c, canvas::hud::Circle{{0.5f, 0.5f}, 0.4f, {0,1,1,0.8f}});
 				canvas_add(c, canvas::hud::Circle{{0.2f, 0.2f}, 0.15f, {1,1,0,0.6f}});

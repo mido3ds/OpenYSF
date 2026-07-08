@@ -3,6 +3,7 @@
 #include <glad/glad.h>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
 
 #include "math.h"
 
@@ -31,8 +32,33 @@ struct Settings {
 		float fog_density = 0.0001f;
 		glm::vec3 fog_color {0.247f, 0.329f, 0.475f}; // (63, 84, 121)
 
-		bool hud_geoms_demo = false;
 	} rendering;
+
+	struct {
+		bool enabled = true;
+		bool geoms_demo = false;
+
+		struct {
+			glm::vec2 position {0.50f, 0.90f};
+			float radius = 0.05f;
+			glm::vec4 color {1,1,1,0.8f};
+		} heading;
+
+		struct {
+			glm::vec2 position {0.185f, 0.50f};
+			float radius = 0.15f;
+			glm::vec4 color {1,1,1,0.8f};
+			glm::vec4 arc_color {0.2f,0.2f,0.25f,0.6f};
+		} vsi;
+
+		struct {
+			glm::vec2 position {0.50f, 0.50f};
+			float radius = 0.156f;
+			glm::vec4 color {1,1,1,0.9f};
+			glm::vec4 sky_color {0.1f, 0.4f, 0.7f, 0.85f};
+			glm::vec4 ground_color {0.35f, 0.25f, 0.15f, 0.0f};
+		} adi;
+	} hud;
 
 	struct {
 		bool enabled = true;

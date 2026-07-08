@@ -15,6 +15,7 @@ constexpr double ANTI_COLL_LIGHT_PERIOD = 1;
 struct Aircraft {
 	AircraftTemplate aircraft_template;
 	Model model;
+	Model cockpit_model;
 	DATMap dat;
 	AudioBuffer* engine_sound;
 	uint64_t audio_playback_id = 0;
@@ -107,6 +108,11 @@ inline void aircraft_load(Aircraft& self) {
 	self.model = model_from_dnm_file(self.aircraft_template.dnm);
 
 	for (auto& mesh : self.model.meshes) {
+		mesh_load_to_gpu(mesh);
+	}
+
+	self.cockpit_model = model_from_srf_file(self.aircraft_template.cockpit);
+	for (auto& mesh : self.cockpit_model.meshes) {
 		mesh_load_to_gpu(mesh);
 	}
 
@@ -262,6 +268,9 @@ inline float aircraft_calc_lift_coeff(const Aircraft& self, float angle_of_attac
 
 inline void aircraft_unload(Aircraft& self) {
 	for (auto& mesh : self.model.meshes) {
+		mesh_unload_from_gpu(mesh);
+	}
+	for (auto& mesh : self.cockpit_model.meshes) {
 		mesh_unload_from_gpu(mesh);
 	}
 }

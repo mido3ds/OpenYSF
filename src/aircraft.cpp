@@ -634,8 +634,27 @@ namespace sys {
 				return true;
 			});
 
+			// Cockpit mesh (visible only in cockpit camera mode)
+			if (aircraft.cockpit_view_index >= 0 && !aircraft.cockpit_model.meshes.empty()) {
+				glDisable(GL_CULL_FACE);
+				glm::mat4 model = glm::translate(glm::mat4{1.0f}, aircraft.translation)
+								* glm::mat4_cast(aircraft.orientation);
+				glm::mat4 pvm = world.mats.projection_view * model;
+				glm::mat3 model_normal = glm::transpose(glm::inverse(glm::mat3(model)));
+				meshes_foreach(aircraft.cockpit_model.meshes, [&](Mesh& mesh) {
+					canvas_add(world.canvas, canvas::Mesh{
+						.vao = mesh.gl_buf.vao,
+						.buf_len = mesh.gl_buf.len,
+						.projection_view_model = pvm,
+						.model_normal = model_normal,
+					});
+					return true;
+				});
+				glEnable(GL_CULL_FACE);
+			}
+
 			// HUD for camera-tracked aircraft
-			if (world.camera.aircraft == &aircraft) {
+			if (world.camera.aircraft == &aircraft && world.settings.hud.enabled) {
 				float airspeed_kt = glm::length(aircraft.velocity) * 1.94384f;
 				float altitude_ft = (- aircraft.translation.y + 1.0f) * 3.28084f;
 
@@ -657,22 +676,157 @@ namespace sys {
 					.scale = 0.5f,
 					.color = {1,1,1,0.8f}
 				});
-			canvas_add(world.canvas, canvas::hud::Text {
-				.text = mu::str_tmpf("GEAR {}", aircraft.landing_gear_alpha > 0.5f ? "UP" : "DOWN"),
-				.p = {0.02f, 0.80f},
-				.scale = 0.5f,
-				.color = {1,1,1,0.8f}
-			});
-			if (aircraft.braking) {
 				canvas_add(world.canvas, canvas::hud::Text {
-					.text = mu::str_tmpf("BRK"),
-					.p = {0.02f, 0.75f},
+					.text = mu::str_tmpf("GEAR {}", aircraft.landing_gear_alpha > 0.5f ? "UP" : "DOWN"),
+					.p = {0.02f, 0.80f},
 					.scale = 0.5f,
-					.color = {1,0.2f,0.2f,0.8f}
+					.color = {1,1,1,0.8f}
 				});
-			}
+				if (aircraft.braking) {
+					canvas_add(world.canvas, canvas::hud::Text {
+						.text = mu::str_tmpf("BRK"),
+						.p = {0.02f, 0.75f},
+						.scale = 0.5f,
+						.color = {1,0.2f,0.2f,0.8f}
+					});
+				}
+
+				// Heading indicator (compass rose)
+				auto ang = aircraft_angles(aircraft);
+				float heading_rad = std::atan2(ang.front.x, ang.front.z);
+				if (heading_rad < 0) heading_rad += RADIANS_MAX;
+
+				auto& hdg = world.settings.hud.heading;
+
+				canvas_add(world.canvas, canvas::hud::Circle{hdg.position, hdg.radius, hdg.color});
+
+				for (int i = 0; i < 36; i++) {
+					float tick_compass_rad = (i * 10.0f) / 360.0f * RADIANS_MAX;
+					float screen_angle = -RADIANS_MAX/4 + tick_compass_rad - heading_rad;
+					bool major = (i % 3 == 0);
+					float inner = major ? hdg.radius * 0.78f : hdg.radius * 0.88f;
+					glm::vec2 dir = {std::cos(screen_angle), std::sin(screen_angle)};
+					canvas_add(world.canvas, canvas::hud::Line{
+						.p0 = hdg.position + dir * inner,
+						.p1 = hdg.position + dir * hdg.radius,
+						.color = hdg.color,
+					});
+				}
+
+				const char* card_names[] = {"N", "E", "S", "W"};
+				for (int c = 0; c < 4; c++) {
+					float card_compass_rad = (c * 90.0f) / 360.0f * RADIANS_MAX;
+					float screen_angle = -RADIANS_MAX/4 + card_compass_rad - heading_rad;
+					glm::vec2 lp = hdg.position + glm::vec2{std::cos(screen_angle), std::sin(screen_angle)} * (hdg.radius * 0.68f);
+					canvas_add(world.canvas, canvas::hud::Text{
+						.text = mu::str_tmpf("{}", card_names[c]),
+						.p = lp - glm::vec2{0.012f, 0.018f},
+						.scale = 0.4f,
+						.color = {1,0,0,0.9f},
+					});
+				}
+
+				float heading_deg = heading_rad / RADIANS_MAX * 360.0f;
+				canvas_add(world.canvas, canvas::hud::Text{
+					.text = mu::str_tmpf("{:03.0f}", heading_deg),
+					.p = {hdg.position.x - 0.02f, hdg.position.y - hdg.radius - 0.03f},
+					.scale = 0.4f,
+					.color = hdg.color,
+				});
+
+				// VSI (Vertical Speed Indicator)
+				float vsi_ftmin = -aircraft.velocity.y * 196.8504f;
+				auto& vsi = world.settings.hud.vsi;
+
+				canvas_add(world.canvas, canvas::hud::FilledArc{
+					.center = vsi.position, .radius = vsi.radius,
+					.start_angle = 3*RADIANS_MAX/8, .end_angle = 5*RADIANS_MAX/8,
+					.color = vsi.arc_color,
+				});
+
+				for (int t = 0; t <= 12; t++) {
+					float val = (t - 6) * 1.0f;
+					float angle = RADIANS_MAX/2 - val / 6.0f * RADIANS_MAX/8;
+					bool major = (val == 0 || val == 6 || val == -6);
+					float inner = major ? vsi.radius * 0.78f : vsi.radius * 0.88f;
+					glm::vec2 dir = {std::cos(angle), std::sin(angle)};
+					canvas_add(world.canvas, canvas::hud::Line{
+						.p0 = vsi.position + dir * inner,
+						.p1 = vsi.position + dir * vsi.radius,
+						.color = vsi.color,
+					});
+					if (val != 0) {
+						canvas_add(world.canvas, canvas::hud::Text{
+							.text = mu::str_tmpf("{:.0f}", std::abs(val)),
+							.p = vsi.position + dir * (vsi.radius * 0.65f) - glm::vec2{0.01f, 0.012f},
+							.scale = 0.3f,
+							.color = vsi.color,
+						});
+					}
+				}
+
+				float vsi_angle = RADIANS_MAX/2 - glm::clamp(vsi_ftmin, -6000.0f, 6000.0f) / 6000.0f * RADIANS_MAX/8;
+				glm::vec2 needle_dir = {std::cos(vsi_angle), std::sin(vsi_angle)};
+				canvas_add(world.canvas, canvas::hud::Line{
+					.p0 = vsi.position - needle_dir * 0.008f,
+					.p1 = vsi.position + needle_dir * vsi.radius * 0.85f,
+					.color = {1,0.8f,0.2f,0.9f},
+				});
+				canvas_add(world.canvas, canvas::hud::Circle{vsi.position, 0.008f, {1,0.8f,0.2f,0.9f}});
+
+				// ADI (Artificial Horizon)
+				{
+					auto ang = aircraft_angles(aircraft);
+
+					float pitch_rad = std::asin(glm::clamp(-ang.front.y, -1.0f, 1.0f));
+					float pitch_deg = pitch_rad / RADIANS_MAX * 360.0f;
+
+					glm::vec3 world_up = {0,-1,0};
+					glm::vec3 right_dir = glm::normalize(glm::cross(ang.front, world_up));
+					glm::vec3 vert_dir = glm::normalize(glm::cross(right_dir, ang.front));
+					float roll_rad = std::atan2(glm::dot(ang.up, right_dir), glm::dot(ang.up, vert_dir));
+
+					auto& adi = world.settings.hud.adi;
+
+					canvas_add(world.canvas, canvas::hud::FilledArc{adi.position, adi.radius, roll_rad, roll_rad + RADIANS_MAX/2, adi.ground_color});
+					canvas_add(world.canvas, canvas::hud::FilledArc{adi.position, adi.radius, roll_rad + RADIANS_MAX/2, roll_rad, adi.sky_color});
+
+					float pitch_scale = adi.radius * 0.85f / 30.0f;
+					float horizon_off = -pitch_deg * pitch_scale;
+					glm::vec2 up_dir = {-std::sin(roll_rad), std::cos(roll_rad)};
+					glm::vec2 h_dir = {std::cos(roll_rad), std::sin(roll_rad)};
+					glm::vec2 h_center = adi.position + up_dir * glm::clamp(horizon_off, -adi.radius, adi.radius);
+					canvas_add(world.canvas, canvas::hud::Line{
+						.p0 = h_center - h_dir * (adi.radius * 0.95f),
+						.p1 = h_center + h_dir * (adi.radius * 0.95f),
+						.color = adi.color,
+					});
+
+					for (int rel = -25; rel <= 25; rel += 5) {
+						if (rel == 0) continue;
+						float off = -(pitch_deg - rel) * pitch_scale;
+						if (std::abs(off) > adi.radius * 1.1f) continue;
+						glm::vec2 lc = adi.position + up_dir * off;
+						bool is_10 = (std::abs(rel) % 10 == 0);
+						float hl = is_10 ? adi.radius * 0.35f : adi.radius * 0.20f;
+						canvas_add(world.canvas, canvas::hud::Line{
+							.p0 = lc - h_dir * hl,
+							.p1 = lc + h_dir * hl,
+							.color = adi.color,
+						});
+					}
+
+					glm::vec2 ct = adi.position + up_dir * (adi.radius + 0.012f);
+					float cs = 0.012f;
+					canvas_add(world.canvas, canvas::hud::FilledTriangle{
+						.p0 = ct,
+						.p1 = ct - up_dir * cs + h_dir * cs * 0.7f,
+						.p2 = ct - up_dir * cs - h_dir * cs * 0.7f,
+						.color = {1,0.6f,0,0.9f},
+					});
+					canvas_add(world.canvas, canvas::hud::Circle{adi.position, adi.radius, adi.color});
+				}
 			}
 		}
 	}
-
 }
