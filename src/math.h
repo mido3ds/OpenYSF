@@ -556,6 +556,112 @@ inline void test_rotational_physics() {
 		mu_test(almost_equal(ang.front, glm::vec3{-1,0,0}));
 		mu_test(almost_equal(ang.up, glm::vec3{0,-1,0}));
 	}
+
+	// Torque integration: zero angular velocity → no rotation
+	{
+		glm::quat q{1,0,0,0};
+		glm::vec3 ω{0,0,0};
+		for (int i = 0; i < 100; i++) {
+			float dt = 1.0f/60.0f;
+			float mag = glm::length(ω);
+			if (mag > 0.0001f) {
+				q = glm::normalize(q * glm::angleAxis(mag * dt, ω / mag));
+			}
+		}
+		auto ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(ang.front, glm::vec3{0,0,1}));
+		mu_test(almost_equal(ang.up, glm::vec3{0,-1,0}));
+	}
+
+	// Torque integration: constant angular velocity produces correct angular displacement
+	{
+		glm::quat q{1,0,0,0};
+		glm::vec3 initial_front = q * glm::vec3{0,0,1};
+		glm::vec3 ω{2.0f, 0.0f, 0.0f}; // 2 rad/s around X (pitch rate)
+		int steps = 30;
+		float dt = 1.0f/60.0f;
+		for (int i = 0; i < steps; i++) {
+			float mag = glm::length(ω);
+			if (mag > 0.0001f) {
+				q = glm::normalize(q * glm::angleAxis(mag * dt, ω / mag));
+			}
+		}
+		float expected_angle = glm::length(ω) * steps * dt;
+		auto ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(glm::length2(ang.front), 1.0f));
+		mu_test(almost_equal(glm::dot(ang.front, ang.up), 0.0f));
+		float angular_displacement = std::acos(glm::clamp(glm::dot(initial_front, ang.front), -1.0f, 1.0f));
+		mu_test(::fabs(angular_displacement - expected_angle) < 0.001f);
+	}
+
+	// Torque → angular acceleration: α = I⁻¹ × τ with diagonal inertia
+	{
+		glm::mat3 I_inv{0.0f};
+		I_inv[0][0] = 0.5f; I_inv[1][1] = 0.25f; I_inv[2][2] = 2.0f;
+		glm::vec3 torque{8.0f, 4.0f, 1.0f};
+		glm::vec3 alpha = I_inv * torque;
+		mu_test(almost_equal(alpha, glm::vec3{4.0f, 1.0f, 2.0f}));
+	}
+
+	// Full torque pipeline: torque → α → ω → quaternion orientation
+	{
+		glm::mat3 I_inv{0.0f};
+		I_inv[0][0] = 1.0f;
+		float alpha = (I_inv * glm::vec3{4.0f, 0.0f, 0.0f}).x;
+
+		glm::vec3 ω{0.0f};
+		glm::quat q{1,0,0,0};
+		glm::vec3 initial_front = q * glm::vec3{0,0,1};
+
+		int steps = 30;
+		float dt = 1.0f/60.0f;
+
+		for (int i = 0; i < steps; i++) {
+			ω += glm::vec3{alpha, 0.0f, 0.0f} * dt;
+			float mag = glm::length(ω);
+			if (mag > 0.0001f) {
+				q = glm::normalize(q * glm::angleAxis(mag * dt, ω / mag));
+			}
+		}
+
+		// Discrete Euler: ω_i = α·dt·(i+1), θ = Σ ω_i·dt = α·dt²·N(N+1)/2
+		float expected_angle = alpha * dt * dt * (steps * (steps + 1) / 2.0f);
+
+		auto ang = local_euler_angles_from_quat(q);
+		mu_test(almost_equal(glm::length2(ang.front), 1.0f));
+		mu_test(almost_equal(glm::dot(ang.front, ang.up), 0.0f));
+		float displacement = std::acos(glm::clamp(glm::dot(initial_front, ang.front), -1.0f, 1.0f));
+		mu_test(::fabs(displacement - expected_angle) < 0.001f);
+	}
+
+	// Yaw torque around -Y axis: verify correct yaw direction (issue #14 yaw sign fix)
+	{
+		glm::mat3 I_inv{0.0f};
+		I_inv[1][1] = 2.0f;
+		float alpha_y = (I_inv * glm::vec3{0.0f, 5.0f, 0.0f}).y;
+
+		glm::vec3 ω{0.0f};
+		glm::quat q{1,0,0,0};
+
+		int steps = 60;
+		float dt = 1.0f/60.0f;
+
+		for (int i = 0; i < steps; i++) {
+			ω += glm::vec3{0.0f, alpha_y, 0.0f} * dt;
+			float mag = glm::length(ω);
+			if (mag > 0.0001f) {
+				q = glm::normalize(q * glm::angleAxis(mag * dt, ω / mag));
+			}
+		}
+
+		auto ang = local_euler_angles_from_quat(q);
+		// Positive torque around +Y rotates front toward -X
+		mu_test(almost_equal(glm::length2(ang.front), 1.0f));
+		mu_test(almost_equal(glm::length2(ang.up), 1.0f));
+		mu_test(almost_equal(glm::dot(ang.front, ang.up), 0.0f));
+		// With positive Y torque, front should have rotated toward -X
+		mu_test(ang.front.x < 0.0f);
+	}
 }
 
 // line segments: [0, 1, 2, 3]

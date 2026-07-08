@@ -58,8 +58,7 @@ constexpr float ADVERSE_YAW_COEFF   = 0.2f;
 constexpr float ELEVATOR_LIFT_SCALE = 5.0f;
 
 // ground handling
-constexpr float GROUND_RUDDER_EFFICIENCY = 0.3f;
-constexpr float GROUND_PITCH_BOOST = 0.8f;
+constexpr float MAX_WHEEL_STEER_ANGLE = 0.5f;   // ~30° max nose-wheel deflection
 
 // 2D sprite scaling
 constexpr float ZL_SCALE = 0.151f;

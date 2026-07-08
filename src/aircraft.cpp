@@ -306,46 +306,63 @@ namespace sys {
 				aircraft.forces.weight = 0;
 			}
 
-			// rotation — torque from control surfaces, scaled by airspeed
+			// rotation — proportional tracking controller through SI-corrected torque pipeline
 			{
+				// SI-corrected inverse inertia (code stores in g·m² — ×1000 for kg·m²)
+				glm::mat3 I_inv_kg(0.0f);
+				bool has_inertia = !glm::all(glm::equal(aircraft.inertia_tensor_inv[0], glm::vec3(0.0f)));
+				if (has_inertia) I_inv_kg = aircraft.inertia_tensor_inv * 1000.0f;
+
 				float vel = glm::length(aircraft.velocity);
-				float max_vel = aircraft.max_velocity;
-				float airspeed_factor = glm::clamp((vel * vel) / (max_vel * max_vel), 0.0f, 1.0f);
+				float v_ratio = glm::clamp((vel * vel) / (aircraft.max_velocity * aircraft.max_velocity), 0.0f, 1.0f);
+				float dt = (float)world.loop_timer.delta_time;
 
-				float delta_yaw = 0, delta_roll = 0, delta_pitch = 0;
+				// desired angular velocity from control surfaces (old kinematic formula, preserved feel)
+				glm::vec3 desired_omega{0.0f};
+				desired_omega.x = -aircraft.elevator_perc * ELEVATOR_EFFICIENCY * v_ratio;
+				desired_omega.y =  aircraft.rudder_perc * RUDDER_EFFICIENCY * v_ratio;
+				desired_omega.z =  aircraft.right_aileron_perc * ROLL_EFFICIENCY * v_ratio;
+				desired_omega.y += aircraft.right_aileron_perc * ADVERSE_YAW_COEFF * v_ratio;
 
-				delta_roll += aircraft.right_aileron_perc * ROLL_EFFICIENCY
-					* airspeed_factor * (float)world.loop_timer.delta_time;
+				// Proportional controller: torque = I · K · (ω_desired - ω)
+				// → α = I⁻¹ · torque = K · error (inertia cancels, pure first-order response)
+				constexpr float CTRL_BANDWIDTH = 6.0f;   // ~0.17s time constant, matches previous lag
+				glm::vec3 omega_err = desired_omega - aircraft.angular_velocity;
 
-				delta_pitch += aircraft.elevator_perc * ELEVATOR_EFFICIENCY
-					* airspeed_factor * (float)world.loop_timer.delta_time;
-
-				delta_yaw += -aircraft.rudder_perc * RUDDER_EFFICIENCY
-					* airspeed_factor * (float)world.loop_timer.delta_time;
-
-				// aileron adverse yaw
-				delta_yaw += -aircraft.right_aileron_perc * ADVERSE_YAW_COEFF
-					* airspeed_factor * (float)world.loop_timer.delta_time;
-
-				// GROUND-SPECIFIC ROTATION
-				if (ground_factor > 0.0f) {
-					// nose-wheel steering effective at low speed
-					delta_yaw += -aircraft.rudder_perc * GROUND_RUDDER_EFFICIENCY
-						* ground_factor * (float)world.loop_timer.delta_time;
-
-					// pitch boost from main-gear lever arm at takeoff speed
-					float speed_norm = std::min(vel / max_vel, 1.0f);
-					delta_pitch += aircraft.elevator_perc * GROUND_PITCH_BOOST
-						* speed_norm * ground_factor * (float)world.loop_timer.delta_time;
+				aircraft.torque = glm::vec3{0.0f};
+				if (has_inertia) {
+					if (I_inv_kg[0][0] > 0) aircraft.torque.x = omega_err.x * CTRL_BANDWIDTH / I_inv_kg[0][0];
+					if (I_inv_kg[1][1] > 0) aircraft.torque.y = omega_err.y * CTRL_BANDWIDTH / I_inv_kg[1][1];
+					if (I_inv_kg[2][2] > 0) aircraft.torque.z = omega_err.z * CTRL_BANDWIDTH / I_inv_kg[2][2];
 				}
 
-				// integrate quaternion using local-frame rotation deltas
-				auto ang = aircraft_angles(aircraft);
-				auto right = glm::cross(ang.up, ang.front);
-				glm::quat q_yaw = glm::angleAxis(delta_yaw, ang.up);
-				glm::quat q_pitch = glm::angleAxis(delta_pitch, right);
-				glm::quat q_roll = glm::angleAxis(delta_roll, ang.front);
-				aircraft.orientation = glm::normalize(q_roll * q_pitch * q_yaw * aircraft.orientation);
+				// External torques (SI N·m with thrust-fudge compensation)
+				if (!glm::all(glm::equal(aircraft.thrust_offset, glm::vec3(0.0f)))) {
+					// ponytail: thrust_multiplier=500 fudges thrust ~5700×; scale by 1e-4 for real N·m
+					aircraft.torque += glm::cross(aircraft.thrust_offset,
+						glm::vec3{0.0f, 0.0f, aircraft.forces.thrust}) * 1e-4f;
+				}
+
+				// integrate angular velocity through corrected inertia
+				if (has_inertia) {
+					aircraft.angular_velocity += (I_inv_kg * aircraft.torque) * dt;
+				}
+
+				// GROUND OVERRIDE (direct ω control, before quaternion integration)
+				if (aircraft_on_ground(aircraft)) {
+					aircraft.angular_velocity.x = 0.0f;
+					aircraft.angular_velocity.z = 0.0f;
+					float wheel_angle = aircraft.rudder_perc * MAX_WHEEL_STEER_ANGLE;
+					aircraft.angular_velocity.y = +(vel * std::tan(wheel_angle)) / aircraft.wheelbase;
+				}
+
+				// integrate orientation from local angular velocity (post-multiply)
+				float omega_mag = glm::length(aircraft.angular_velocity);
+				if (omega_mag > 0.0001f) {
+					glm::vec3 omega_axis = aircraft.angular_velocity / omega_mag;
+					float angle = omega_mag * dt;
+					aircraft.orientation = glm::normalize(aircraft.orientation * glm::angleAxis(angle, omega_axis));
+				}
 			}
 
 			// translation

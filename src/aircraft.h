@@ -28,6 +28,8 @@ struct Aircraft {
 	glm::vec3 angular_velocity{0.0f};
 	glm::vec3 torque{0.0f};
 	glm::mat3 inertia_tensor_inv{0.0f};
+	glm::vec3 thrust_offset{0.0f};                 // engine→CG arm for thrust-pitch (body), default=off
+	float wheelbase = 5.0f;                       // nose→main gear Z-distance, computed from DAT
 	bool visible = true;
 
 	glm::vec3 acceleration, velocity;
@@ -208,6 +210,18 @@ inline void aircraft_load(Aircraft& self) {
 		0, iy, 0,
 		0, 0, iz
 	));
+
+	// wheelbase from DAT gear positions (Z-distance: nose→main gear midpoint)
+	{
+		glm::vec3 nose{0}, left{0}, right{0};
+		bool has_nose  = datmap_get_floats(self.dat, "WHELGEAR",  {&nose.x, &nose.y, &nose.z});
+		bool has_left  = datmap_get_floats(self.dat, "LEFTGEAR",  {&left.x, &left.y, &left.z});
+		bool has_right = datmap_get_floats(self.dat, "RIGHGEAR",  {&right.x, &right.y, &right.z});
+		if (has_nose && has_left && has_right) {
+			float main_z = (left.z + right.z) * 0.5f;
+			self.wheelbase = std::abs(nose.z - main_z);
+		}
+	}
 
 	self.should_be_loaded = false;
 }
