@@ -203,5 +203,6 @@ namespace sys {
 	void canvas_render_axes(World& world);
 	void canvas_render_text(World& world);
 	void canvas_render_hud_text(World& world);
+	void canvas_render_hud_geoms(World& world);
 	void canvas_render_lines(World& world);
 }

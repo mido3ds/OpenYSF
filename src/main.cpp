@@ -358,14 +358,16 @@ namespace sys {
 					ImGui::DragFloat3("Light Dir", (float*)&world.settings.rendering.light_dir, 0.01f, -1.0f, 1.0f);
 				}
 
-				ImGui::Separator();
-				ImGui::Checkbox("Fog", &world.settings.rendering.fog_enabled);
-				if (world.settings.rendering.fog_enabled) {
-					ImGui::DragFloat("Density", &world.settings.rendering.fog_density, 0.0001f, 0.0f, 0.01f, "%.4f");
-					ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
-				}
+			ImGui::Separator();
+			ImGui::Checkbox("Fog", &world.settings.rendering.fog_enabled);
+			if (world.settings.rendering.fog_enabled) {
+				ImGui::DragFloat("Density", &world.settings.rendering.fog_density, 0.0001f, 0.0f, 0.01f, "%.4f");
+				ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
+			}
 
-				ImGui::TreePop();
+			ImGui::Checkbox("HUD Geoms Demo", &world.settings.rendering.hud_geoms_demo);
+
+			ImGui::TreePop();
 			}
 
 			if (ImGui::TreeNode("Axes Rendering")) {
@@ -1243,6 +1245,27 @@ int main(int argc, char* argv[]) {
 			sys::canvas_render_lines(world);
 			sys::canvas_render_text(world);
 			sys::canvas_render_hud_text(world);
+			if (world.settings.rendering.hud_geoms_demo) {
+				auto& c = world.canvas;
+				canvas_add(c, canvas::hud::Circle{{0.5f, 0.5f}, 0.4f, {0,1,1,0.8f}});
+				canvas_add(c, canvas::hud::Circle{{0.2f, 0.2f}, 0.15f, {1,1,0,0.6f}});
+
+				canvas_add(c, canvas::hud::Line{{0.05f,0.05f}, {0.45f,0.45f}, {0,1,0,0.8f}});
+				canvas_add(c, canvas::hud::Line{{0.55f,0.05f}, {0.95f,0.45f}, {0,1,0,0.5f}});
+
+				canvas_add(c, canvas::hud::LineStrip{
+					{1,0,0,0.8f},
+					{{0.05f,0.7f}, {0.25f,0.85f}, {0.45f,0.7f}, {0.65f,0.85f}, {0.85f,0.7f}}
+				});
+
+				canvas_add(c, canvas::hud::FilledArc{{0.7f, 0.7f}, 0.2f, 0.0f, glm::pi<float>(), {0.5f,0,0.5f,0.7f}});
+				canvas_add(c, canvas::hud::FilledArc{{0.7f, 0.7f}, 0.12f, -glm::pi<float>()/2.0f, glm::pi<float>()/2.0f, {1,0.5f,0,0.7f}});
+				canvas_add(c, canvas::hud::FilledArc{{0.7f, 0.7f}, 0.06f, 0.0f, 2.0f*glm::pi<float>(), {1,1,1,0.7f}});
+
+				canvas_add(c, canvas::hud::FilledTriangle{{0.2f,0.55f}, {0.4f,0.95f}, {0.5f,0.6f}, {0,1,0,0.6f}});
+				canvas_add(c, canvas::hud::FilledTriangle{{0.55f,0.2f}, {0.65f,0.45f}, {0.9f,0.15f}, {0,0.5f,1,0.6f}});
+			}
+			sys::canvas_render_hud_geoms(world);
 
 			sys::imgui_rendering_begin(world); {
 				sys::imgui_debug_window(world);

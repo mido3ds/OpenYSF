@@ -105,6 +105,34 @@ namespace canvas {
 			float scale;
 			glm::vec4 color;
 		};
+
+		struct Circle {
+			glm::vec2 center;
+			float radius;
+			glm::vec4 color;
+		};
+
+		struct Line {
+			glm::vec2 p0, p1;
+			glm::vec4 color;
+		};
+
+		struct LineStrip {
+			glm::vec4 color;
+			mu::Vec<glm::vec2> points;
+		};
+
+		struct FilledArc {
+			glm::vec2 center;
+			float radius;
+			float start_angle, end_angle;
+			glm::vec4 color;
+		};
+
+		struct FilledTriangle {
+			glm::vec2 p0, p1, p2;
+			glm::vec4 color;
+		};
 	}
 
 	struct Vector {
@@ -176,6 +204,17 @@ struct Canvas {
 
 		mu::Vec<canvas::Line> list;
 	} lines;
+
+	struct {
+		GLProgram program;
+		GLBuf gl_buf;
+
+		mu::Vec<canvas::hud::Circle> list_circles;
+		mu::Vec<canvas::hud::Line> list_lines;
+		mu::Vec<canvas::hud::LineStrip> list_line_strips;
+		mu::Vec<canvas::hud::FilledArc> list_filled_arcs;
+		mu::Vec<canvas::hud::FilledTriangle> list_filled_triangles;
+	} hud_geoms;
 };
 
 inline void canvas_add(Canvas& self, canvas::Text&& t) {
@@ -184,6 +223,26 @@ inline void canvas_add(Canvas& self, canvas::Text&& t) {
 
 inline void canvas_add(Canvas& self, canvas::hud::Text&& t) {
 	self.text.list_hud.push_back(std::move(t));
+}
+
+inline void canvas_add(Canvas& self, canvas::hud::Circle&& c) {
+	self.hud_geoms.list_circles.push_back(std::move(c));
+}
+
+inline void canvas_add(Canvas& self, canvas::hud::Line&& l) {
+	self.hud_geoms.list_lines.push_back(std::move(l));
+}
+
+inline void canvas_add(Canvas& self, canvas::hud::LineStrip&& l) {
+	self.hud_geoms.list_line_strips.push_back(std::move(l));
+}
+
+inline void canvas_add(Canvas& self, canvas::hud::FilledArc&& a) {
+	self.hud_geoms.list_filled_arcs.push_back(std::move(a));
+}
+
+inline void canvas_add(Canvas& self, canvas::hud::FilledTriangle&& t) {
+	self.hud_geoms.list_filled_triangles.push_back(std::move(t));
 }
 
 inline void canvas_add(Canvas& self, canvas::Axis&& a) {

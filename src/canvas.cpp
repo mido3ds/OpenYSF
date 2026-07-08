@@ -434,6 +434,34 @@ namespace sys {
 
 		self.lines.gl_buf = gl_buf_new_dyn<glm::vec4, glm::vec4>(100);
 
+		// hud geoms
+		self.hud_geoms.program = gl_program_new(
+			R"GLSL(
+				#version 330 core
+				layout (location = 0) in vec2 attr_position;
+				layout (location = 1) in vec4 attr_color;
+
+				uniform mat4 projection_view;
+
+				out vec4 vs_color;
+
+				void main() {
+					gl_Position = projection_view * vec4(attr_position, 0.0, 1.0);
+					vs_color = attr_color;
+				}
+			)GLSL",
+			R"GLSL(
+				#version 330 core
+				in vec4 vs_color;
+				out vec4 out_fragcolor;
+
+				void main() {
+					out_fragcolor = vs_color;
+				}
+			)GLSL"
+		);
+		self.hud_geoms.gl_buf = gl_buf_new_dyn<glm::vec2, glm::vec4>(512);
+
 		gl_process_errors();
 	}
 
@@ -471,6 +499,10 @@ namespace sys {
 		// lines
 		gl_program_free(self.lines.program);
 		gl_buf_free(self.lines.gl_buf);
+
+		// hud geoms
+		gl_program_free(self.hud_geoms.program);
+		gl_buf_free(self.hud_geoms.gl_buf);
 
 		gl_program_free(self.meshes.program);
 		gl_program_free(self.gnd_pics.program);
@@ -528,6 +560,11 @@ namespace sys {
 		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self.arena);
 		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self.arena);
 		self.gnd_pics.list         = mu::Vec<canvas::GndPic>(&self.arena);
+		self.hud_geoms.list_circles          = mu::Vec<canvas::hud::Circle>(&self.arena);
+		self.hud_geoms.list_lines            = mu::Vec<canvas::hud::Line>(&self.arena);
+		self.hud_geoms.list_line_strips      = mu::Vec<canvas::hud::LineStrip>(&self.arena);
+		self.hud_geoms.list_filled_arcs      = mu::Vec<canvas::hud::FilledArc>(&self.arena);
+		self.hud_geoms.list_filled_triangles = mu::Vec<canvas::hud::FilledTriangle>(&self.arena);
 	}
 
 	void canvas_render_zlpoints(World& world) {
@@ -755,6 +792,117 @@ namespace sys {
 				// bitshift by 6 to get value in pixels (2^6 = 64 (divide amount of 1/64th pixels by 64 to get amount of pixels))
 				txt_rndr.p.x += (glyph.advance >> 6) * txt_rndr.scale;
 			}
+		}
+	}
+
+	void canvas_render_hud_geoms(World& world) {
+		DEF_SYSTEM
+
+		auto& self = world.canvas.hud_geoms;
+
+		if (self.list_circles.empty() && self.list_lines.empty() && self.list_line_strips.empty()
+			&& self.list_filled_arcs.empty() && self.list_filled_triangles.empty()) {
+			return;
+		}
+
+		struct Stride {
+			glm::vec2 pos;
+			glm::vec4 color;
+		};
+
+		int wnd_width, wnd_height;
+		SDL_GL_GetDrawableSize(world.sdl_window, &wnd_width, &wnd_height);
+
+		gl_program_use(self.program);
+		gl_program_uniform_set(self.program, "projection_view",
+			glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height)));
+
+		glBindVertexArray(self.gl_buf.vao);
+		glBindBuffer(GL_ARRAY_BUFFER, self.gl_buf.vbo);
+
+		constexpr float PI = 3.14159265f;
+		constexpr int SEGMENTS = 40;
+
+		for (auto& c : self.list_circles) {
+			mu::Vec<Stride> verts(mu::memory::tmp());
+			float cx = c.center.x * wnd_width;
+			float cy = c.center.y * wnd_height;
+			float r = c.radius * wnd_width;
+			for (int i = 0; i <= SEGMENTS; i++) {
+				float a = (float(i) / SEGMENTS) * 2.0f * PI;
+				verts.push_back(Stride{
+					.pos = glm::vec2{cx + r * cosf(a), cy + r * sinf(a)},
+					.color = c.color
+				});
+			}
+			size_t cnt = verts.size();
+			size_t buf_cap = self.gl_buf.len;
+			for (size_t i = 0; i < cnt; i += buf_cap) {
+				size_t n = std::min(buf_cap, cnt - i);
+				glBufferSubData(GL_ARRAY_BUFFER, 0, n * sizeof(Stride), verts.data() + i);
+				glDrawArrays(GL_LINE_STRIP, 0, n);
+			}
+		}
+
+		for (auto& l : self.list_lines) {
+			Stride verts[2] = {
+				{.pos = {l.p0.x * wnd_width, l.p0.y * wnd_height}, .color = l.color},
+				{.pos = {l.p1.x * wnd_width, l.p1.y * wnd_height}, .color = l.color},
+			};
+			glBufferSubData(GL_ARRAY_BUFFER, 0, 2 * sizeof(Stride), verts);
+			glDrawArrays(GL_LINES, 0, 2);
+		}
+
+		for (auto& l : self.list_line_strips) {
+			mu::Vec<Stride> verts(mu::memory::tmp());
+			for (auto& p : l.points) {
+				verts.push_back(Stride{
+					.pos = {p.x * wnd_width, p.y * wnd_height},
+					.color = l.color
+				});
+			}
+			if (verts.empty()) continue;
+			size_t cnt = verts.size();
+			size_t buf_cap = self.gl_buf.len;
+			for (size_t i = 0; i < cnt; i += buf_cap) {
+				size_t n = std::min(buf_cap, cnt - i);
+				glBufferSubData(GL_ARRAY_BUFFER, 0, n * sizeof(Stride), verts.data() + i);
+				glDrawArrays(GL_LINE_STRIP, 0, n);
+			}
+		}
+
+		for (auto& a : self.list_filled_arcs) {
+			mu::Vec<Stride> verts(mu::memory::tmp());
+			float cx = a.center.x * wnd_width;
+			float cy = a.center.y * wnd_height;
+			float r = a.radius * wnd_width;
+			verts.push_back(Stride{.pos = {cx, cy}, .color = a.color});
+			int seg = std::max(2, int(SEGMENTS * (a.end_angle - a.start_angle) / (2.0f * PI)));
+			for (int i = 0; i <= seg; i++) {
+				float t = float(i) / seg;
+				float ang = a.start_angle + t * (a.end_angle - a.start_angle);
+				verts.push_back(Stride{
+					.pos = {cx + r * cosf(ang), cy + r * sinf(ang)},
+					.color = a.color
+				});
+			}
+			size_t cnt = verts.size();
+			size_t buf_cap = self.gl_buf.len;
+			for (size_t i = 0; i < cnt; i += buf_cap) {
+				size_t chunk = std::min(buf_cap, cnt - i);
+				glBufferSubData(GL_ARRAY_BUFFER, 0, chunk * sizeof(Stride), verts.data() + i);
+				glDrawArrays(GL_TRIANGLE_FAN, 0, chunk);
+			}
+		}
+
+		for (auto& t : self.list_filled_triangles) {
+			Stride verts[3] = {
+				{.pos = {t.p0.x * wnd_width, t.p0.y * wnd_height}, .color = t.color},
+				{.pos = {t.p1.x * wnd_width, t.p1.y * wnd_height}, .color = t.color},
+				{.pos = {t.p2.x * wnd_width, t.p2.y * wnd_height}, .color = t.color},
+			};
+			glBufferSubData(GL_ARRAY_BUFFER, 0, 3 * sizeof(Stride), verts);
+			glDrawArrays(GL_TRIANGLES, 0, 3);
 		}
 	}
 
