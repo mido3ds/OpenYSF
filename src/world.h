@@ -74,6 +74,9 @@ struct Events {
 	bool camera_flying_left;
 	bool camera_flying_rotate_enabled;
 
+	bool mouse_plane_control_enabled;
+	int mouse_dx, mouse_dy;
+
 	glm::ivec2 mouse_pos;
 };
 

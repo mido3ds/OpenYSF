@@ -1105,6 +1105,15 @@ namespace sys {
 		self.camera_flying_right   = sdl_keyb_pressed[SDL_SCANCODE_D];
 		self.camera_flying_left    = sdl_keyb_pressed[SDL_SCANCODE_A];
 
+		bool space_pressed = sdl_keyb_pressed[SDL_SCANCODE_SPACE];
+		self.mouse_plane_control_enabled = !space_pressed;
+
+		if (space_pressed && SDL_GetRelativeMouseMode()) {
+			SDL_SetRelativeMouseMode(SDL_FALSE);
+		} else if (!space_pressed && !SDL_GetRelativeMouseMode()) {
+			SDL_SetRelativeMouseMode(SDL_TRUE);
+		}
+
 		Uint32 sdl_mouse_state = SDL_GetMouseState(&self.mouse_pos.x, &self.mouse_pos.y);
 		self.camera_flying_rotate_enabled = sdl_mouse_state & SDL_BUTTON(SDL_BUTTON_RIGHT);
 
@@ -1112,7 +1121,10 @@ namespace sys {
 		while (SDL_PollEvent(&event)) {
 			ImGui_ImplSDL2_ProcessEvent(&event);
 
-			if (event.type == SDL_KEYDOWN) {
+			if (event.type == SDL_MOUSEMOTION && self.mouse_plane_control_enabled) {
+				self.mouse_dx += event.motion.xrel;
+				self.mouse_dy += event.motion.yrel;
+			} else if (event.type == SDL_KEYDOWN) {
 				switch (event.key.keysym.sym) {
 				case SDLK_ESCAPE:
 					signal_fire(world.signals.quit);

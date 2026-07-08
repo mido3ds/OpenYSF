@@ -62,3 +62,6 @@ constexpr float MAX_WHEEL_STEER_ANGLE = 0.5f;   // ~30° max nose-wheel deflecti
 
 // 2D sprite scaling
 constexpr float ZL_SCALE = 0.151f;
+
+// mouse plane control sensitivity (pixels → control surface percentage)
+constexpr float MOUSE_SENSITIVITY = 0.05f;
