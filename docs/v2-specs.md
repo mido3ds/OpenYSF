@@ -61,7 +61,7 @@ Camera positioned at pilot eyepoint with full EXCAMERA cycling. Cockpit SRF mesh
 
 ### Camera Mode
 
-- New mode in `camera_update()`: when `cockpit_view_index >= 0`, position camera at EXCAMERA offset instead of orbiting
+- New mode in `camera_update()`: when `excamera_index >= 0`, position camera at EXCAMERA offset instead of orbiting
 - Cycle: orbit (default, index=-1) → first EXCAMERA (index=0) → second (index=1) → last → back to orbit
 - Camera FOV may need adjustment for cockpit view
 
@@ -77,7 +77,7 @@ Camera positioned at pilot eyepoint with full EXCAMERA cycling. Cockpit SRF mesh
 
 In `Aircraft` struct (`aircraft.h`):
 
-- **Add** `int cockpit_view_index = -1` — current EXCAMERA index (-1 = orbit mode)
+- **Add** `int excamera_index = -1` — current EXCAMERA index (-1 = orbit mode)
 - **Add** `Model cockpit_model` — loaded cockpit SRF data
 - **No changes** to Camera struct (EXCAMERA positions accessed from Aircraft's DATMap, not stored on Camera)
 

@@ -582,67 +582,15 @@ namespace sys {
 				});
 			}
 
-			meshes_foreach(aircraft.model.meshes, [&](const Mesh& mesh) {
-				if (!mesh.visible) {
-					return false;
-				}
-
-				const bool enable_high_throttle = almost_equal(aircraft.throttle, 1.0f);
-				if (mesh.animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
-					return false;
-				}
-				if (mesh.animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && aircraft.has_high_throttle_mesh) {
-					return false;
-				}
-
-				if (mesh.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
-					if (aircraft.engine.burner_enabled == false) {
-						return false;
-					}
-
-					if (aircraft.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
-						return false;
-					}
-				}
-
-				if (mesh.render_cnt_axis) {
-					canvas_add(world.canvas, canvas::Axis { mesh.transformation * glm::translate(mesh.cnt) });
-				}
-
-				if (mesh.render_pos_axis) {
-					canvas_add(world.canvas, canvas::Axis { mesh.transformation });
-				}
-
-				canvas_add(world.canvas, canvas::Mesh {
-					.vao = mesh.gl_buf.vao,
-					.buf_len = mesh.gl_buf.len,
-					.projection_view_model = world.mats.projection_view * mesh.transformation,
-					.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
-				});
-
-				// ZL
-				if (mesh.animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || aircraft.anti_coll_lights.visible) {
-					for (size_t zlid : mesh.zls) {
-						const Face& face = mesh.faces[zlid];
-						canvas_add(world.canvas, canvas::ZLPoint {
-							.center = mesh.transformation * glm::vec4{face.center.x, face.center.y, face.center.z, 1.0f},
-							.color = face.color
-						});
-					}
-				}
-
-				return true;
-			});
-
-			// Cockpit mesh (visible only in cockpit camera mode)
-			if (aircraft.cockpit_view_index >= 0 && !aircraft.cockpit_model.meshes.empty()) {
-				glDisable(GL_CULL_FACE);
-				glm::mat4 model = glm::translate(glm::mat4{1.0f}, aircraft.translation)
-								* glm::mat4_cast(aircraft.orientation);
+			if (aircraft.cockpit_mode) {
+				glm::quat rot = aircraft.orientation * glm::quat(glm::radians(world.settings.rendering.cockpit_rotation_offset));
+				glm::vec3 pos = world.camera.position + world.camera.front * world.settings.rendering.cockpit_forward_offset;
+				glm::mat4 model = glm::translate(glm::mat4{1.0f}, pos)
+								* glm::mat4_cast(rot);
 				glm::mat4 pvm = world.mats.projection_view * model;
 				glm::mat3 model_normal = glm::transpose(glm::inverse(glm::mat3(model)));
 				meshes_foreach(aircraft.cockpit_model.meshes, [&](Mesh& mesh) {
-					canvas_add(world.canvas, canvas::Mesh{
+					canvas_add(world.canvas, canvas::Cockpit{
 						.vao = mesh.gl_buf.vao,
 						.buf_len = mesh.gl_buf.len,
 						.projection_view_model = pvm,
@@ -650,10 +598,60 @@ namespace sys {
 					});
 					return true;
 				});
-				glEnable(GL_CULL_FACE);
+			} else {
+				meshes_foreach(aircraft.model.meshes, [&](const Mesh& mesh) {
+					if (!mesh.visible) {
+						return false;
+					}
+
+					const bool enable_high_throttle = almost_equal(aircraft.throttle, 1.0f);
+					if (mesh.animation_type == AnimationClass::AIRCRAFT_HIGH_THROTTLE && enable_high_throttle == false) {
+						return false;
+					}
+					if (mesh.animation_type == AnimationClass::AIRCRAFT_LOW_THROTTLE && enable_high_throttle && aircraft.has_high_throttle_mesh) {
+						return false;
+					}
+
+					if (mesh.animation_type == AnimationClass::AIRCRAFT_AFTERBURNER_REHEAT) {
+						if (aircraft.engine.burner_enabled == false) {
+							return false;
+						}
+
+						if (aircraft.throttle < AFTERBURNER_THROTTLE_THRESHOLD) {
+							return false;
+						}
+					}
+
+					if (mesh.render_cnt_axis) {
+						canvas_add(world.canvas, canvas::Axis { mesh.transformation * glm::translate(mesh.cnt) });
+					}
+
+					if (mesh.render_pos_axis) {
+						canvas_add(world.canvas, canvas::Axis { mesh.transformation });
+					}
+
+					canvas_add(world.canvas, canvas::Mesh {
+						.vao = mesh.gl_buf.vao,
+						.buf_len = mesh.gl_buf.len,
+						.projection_view_model = world.mats.projection_view * mesh.transformation,
+						.model_normal = glm::transpose(glm::inverse(glm::mat3(mesh.transformation)))
+					});
+
+					// ZL
+					if (mesh.animation_type != AnimationClass::AIRCRAFT_ANTI_COLLISION_LIGHTS || aircraft.anti_coll_lights.visible) {
+						for (size_t zlid : mesh.zls) {
+							const Face& face = mesh.faces[zlid];
+							canvas_add(world.canvas, canvas::ZLPoint {
+								.center = mesh.transformation * glm::vec4{face.center.x, face.center.y, face.center.z, 1.0f},
+								.color = face.color
+							});
+						}
+					}
+
+					return true;
+				});
 			}
 
-			// HUD for camera-tracked aircraft
 			if (world.camera.aircraft == &aircraft && world.settings.hud.enabled) {
 				float airspeed_kt = glm::length(aircraft.velocity) * 1.94384f;
 				float altitude_ft = (- aircraft.translation.y + 1.0f) * 3.28084f;

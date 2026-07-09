@@ -559,6 +559,7 @@ namespace sys {
 		self.lines.list            = mu::Vec<canvas::Line>(&self.arena);
 		self.meshes.list_regular   = mu::Vec<canvas::Mesh>(&self.arena);
 		self.meshes.list_gradient  = mu::Vec<canvas::GradientMesh>(&self.arena);
+		self.meshes.list_cockpit   = mu::Vec<canvas::Cockpit>(&self.arena);
 		self.gnd_pics.list         = mu::Vec<canvas::GndPic>(&self.arena);
 		self.hud_geoms.list_circles          = mu::Vec<canvas::hud::Circle>(&self.arena);
 		self.hud_geoms.list_lines            = mu::Vec<canvas::hud::Line>(&self.arena);
@@ -636,6 +637,15 @@ namespace sys {
 			}
 			gl_program_uniform_set(world.canvas.meshes.program, "gradient_enabled", false);
 		}
+
+		glDisable(GL_CULL_FACE);
+		for (const auto& cockpit : world.canvas.meshes.list_cockpit) {
+			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", cockpit.projection_view_model);
+			gl_program_uniform_set(world.canvas.meshes.program, "model_normal", cockpit.model_normal);
+			glBindVertexArray(cockpit.vao);
+			glDrawArrays(world.settings.rendering.primitives_type, 0, cockpit.buf_len);
+		}
+		glEnable(GL_CULL_FACE);
 	}
 
 	void canvas_render_axes(World& world) {

@@ -32,6 +32,9 @@ struct Settings {
 		float fog_density = 0.0001f;
 		glm::vec3 fog_color {0.247f, 0.329f, 0.475f}; // (63, 84, 121)
 
+		float cockpit_forward_offset = -0.3f;
+		glm::vec3 cockpit_rotation_offset{0, 0, 180}; // pitch, yaw, roll (degrees)
+
 	} rendering;
 
 	struct {

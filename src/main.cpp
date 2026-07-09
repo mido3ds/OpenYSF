@@ -365,6 +365,12 @@ namespace sys {
 				ImGui::ColorEdit3("Color", (float*)&world.settings.rendering.fog_color);
 			}
 
+			ImGui::Separator();
+			ImGui::SliderFloat("Cockpit Forward Offset", &world.settings.rendering.cockpit_forward_offset, -10.0f, 10.0f, "%.2f m");
+			ImGui::DragFloat("Cockpit Pitch Offset", &world.settings.rendering.cockpit_rotation_offset.x, 0.5f, -180, 180, "%.1f deg");
+			ImGui::DragFloat("Cockpit Yaw Offset",   &world.settings.rendering.cockpit_rotation_offset.y, 0.5f, -180, 180, "%.1f deg");
+			ImGui::DragFloat("Cockpit Roll Offset",  &world.settings.rendering.cockpit_rotation_offset.z, 0.5f, -180, 180, "%.1f deg");
+
 			ImGui::TreePop();
 			}
 
@@ -1170,10 +1176,13 @@ namespace sys {
 				case 'b':
 					self.brake = true;
 					break;
-				case SDLK_F10:
-					self.camera_cycle = true;
-					break;
-				case 'f':
+			case SDLK_F10:
+				self.camera_cycle = true;
+				break;
+			case SDLK_F11:
+				self.cockpit_toggle = true;
+				break;
+			case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
 					signal_fire(world.signals.wnd_configs_changed);
 					if (world.settings.fullscreen) {

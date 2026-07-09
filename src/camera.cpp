@@ -48,12 +48,12 @@ namespace sys {
 		self.up = aircraft_angles(*self.aircraft).up;
 	}
 
-	void _camera_update_cockpit_mode(World& world) {
+	void _camera_update_excamera_mode(World& world) {
 		DEF_SYSTEM
 
 		auto& self = world.camera;
 		auto& ac = *self.aircraft;
-		auto& excamera = ac.cockpit_excameras[ac.cockpit_view_index];
+		auto& excamera = ac.excameras[ac.excamera_index];
 
 		auto ang = aircraft_angles(ac);
 		self.position = ac.translation + ac.orientation * excamera.pos;
@@ -62,6 +62,17 @@ namespace sys {
 		self.up = ang.up;
 	}
 
+	void _camera_update_cockpit_mode(World& world) {
+		DEF_SYSTEM
+
+		auto& ac = *world.camera.aircraft;
+		auto ang = aircraft_angles(ac);
+
+		world.camera.position = ac.translation + ac.orientation * ac.cockpit_pos;
+		world.camera.front = ang.front;
+		world.camera.target_pos = world.camera.position + world.camera.front;
+		world.camera.up = ang.up;
+	}
 
 	void _camera_update_flying_mode(World& world) {
 		DEF_SYSTEM
@@ -114,20 +125,31 @@ namespace sys {
 
 		if (world.events.camera_cycle && world.camera.aircraft) {
 			auto& ac = *world.camera.aircraft;
-			if (ac.cockpit_view_index >= 0) {
-				ac.cockpit_view_index++;
-				if (ac.cockpit_view_index >= (int)ac.cockpit_excameras.size())
-					ac.cockpit_view_index = -1;
-			} else if (!ac.cockpit_excameras.empty()) {
-				ac.cockpit_view_index = 0;
+			if (ac.excamera_index >= 0) {
+				ac.excamera_index++;
+				if (ac.excamera_index >= (int)ac.excameras.size())
+					ac.excamera_index = -1;
+			} else if (!ac.excameras.empty()) {
+				ac.excamera_index = 0;
 			}
 		}
 
+		if (world.events.cockpit_toggle && world.camera.aircraft) {
+			auto& ac = *world.camera.aircraft;
+			ac.cockpit_mode = !ac.cockpit_mode;
+			if (ac.cockpit_mode)
+				ac.excamera_index = -1;
+		}
+
 		if (world.camera.aircraft) {
-			if (world.camera.aircraft->cockpit_view_index >= 0)
+			auto& ac = *world.camera.aircraft;
+			if (ac.cockpit_mode) {
 				_camera_update_cockpit_mode(world);
-			else
+			} else if (ac.excamera_index >= 0) {
+				_camera_update_excamera_mode(world);
+			} else {
 				_camera_update_model_tracking_mode(world);
+			}
 		} else {
 			_camera_update_flying_mode(world);
 		}

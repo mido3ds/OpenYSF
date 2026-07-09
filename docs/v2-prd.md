@@ -57,7 +57,7 @@ Every aircraft has a cockpit SRF file on disk (e.g. `ys11cockpit.srf`, `f1cockpi
 
 ### Camera — Third Mode
 
-The camera currently has two modes selected in `camera_update()`: tracking (orbit) when `camera.aircraft != nullptr`, and flying (FPS) otherwise. v2 adds a third mode: cockpit view. The Aircraft struct gains `cockpit_view_index` (-1 for orbit, 0..N for EXCAMERA positions). When `cockpit_view_index >= 0`:
+The camera currently has two modes selected in `camera_update()`: tracking (orbit) when `camera.aircraft != nullptr`, and flying (FPS) otherwise. v2 adds a third mode: cockpit view. The Aircraft struct gains `excamera_index` (-1 for orbit, 0..N for EXCAMERA positions). When `excamera_index >= 0`:
 
 - Camera position = aircraft translation + EXCAMERA offset rotated by aircraft quaternion
 - Camera front = aircraft front direction (from quaternion)
@@ -69,7 +69,7 @@ The `C` key (a new event in the Events struct) cycles the index: -1 → 0 → 1 
 ### Data Model Changes
 
 On `Aircraft` struct:
-- **Add** `int cockpit_view_index = -1` — which EXCAMERA position is active
+- **Add** `int excamera_index = -1` — which EXCAMERA position is active
 - **Add** `Model cockpit_model` — loaded cockpit SRF mesh data
 
 On `Events` struct:

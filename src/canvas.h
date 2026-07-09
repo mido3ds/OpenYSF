@@ -64,6 +64,13 @@ namespace canvas {
 		glm::mat3 model_normal;
 	};
 
+	struct Cockpit {
+		GLuint vao;
+		size_t buf_len;
+		glm::mat4 projection_view_model;
+		glm::mat3 model_normal;
+	};
+
 	struct GradientMesh {
 		GLuint vao;
 		size_t buf_len;
@@ -151,6 +158,7 @@ struct Canvas {
 
 		mu::Vec<canvas::Mesh> list_regular;
 		mu::Vec<canvas::GradientMesh> list_gradient;
+		mu::Vec<canvas::Cockpit> list_cockpit;
 	} meshes;
 
 	struct {
@@ -289,6 +297,10 @@ inline void canvas_add(Canvas& self, canvas::Box&& b) {
 
 inline void canvas_add(Canvas& self, canvas::Mesh&& m) {
 	self.meshes.list_regular.push_back(std::move(m));
+}
+
+inline void canvas_add(Canvas& self, canvas::Cockpit&& c) {
+	self.meshes.list_cockpit.push_back(std::move(c));
 }
 
 inline void canvas_add(Canvas& self, canvas::GradientMesh&& m) {

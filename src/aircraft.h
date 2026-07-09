@@ -93,8 +93,11 @@ struct Aircraft {
 	bool has_afterburner;
 	bool has_high_throttle_mesh;
 
-	int cockpit_view_index = -1;
-	mu::Vec<ExternalCameraLocation> cockpit_excameras;
+	int excamera_index = -1;
+	mu::Vec<ExternalCameraLocation> excameras;
+
+	bool cockpit_mode = false;
+	glm::vec3 cockpit_pos = {0, 1, 1};
 };
 
 inline Aircraft aircraft_new(AircraftTemplate aircraft_template) {
@@ -232,7 +235,9 @@ inline void aircraft_load(Aircraft& self) {
 		}
 	}
 
-	self.cockpit_excameras = datmap_get_excameras(self.dat);
+	datmap_get_floats(self.dat, "COCKPITP", {&self.cockpit_pos.x, &self.cockpit_pos.y, &self.cockpit_pos.z});
+
+	self.excameras = datmap_get_excameras(self.dat);
 
 	self.should_be_loaded = false;
 }

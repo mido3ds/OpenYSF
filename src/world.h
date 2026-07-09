@@ -74,6 +74,7 @@ struct Events {
 	bool camera_flying_left;
 	bool camera_flying_rotate_enabled;
 	bool camera_cycle;
+	bool cockpit_toggle;
 
 	bool mouse_plane_control_enabled;
 	int mouse_dx, mouse_dy;
