@@ -10,15 +10,15 @@ Polish the YS-11 into one fully flyable experience with a proper instrument pane
 
 ## Feature 1: Full HUD
 
-Replace the current minimal text HUD (SPD/ALT/THR/GEAR) with graphical instruments rendered via new `canvas::hud` primitives. Always visible regardless of camera mode.
+Add graphical instruments (ADI, compass, VSI) via new `canvas::hud` primitives alongside the existing text HUD. The text HUD (SPD/ALT/THR/GEAR/BRK) remains for quick numeric reference. All elements always visible regardless of camera mode.
 
 ### Instruments
 
 | Instrument | Detail | Implementation |
 |---|---|---|
-| ADI (Attitude Director Indicator) | Full artificial horizon: pitch ladder with 5°/10° increments, bank indicator chevron at top, sky/ground half with gradient | New `canvas::hud::Circle`, `canvas::hud::Line`, `canvas::hud::FilledArc` primitives with orthographic projection |
-| Heading indicator | Circular compass rose with N/S/E/W labels, 10° tick marks, current heading displayed | New `canvas::hud` primitives |
-| VSI (Vertical Speed Indicator) | Analog gauge with arc from -6 to +6 (1000s ft/min), needle pointing at current rate. Tick marks at 1, 2, 3, 4, 6 | New `canvas::hud` primitives |
+| ADI (Attitude Director Indicator) | Full artificial horizon: pitch ladder with 5°/10° increments, bank indicator chevron at top, sky/ground half with gradient | `canvas::hud::FilledArc` + `canvas::hud::Line` + `canvas::hud::FilledTriangle` + `canvas::hud::Circle` |
+| Heading indicator | Circular compass rose with N/S/E/W labels, 10° tick marks, current heading displayed | `canvas::hud::Circle` + `canvas::hud::Line` + `canvas::hud::Text` |
+| VSI (Vertical Speed Indicator) | Analog gauge with arc from -6 to +6 (1000s ft/min), needle pointing at current rate. Tick marks at 1, 2, 3, 4, 6 | `canvas::hud::FilledArc` + `canvas::hud::Line` + `canvas::hud::Text` + `canvas::hud::Circle` |
 
 ### Canvas HUD Primitives
 

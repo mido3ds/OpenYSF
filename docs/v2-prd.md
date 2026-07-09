@@ -17,7 +17,7 @@ The aircraft stays on the quaternion rigid-body model from v1. No physics change
 1. As a pilot, I want an attitude director indicator (ADI) showing pitch ladder and bank angle, so that I can fly straight and level, climb, descend, and turn without looking at numbers.
 2. As a pilot, I want a heading compass rose with cardinal directions and tick marks, so that I know which way the aircraft is pointed at a glance.
 3. As a pilot, I want a vertical speed indicator (VSI) showing climb and descent rate on an analog gauge, so that I can manage altitude changes smoothly.
-4. As a pilot, I want the new instruments to replace the current text-only HUD (SPD/ALT/THR/GEAR), so that the screen is not cluttered with both.
+4. As a pilot, I want the new instruments displayed alongside the existing text HUD (SPD/ALT/THR/GEAR/BRK), so that I have graphical attitude reference and quick numeric readouts.
 5. As a pilot, I want the instruments visible in all camera modes (orbit and cockpit), so that I always have flight data regardless of the view I choose.
 6. As a pilot, I want to press a key and switch from the orbit camera to the cockpit view, so that I can fly from inside the aircraft.
 7. As a pilot, I want the cockpit view to use the pilot eyepoint position defined in the aircraft's DAT file (EXCAMERA), so that the view matches the real aircraft geometry.
@@ -45,7 +45,7 @@ The current Canvas pipeline has one screen-space HUD primitive: `canvas::hud::Te
 
 All new primitives use the existing orthographic projection from `hud::Text`. No new shaders. The render order slots these after existing `hud_text` and before ImGui, with depth test disabled and blending enabled.
 
-Each instrument is a function that computes positions from aircraft state (attitude, heading, VSI rate) and pushes the appropriate primitives to the canvas. Instrument layout is fixed: ADI left-center, compass top-center, VSI right-center. The current minimial text HUD (SPD/ALT/THR/GEAR) is replaced entirely — the instruments make the text overlay redundant.
+Each instrument is a function that computes positions from aircraft state (attitude, heading, VSI rate) and pushes the appropriate primitives to the canvas. Instrument layout is fixed: ADI left-center, compass top-center, VSI right-center. The text HUD (SPD/ALT/THR/GEAR/BRK) remains alongside for quick numeric reference.
 
 ### EXCAMERA — Already Parsed, Never Consumed
 
