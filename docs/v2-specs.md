@@ -51,13 +51,13 @@ Camera positioned at pilot eyepoint with full EXCAMERA cycling. Cockpit SRF mesh
 - Key press cycles through all EXCAMERA positions (PILOT → CO-PILOT → REAR → back to orbit)
 - EXCAMERA offset transformed by aircraft orientation (quaternion) to compute camera position
 - Camera front = aircraft front direction (from quaternion)
-- Near clip may need adjustment (`PerspectiveProjection::near = 0.1` → possibly `0.01`)
+- Near clip adjusted to `0.01` (`camera.h:14`) to prevent cockpit interior clipping
 
 ### Camera Mode
 
 - New mode in `camera_update()`: when `excamera_index >= 0`, position camera at EXCAMERA offset instead of orbiting
 - Cycle: orbit (default, index=-1) → first EXCAMERA (index=0) → second (index=1) → last → back to orbit
-- Camera FOV may need adjustment for cockpit view
+- Camera FOV may need adjustment for cockpit view (not yet tuned)
 
 ### Out of Scope for Cockpit View
 
@@ -82,7 +82,9 @@ In `Aircraft` struct (`aircraft.h`):
 
 | Action | Key |
 |---|---|
-| Cycle camera (orbit → cockpit views) | `C` key (new event in `Events`) |
+| Cycle EXCAMERA views (orbit → PILOT → CO-PILOT → … → orbit) | `F10` |
+| Toggle cockpit view (F11) / return to tracking | `F11` |
+| *Note: `C` / `c` controls rudder (yaw), not camera* |
 
 ---
 

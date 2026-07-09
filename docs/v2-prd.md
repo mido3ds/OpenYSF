@@ -62,9 +62,9 @@ The camera currently has two modes selected in `camera_update()`: tracking (orbi
 - Camera position = aircraft translation + EXCAMERA offset rotated by aircraft quaternion
 - Camera front = aircraft front direction (from quaternion)
 - Cockpit mesh rendering deferred to v3 (SRF loaded but not drawn)
-- Near clip plane reduced from 0.1 to 0.01 to prevent cockpit interior clipping
+- Near clip plane reduced to 0.01 (`camera.h:14`) to prevent cockpit interior clipping
 
-The `C` key (a new event in the Events struct) cycles the index: -1 → 0 → 1 → ... → N → -1. The camera key is added alongside existing camera control events in the keyboard handler.
+`F10` cycles the index: -1 → 0 → 1 → ... → N → -1. `F11` toggles a dedicated cockpit mode (camera at COCKPITP position). Note: `C` / `c` controls rudder (yaw), not camera.
 
 ### Data Model Changes
 
