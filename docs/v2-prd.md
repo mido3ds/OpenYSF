@@ -22,7 +22,7 @@ The aircraft stays on the quaternion rigid-body model from v1. No physics change
 6. As a pilot, I want to press a key and switch from the orbit camera to the cockpit view, so that I can fly from inside the aircraft.
 7. As a pilot, I want the cockpit view to use the pilot eyepoint position defined in the aircraft's DAT file (EXCAMERA), so that the view matches the real aircraft geometry.
 8. As a pilot, I want to cycle through all available EXCAMERA positions (pilot, co-pilot, rear) by pressing the same key again, so that I can switch seats without leaving the sim.
-9. As a pilot, I want to see the cockpit interior mesh rendered around me in cockpit view, so that I feel like I am sitting in the actual aircraft.
+9. ~~As a pilot, I want to see the cockpit interior mesh rendered around me in cockpit view, so that I feel like I am sitting in the actual aircraft.~~ — **deferred to v3** (SRF loaded but not rendered; GL_CULL_FACE and alignment issues)
 10. As a pilot, I want the cockpit view camera to track the aircraft's orientation (pitch/roll/yaw), so that when the aircraft banks the view banks with it realistically.
 11. As a pilot, I want to press the camera key one more time after the last EXCAMERA position to return to the orbit view, so that the camera cycle is complete round-trip.
 12. As a pilot, I want the ADI to show a clear sky/ground split that rotates with the aircraft roll, so that I can instantly tell my attitude relative to the horizon.
@@ -51,9 +51,9 @@ Each instrument is a function that computes positions from aircraft state (attit
 
 `datmap_get_excameras()` in `assets.h` fully parses EXCAMERA blocks from DAT files into a `Vec<ExternalCameraLocation>` with position, angles, and inside/outside flag. This function exists but is never called by any system code. v2 wires it up: on aircraft load or camera cycle, call `datmap_get_excameras()` on the tracked aircraft's DATMap and store the result.
 
-### Cockpit Mesh — Already Referenced, Never Loaded
+### Cockpit Mesh — Already Referenced, Never Loaded (Deferred to v3)
 
-Every aircraft has a cockpit SRF file on disk (e.g. `ys11cockpit.srf`, `f1cockpit.srf`), referenced in `AircraftTemplate::cockpit` (the 4th column of `air*.lst`). This field is parsed and stored but the file is never opened. v2 loads the cockpit SRF via `srf_from_file()` at aircraft load time and stores it as a `Model` on the Aircraft struct.
+Every aircraft has a cockpit SRF file on disk (e.g. `ys11cockpit.srf`, `f1cockpit.srf`), referenced in `AircraftTemplate::cockpit` (the 4th column of `air*.lst`). This field is parsed and stored but the file is never opened. The cockpit SRF is loaded at v2 aircraft load time for future use, but rendering is deferred to v3 due to unresolved visibility issues (GL_CULL_FACE, mesh alignment to pilot eyepoint).
 
 ### Camera — Third Mode
 
@@ -61,7 +61,7 @@ The camera currently has two modes selected in `camera_update()`: tracking (orbi
 
 - Camera position = aircraft translation + EXCAMERA offset rotated by aircraft quaternion
 - Camera front = aircraft front direction (from quaternion)
-- Cockpit mesh rendered as a mesh draw call with reversed face winding (viewer is inside looking out)
+- Cockpit mesh rendering deferred to v3 (SRF loaded but not drawn)
 - Near clip plane reduced from 0.1 to 0.01 to prevent cockpit interior clipping
 
 The `C` key (a new event in the Events struct) cycles the index: -1 → 0 → 1 → ... → N → -1. The camera key is added alongside existing camera control events in the keyboard handler.

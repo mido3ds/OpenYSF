@@ -53,12 +53,6 @@ Camera positioned at pilot eyepoint with full EXCAMERA cycling. Cockpit SRF mesh
 - Camera front = aircraft front direction (from quaternion)
 - Near clip may need adjustment (`PerspectiveProjection::near = 0.1` → possibly `0.01`)
 
-### Cockpit Mesh
-
-- Cockpit SRF files exist on disk for every aircraft (e.g. `ys11cockpit.srf`) and are referenced in `AircraftTemplate::cockpit` — dead field, never loaded
-- Load cockpit SRF via `srf_from_file()` at aircraft load time
-- Render cockpit mesh as part of `aircrafts_prepare_render()` — separate draw call with reversed face winding (you're inside looking out) or disabled back-face culling
-
 ### Camera Mode
 
 - New mode in `camera_update()`: when `excamera_index >= 0`, position camera at EXCAMERA offset instead of orbiting
@@ -67,6 +61,7 @@ Camera positioned at pilot eyepoint with full EXCAMERA cycling. Cockpit SRF mesh
 
 ### Out of Scope for Cockpit View
 
+- Cockpit mesh rendering — deferred to v3. Cockpit SRF is loaded but not rendered. Only EXCAMERA-based camera positioning is in v2.
 - Head movement / bobbing — deferred to v3
 - Cockpit instrument panel interaction (clickable switches) — deferred to v3
 - Tower view, fly-by camera — deferred to v3
@@ -78,7 +73,7 @@ Camera positioned at pilot eyepoint with full EXCAMERA cycling. Cockpit SRF mesh
 In `Aircraft` struct (`aircraft.h`):
 
 - **Add** `int excamera_index = -1` — current EXCAMERA index (-1 = orbit mode)
-- **Add** `Model cockpit_model` — loaded cockpit SRF data
+- **Add** `Model cockpit_model` — loaded cockpit SRF data (loaded but not rendered in v2)
 - **No changes** to Camera struct (EXCAMERA positions accessed from Aircraft's DATMap, not stored on Camera)
 
 ---
