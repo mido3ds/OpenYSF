@@ -1,8 +1,8 @@
-# OpenYSF v3 Roadmap — What's Left After v2
+# OpenYSF Roadmap — Backlog
 
-Last updated: 2026-07-08
+Last updated: 2026-07-10
 
-This documents everything deferred beyond the v2 "cockpit experience" milestone, organized by domain. Items are rough-ordered by estimated impact on the flying experience.
+This documents everything deferred beyond the v3 "visual breadth" milestone, organized by domain. Items marked **[v3]** are in-progress for v3. The rest are deferred to v4+.
 
 ---
 
@@ -34,7 +34,7 @@ Current v1 physics covers basic takeoff→fly→land with rotational dynamics. v
 
 | Item | Detail | Blocked By |
 |---|---|---|
-| Terrain textures | Parse TEXMAN, TEX MAIN, TXL/TXC blocks in FLD | Parser gaps in assets.h:~1360,~1451,~1647 |
+| ~~Terrain textures~~ | **[v3]** TEXMAN/TEX MAIN parsed, multiply-blend shader. TXL/TXC deferred. | `v3-spec.md` |
 | Terrain side colors | Render BOT/RIG/LEF parsed side colors | Code exists but untested |
 | SPEC flag on TerMesh | Specular flag per terrain patch — affects rendering path | Parser skip at assets.h:1444 |
 | Water rendering | AreaKind::WATER parsed but no water surface drawn | New render pass needed |
@@ -46,14 +46,16 @@ Current v1 physics covers basic takeoff→fly→land with rotational dynamics. v
 
 | Item | Detail |
 |---|---|
-| Tower view | Fixed camera at tower position from scenery |
-| Fly-by / chase-cam refinements | Smooth transitions, different follow distances |
+| ~~Tower view~~ | **[v3]** Cycle through VIEW_POINT FieldRegions from scenery | `v3-spec.md` |
+| ~~Chase-cam~~ | **[v3]** Toggleable camera behind aircraft tail, follows orientation | `v3-spec.md` |
+| Fly-by camera | Smooth cinematic fly-by camera | v4+ |
+| Chase-cam refinements | Smooth transitions, adjustable follow distance via mouse wheel | v4+ |
 
 ## 5. HUD / Instruments
 
 | Item | Detail |
 |---|---|
-| AOA indicator | Angle of attack gauge |
+| ~~AOA indicator~~ | **[v3]** Vertical strip gauge on HUD | `v3-spec.md` |
 | Radar altimeter | Low-altitude precision |
 | Nav instruments | VOR, ILS, ADF needles for instrument approaches |
 
