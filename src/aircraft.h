@@ -93,10 +93,8 @@ struct Aircraft {
 	bool has_afterburner;
 	bool has_high_throttle_mesh;
 
-	int excamera_index = -1;
 	mu::Vec<ExternalCameraLocation> excameras;
 
-	bool cockpit_mode = false;
 	glm::vec3 cockpit_pos = {0, 1, 1};
 };
 

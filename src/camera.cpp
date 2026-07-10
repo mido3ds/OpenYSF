@@ -53,7 +53,7 @@ namespace sys {
 
 		auto& self = world.camera;
 		auto& ac = *self.aircraft;
-		auto& excamera = ac.excameras[ac.excamera_index];
+		auto& excamera = ac.excameras[self.camera_index];
 
 		auto ang = aircraft_angles(ac);
 		self.position = ac.translation + ac.orientation * excamera.pos;
@@ -124,28 +124,34 @@ namespace sys {
 		DEF_SYSTEM
 
 		if (world.events.camera_cycle && world.camera.aircraft) {
-			auto& ac = *world.camera.aircraft;
-			if (ac.excamera_index >= 0) {
-				ac.excamera_index++;
-				if (ac.excamera_index >= (int)ac.excameras.size())
-					ac.excamera_index = -1;
-			} else if (!ac.excameras.empty()) {
-				ac.excamera_index = 0;
+			auto& cam = world.camera;
+			if (cam.mode == CameraMode::EXCAMERA) {
+				cam.camera_index++;
+				if (cam.camera_index >= (int)cam.aircraft->excameras.size()) {
+					cam.camera_index = -1;
+					cam.mode = CameraMode::Orbit;
+				}
+			} else if (!cam.aircraft->excameras.empty()) {
+				cam.camera_index = 0;
+				cam.mode = CameraMode::EXCAMERA;
 			}
 		}
 
 		if (world.events.cockpit_toggle && world.camera.aircraft) {
-			auto& ac = *world.camera.aircraft;
-			ac.cockpit_mode = !ac.cockpit_mode;
-			if (ac.cockpit_mode)
-				ac.excamera_index = -1;
+			auto& cam = world.camera;
+			if (cam.mode == CameraMode::Cockpit) {
+				cam.mode = CameraMode::Orbit;
+			} else {
+				cam.mode = CameraMode::Cockpit;
+				cam.camera_index = -1;
+			}
 		}
 
 		if (world.camera.aircraft) {
-			auto& ac = *world.camera.aircraft;
-			if (ac.cockpit_mode) {
+			auto& cam = world.camera;
+			if (cam.mode == CameraMode::Cockpit) {
 				_camera_update_cockpit_mode(world);
-			} else if (ac.excamera_index >= 0) {
+			} else if (cam.mode == CameraMode::EXCAMERA) {
 				_camera_update_excamera_mode(world);
 			} else {
 				_camera_update_model_tracking_mode(world);

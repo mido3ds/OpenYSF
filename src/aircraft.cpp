@@ -582,7 +582,7 @@ namespace sys {
 				});
 			}
 
-			if (aircraft.cockpit_mode) {
+			if (world.camera.mode == CameraMode::Cockpit) {
 				glm::quat rot = aircraft.orientation * glm::quat(glm::radians(world.settings.rendering.cockpit_rotation_offset));
 				glm::vec3 pos = world.camera.position + world.camera.front * world.settings.rendering.cockpit_forward_offset;
 				glm::mat4 model = glm::translate(glm::mat4{1.0f}, pos)

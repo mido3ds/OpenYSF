@@ -10,6 +10,8 @@
 // forward declaration to avoid circular dependency with aircraft.h
 struct Aircraft;
 
+enum class CameraMode { Orbit, Chase, Tower, EXCAMERA, Cockpit };
+
 struct PerspectiveProjection {
 	float near         = 0.01f;
 	float far          = 100000;
@@ -23,6 +25,8 @@ inline glm::mat4 projection_calc_mat(PerspectiveProjection& self) {
 
 struct Camera {
 	Aircraft* aircraft;
+	CameraMode mode = CameraMode::Orbit;
+	int camera_index = -1;         // EXCAMERA index or tower viewpoint index
 	float zoom_multiplier = 5;
 
 	float movement_speed    = 1000.0f;
