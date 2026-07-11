@@ -1219,6 +1219,7 @@ int main(int argc, char* argv[]) {
 
 	if (run_tests) {
 		test_parser();
+		test_base64();
 		test_aabbs_intersection();
 		test_polygons_to_triangles();
 		test_line_segments_to_lines();

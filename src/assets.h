@@ -3,6 +3,9 @@
 #include <filesystem> // std::filesystem
 #include <mu/utils.h>
 
+#include <glad/glad.h>
+#include <SDL_image.h>
+
 #include "parser.h"
 
 struct Face {
@@ -1114,6 +1117,8 @@ struct TerrMesh {
 
 	GLBuf gl_buf;
 
+	mu::Str tex_name;
+
 	glm::vec3 translation;
 	glm::vec3 rotation; // roll, pitch, yaw
 	bool visible = true;
@@ -1317,6 +1322,34 @@ struct FieldGroundPath {
 	mu::Str tag;
 };
 
+inline mu::Vec<uint8_t> base64_decode(mu::StrView input, mu::memory::Allocator* allocator = mu::memory::default_allocator()) {
+	static constexpr uint8_t T[128] = {
+		64,64,64,64,64,64,64,64, 64,64,64,64,64,64,64,64,
+		64,64,64,64,64,64,64,64, 64,64,64,64,64,64,64,64,
+		64,64,64,64,64,64,64,64, 64,64,64,62,64,64,64,63,
+		52,53,54,55,56,57,58,59, 60,61,64,64,64,64,64,64,
+		64, 0, 1, 2, 3, 4, 5, 6,  7, 8, 9,10,11,12,13,14,
+		15,16,17,18,19,20,21,22, 23,24,25,64,64,64,64,64,
+		64,26,27,28,29,30,31,32, 33,34,35,36,37,38,39,40,
+		41,42,43,44,45,46,47,48, 49,50,51,64,64,64,64,64,
+	};
+	mu::Vec<uint8_t> output(allocator);
+	output.reserve(input.size() * 3 / 4);
+	uint32_t buf = 0;
+	int bits = 0;
+	for (char c : input) {
+		if (c == '=' || c == '\n' || c == '\r') continue;
+		if ((uint8_t)c >= 128 || T[(uint8_t)c] == 64) continue;
+		buf = (buf << 6) | T[(uint8_t)c];
+		bits += 6;
+		if (bits >= 8) {
+			bits -= 8;
+			output.push_back((uint8_t)(buf >> bits));
+		}
+	}
+	return output;
+}
+
 struct Field {
 	mu::Str name;
 	FieldID id;
@@ -1332,6 +1365,7 @@ struct Field {
 	mu::Vec<Mesh> meshes;
 	mu::Vec<GroundObjSpawn> gobs;
 	mu::Vec<FieldGroundPath> ground_paths;
+	mu::Map<mu::Str, uint32_t> textures;
 
 	bool should_be_transformed = true;
 	glm::mat4 transformation;
@@ -1355,9 +1389,70 @@ inline Field _field_from_fld_str(Parser& parser) {
 			mu::log_warning("{}: found FLDNAME, doesn't support it, skip for now", parser.curr_line+1);
 			parser_skip_after(parser, '\n');
 		} else if (parser_accept(parser, "TEXMAN")) {
-			// TODO
-			mu::log_warning("{}: found TEXMAN, doesn't support it, skip for now", parser.curr_line+1);
-			parser_skip_after(parser, "TEXMAN ENDTEXTURE\n");
+			parser_expect(parser, " TEXTURE \"");
+			auto tex_name = parser_token_str_with(parser, [](char c){ return c != '"'; });
+			parser_expect(parser, "\"\n");
+
+			mu::Str tex_format, tex_file;
+			GLenum filter_min = GL_LINEAR, filter_mag = GL_LINEAR;
+
+			parser_expect(parser, "TEXMAN TEXTUREFORMAT ");
+			tex_format = parser_token_str(parser);
+			parser_expect(parser, "\n");
+
+			if (parser_peek(parser, "TEXMAN TEXTUREFILE ")) {
+				parser_accept(parser, "TEXMAN TEXTUREFILE \"");
+				tex_file = parser_token_str_with(parser, [](char c){ return c != '"'; });
+				parser_expect(parser, "\"\n");
+			}
+
+			parser_expect(parser, "TEXMAN TEXTUREFILTER ");
+			if (parser_accept(parser, "NEAREST")) {
+				filter_min = GL_NEAREST;
+				filter_mag = GL_NEAREST;
+			} else {
+				parser_expect(parser, "LINEAR");
+			}
+			parser_expect(parser, "\n");
+
+			parser_expect(parser, "TEXMAN TEXTUREDATA ");
+			auto data_len = parser_token_u64(parser);
+			parser_expect(parser, "\n");
+
+			mu::Str b64_str;
+			b64_str.reserve(data_len * 4 / 3 + 64);
+			while (parser_accept(parser, "TEXMAN ")) {
+				if (parser_peek(parser, "ENDTEXTURE\n")) {
+					parser_accept(parser, "ENDTEXTURE\n");
+					break;
+				}
+				auto line = parser_token_str_with(parser, [](char c){ return c != '\n'; });
+				b64_str += line;
+				parser_accept(parser, "\n");
+			}
+
+			auto png_data = base64_decode(b64_str, mu::memory::tmp());
+			if (!png_data.empty()) {
+				auto* rw = SDL_RWFromMem(png_data.data(), (int)png_data.size());
+				auto* surface = IMG_Load_RW(rw, 1);
+				if (surface) {
+					GLuint tex_id = 0;
+					glGenTextures(1, &tex_id);
+					glBindTexture(GL_TEXTURE_2D, tex_id);
+					GLenum fmt = GL_RGBA;
+					if (surface->format->BytesPerPixel == 3) fmt = GL_RGB;
+					glTexImage2D(GL_TEXTURE_2D, 0, fmt, surface->w, surface->h, 0, fmt, GL_UNSIGNED_BYTE, surface->pixels);
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_min);
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_mag);
+					glBindTexture(GL_TEXTURE_2D, 0);
+					SDL_FreeSurface(surface);
+					field.textures[tex_name] = tex_id;
+				} else {
+					mu::log_warning("{}: failed to decode texture '{}': {}", parser.curr_line+1, tex_name, IMG_GetError());
+				}
+			} else {
+				mu::log_warning("{}: empty base64 data for texture '{}'", parser.curr_line+1, tex_name);
+			}
 		} else {
 			break;
 		}
@@ -1445,10 +1540,9 @@ inline Field _field_from_fld_str(Parser& parser) {
 				mu::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
 			}
 
-			if (parser_accept(parser, "TEX MAIN")) {
-				// TODO
-				mu::log_warning("{}: found TEX MAIN, doesn't understand it, skip for now", parser.curr_line+1);
-				parser_skip_after(parser, "\n");
+			if (parser_accept(parser, "TEX MAIN \"")) {
+				terr_mesh.tex_name = parser_token_str_with(parser, [](char c){ return c != '"'; });
+				parser_expect(parser, "\"\n");
 			}
 
 			parser_expect(parser, "NBL ");
@@ -2104,6 +2198,11 @@ inline void field_unload_from_gpu(Field& self) {
 		mesh_unload_from_gpu(mesh);
 	}
 
+	for (auto& [name, tex_id] : self.textures) {
+		glDeleteTextures(1, &tex_id);
+	}
+	self.textures.clear();
+
 	// recurse
 	for (auto& subfield : self.subfields) {
 		field_unload_from_gpu(subfield);
@@ -2258,4 +2357,25 @@ inline mu::Map<mu::Str, GroundObjTemplate> ground_obj_templates_from_dir(mu::Str
 		_ground_obj_templates_from_lst_file(file, scenery_templates);
 	}
 	return scenery_templates;
+}
+
+inline void test_base64() {
+	mu_test_suite("test_base64");
+
+	// "Hello, World!" in base64
+	auto decoded = base64_decode("SGVsbG8sIFdvcmxkIQ==");
+	mu_test(decoded.size() == 13);
+	mu_test(decoded[0] == 'H');
+	mu_test(decoded[7] == 'W');
+	mu_test(decoded[12] == '!');
+
+	// empty input
+	auto empty = base64_decode("");
+	mu_test(empty.size() == 0);
+
+	// newlines in input (as in TEXMAN format)
+	auto with_newlines = base64_decode("SGVs\nbG8=\n");
+	mu_test(with_newlines.size() == 5);
+	mu_test(with_newlines[0] == 'H');
+	mu_test(with_newlines[4] == 'o');
 }
