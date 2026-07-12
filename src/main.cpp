@@ -403,6 +403,15 @@ namespace sys {
 				ImGui::ColorEdit4("Sky##adi", glm::value_ptr(world.settings.hud.adi.sky_color));
 				ImGui::ColorEdit4("Ground##adi", glm::value_ptr(world.settings.hud.adi.ground_color));
 
+				ImGui::Separator();
+				ImGui::Text("AoA Indicator");
+				ImGui::DragFloat2("Pos##aoa", glm::value_ptr(world.settings.hud.aoa.position), 0.005f, 0.0f, 1.0f);
+				ImGui::DragFloat("Height##aoa", &world.settings.hud.aoa.height, 0.005f, 0.05f, 0.5f);
+				ImGui::ColorEdit4("Ticks##aoa", glm::value_ptr(world.settings.hud.aoa.tick_color));
+				ImGui::ColorEdit4("Labels##aoa", glm::value_ptr(world.settings.hud.aoa.label_color));
+				ImGui::ColorEdit4("Indicator##aoa", glm::value_ptr(world.settings.hud.aoa.indicator_color));
+				ImGui::DragFloat2("Tri Offset##aoa", glm::value_ptr(world.settings.hud.aoa.indicator_offset), 0.002f, -0.1f, 0.1f);
+
 				ImGui::TreePop();
 			}
 

@@ -689,6 +689,50 @@ namespace sys {
 					});
 				}
 
+				// AoA indicator — vertical strip gauge
+				{
+					auto& aoa_st = world.settings.hud.aoa;
+					float aoa = aircraft_angle_of_attack(aircraft);
+					float aoa_min = -5.0f, aoa_max = 25.0f;
+					float bar_x = aoa_st.position.x;
+					float bar_top = aoa_st.position.y + aoa_st.height * 0.5f;
+					float bar_bot = aoa_st.position.y - aoa_st.height * 0.5f;
+					float bar_h = aoa_st.height;
+					auto aoa_y = [&](float deg) { return bar_bot + bar_h * (deg - aoa_min) / (aoa_max - aoa_min); };
+
+					float aoa_labels[] = {-5.0f, 0.0f, 10.0f, 20.0f, 25.0f};
+					for (float deg : aoa_labels) {
+						float y = aoa_y(deg);
+						bool major = (deg == 0.0f || deg == 10.0f || deg == 20.0f);
+						float tick_w = major ? 0.012f : 0.007f;
+						canvas_add(world.canvas, canvas::hud::Line{
+							.p0 = {bar_x - tick_w, y},
+							.p1 = {bar_x + tick_w, y},
+							.color = aoa_st.tick_color,
+						});
+						if (major) {
+							canvas_add(world.canvas, canvas::hud::Text{
+								.text = mu::str_tmpf("{:.0f}", deg),
+								.p = {bar_x + 0.014f, y - 0.01f},
+								.scale = 0.3f,
+								.color = aoa_st.label_color,
+							});
+						}
+					}
+
+					float clamped_aoa = glm::clamp(aoa, aoa_min, aoa_max);
+					float iy = aoa_y(clamped_aoa);
+					float tri_h = 0.012f;
+					float tx = bar_x + aoa_st.indicator_offset.x;
+					float ty = iy + aoa_st.indicator_offset.y;
+					canvas_add(world.canvas, canvas::hud::FilledTriangle{
+						.p0 = {tx, ty},
+						.p1 = {tx + tri_h, ty + tri_h * 0.6f},
+						.p2 = {tx + tri_h, ty - tri_h * 0.6f},
+						.color = aoa_st.indicator_color,
+					});
+				}
+
 				// Heading indicator (compass rose)
 				auto ang = aircraft_angles(aircraft);
 				float heading_rad = std::atan2(ang.front.x, ang.front.z);

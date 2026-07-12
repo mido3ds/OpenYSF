@@ -861,6 +861,7 @@ namespace sys {
 		gl_program_uniform_set(self.program, "projection_view",
 			glm::ortho(0.0f, float(wnd_width), 0.0f, float(wnd_height)));
 
+		glDisable(GL_CULL_FACE);
 		glBindVertexArray(self.gl_buf.vao);
 		glBindBuffer(GL_ARRAY_BUFFER, self.gl_buf.vbo);
 
@@ -948,6 +949,7 @@ namespace sys {
 			glBufferSubData(GL_ARRAY_BUFFER, 0, 3 * sizeof(Stride), verts);
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 		}
+		glEnable(GL_CULL_FACE);
 	}
 
 	void canvas_render_lines(World& world) {

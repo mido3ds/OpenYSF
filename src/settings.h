@@ -61,6 +61,15 @@ struct Settings {
 			glm::vec4 sky_color {0.1f, 0.4f, 0.7f, 0.85f};
 			glm::vec4 ground_color {0.35f, 0.25f, 0.15f, 0.0f};
 		} adi;
+
+		struct {
+			glm::vec2 position {0.690f, 0.566f};
+			float height = 0.20f;
+			glm::vec4 tick_color {1, 1, 1, 0.6f};
+			glm::vec4 label_color {1, 1, 1, 0.7f};
+			glm::vec4 indicator_color {1, 0.6f, 0, 0.9f};
+			glm::vec2 indicator_offset {0.025f, 0.0f};
+		} aoa;
 	} hud;
 
 	struct {
