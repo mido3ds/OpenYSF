@@ -32,6 +32,8 @@ struct Camera {
 - Mouse wheel adjusts chase distance
 - Toggle on/off
 
+**Note:** Chase-cam is already implemented as `_camera_update_model_tracking_mode` (the default orbit/tracking mode). This mode positions the camera behind the aircraft and follows its orientation, which is exactly what a chase camera does. The camera angle is controlled by the aircraft's orientation rather than user input, making it a "locked" chase cam. No additional implementation is needed.
+
 ### Tower View
 
 - Collect `FieldRegion` entries with `id == VIEW_POINT` from the loaded scenery's Field hierarchy

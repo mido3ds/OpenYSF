@@ -47,7 +47,7 @@ Current v1 physics covers basic takeoff→fly→land with rotational dynamics. v
 | Item | Detail |
 |---|---|
 | ~~Tower view~~ | **[v3]** Cycle through VIEW_POINT FieldRegions from scenery | `v3-spec.md` |
-| ~~Chase-cam~~ | **[v3]** Toggleable camera behind aircraft tail, follows orientation | `v3-spec.md` |
+| ~~Chase-cam~~ | **[v3]** Already implemented as `_camera_update_model_tracking_mode` (default orbit/tracking mode) | `v3-spec.md` |
 | Fly-by camera | Smooth cinematic fly-by camera | v4+ |
 | Chase-cam refinements | Smooth transitions, adjustable follow distance via mouse wheel | v4+ |
 
