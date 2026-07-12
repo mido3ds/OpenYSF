@@ -62,6 +62,9 @@ namespace canvas {
 		size_t buf_len;
 		glm::mat4 projection_view_model;
 		glm::mat3 model_normal;
+
+		GLuint texture_id = 0;
+		bool tex_enabled = false;
 	};
 
 	struct Cockpit {
@@ -98,6 +101,9 @@ namespace canvas {
 			glm::vec3 color;
 			bool gradient_enabled;
 			glm::vec3 gradient_color2;
+
+			GLuint texture_id = 0;
+			bool tex_enabled = false;
 		};
 
 		mu::Vec<Primitive> list_primitives;

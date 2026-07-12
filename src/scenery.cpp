@@ -186,7 +186,7 @@ namespace sys {
 					default: mu_unreachable();
 					}
 
-					gnd_pic.list_primitives.push_back(canvas::GndPic::Primitive {
+					canvas::GndPic::Primitive cp {
 						.vao = primitive.gl_buf.vao,
 						.buf_len = primitive.gl_buf.len,
 						.gl_primitive_type = gl_primitive_type,
@@ -194,7 +194,14 @@ namespace sys {
 						.color = primitive.color,
 						.gradient_enabled = primitive.kind == Primitive2D::Kind::GRADATION_QUAD_STRIPS,
 						.gradient_color2 = primitive.gradient_color2,
-					});
+					};
+
+					if (primitive.tex_name.size() > 0 && fld->textures.contains(primitive.tex_name)) {
+						cp.tex_enabled = true;
+						cp.texture_id = fld->textures.at(primitive.tex_name);
+					}
+
+					gnd_pic.list_primitives.push_back(std::move(cp));
 				}
 
 				canvas_add(world.canvas, std::move(gnd_pic));
@@ -225,12 +232,22 @@ namespace sys {
 						.gradient_top_color = terr_mesh.gradient.top_color,
 					});
 				} else {
-					canvas_add(world.canvas, canvas::Mesh {
+					auto mesh = canvas::Mesh {
 						.vao = terr_mesh.gl_buf.vao,
 						.buf_len = terr_mesh.gl_buf.len,
 						.projection_view_model = world.mats.projection_view * model_transformation,
 						.model_normal = glm::transpose(glm::inverse(glm::mat3(model_transformation)))
-					});
+					};
+
+					if (!terr_mesh.tex_name.empty()) {
+						auto it = fld->textures.find(terr_mesh.tex_name);
+						if (it != fld->textures.end()) {
+							mesh.texture_id = it->second;
+							mesh.tex_enabled = true;
+						}
+					}
+
+					canvas_add(world.canvas, std::move(mesh));
 				}
 			}
 

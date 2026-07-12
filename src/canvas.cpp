@@ -24,6 +24,7 @@ namespace sys {
 				layout (location = 0) in vec3 attr_position;
 				layout (location = 1) in vec4 attr_color;
 				layout (location = 2) in vec3 attr_normal;
+				layout (location = 3) in vec2 attr_uv;
 
 				uniform mat4 projection_view_model;
 				uniform mat3 model_normal;
@@ -32,6 +33,7 @@ namespace sys {
 				out vec4 vs_color;
 				out vec3 vs_normal;
 				out float vs_depth;
+				out vec2 vs_uv;
 
 				void main() {
 					gl_Position = projection_view_model * vec4(attr_position, 1.0);
@@ -39,6 +41,7 @@ namespace sys {
 					vs_vertex_y = attr_position.y;
 					vs_normal = normalize(model_normal * attr_normal);
 					vs_depth = gl_Position.w;
+					vs_uv = attr_uv;
 				}
 			)GLSL",
 
@@ -49,6 +52,7 @@ namespace sys {
 				in vec4 vs_color;
 				in vec3 vs_normal;
 				in float vs_depth;
+				in vec2 vs_uv;
 
 				out vec4 out_fragcolor;
 
@@ -64,6 +68,9 @@ namespace sys {
 				uniform float fog_density;
 				uniform vec3 fog_color;
 
+				uniform bool tex_enabled;
+				uniform sampler2D terrain_tex;
+
 				void main() {
 					if (vs_color.a == 0) {
 						discard;
@@ -75,6 +82,10 @@ namespace sys {
 						base_color = vec4(mix(gradient_bottom_color, gradient_top_color, alpha), 1.0f);
 					} else {
 						base_color = vs_color;
+					}
+
+					if (tex_enabled) {
+						base_color *= texture(terrain_tex, vs_uv);
 					}
 
 				// dot(light_dir) > 0 avoids normalize(0) undefined when user drags all axes to zero via UI
@@ -114,16 +125,19 @@ namespace sys {
 			R"GLSL(
 				#version 330 core
 				layout (location = 0) in vec2 attr_position;
+				layout (location = 1) in vec2 attr_uv;
 
 				uniform mat4 projection_view_model;
 
 				out float vs_vertex_id;
 				out float vs_depth;
+				out vec2 vs_uv;
 
 				void main() {
 					gl_Position = projection_view_model * vec4(attr_position.x, 0.0, attr_position.y, 1.0);
 					vs_vertex_id = gl_VertexID % 6;
 					vs_depth = gl_Position.w;
+					vs_uv = attr_uv;
 				}
 			)GLSL",
 
@@ -133,10 +147,14 @@ namespace sys {
 
 				in float vs_vertex_id;
 				in float vs_depth;
+				in vec2 vs_uv;
 
 				uniform vec3 primitive_color[2];
 				uniform bool gradient_enabled;
 				uniform sampler2D groundtile;
+
+				uniform bool tex_enabled;
+				uniform sampler2D terrain_tex;
 
 				uniform bool fog_enabled;
 				uniform float fog_density;
@@ -149,7 +167,7 @@ namespace sys {
 					0, 0, 1
 				);
 
-				const vec2 tex_coords[3] = vec2[] (
+				const vec2 default_tex_coords[3] = vec2[] (
 					vec2(0, 0), vec2(1, 0), vec2(1, 1)
 				);
 
@@ -158,7 +176,12 @@ namespace sys {
 					if (gradient_enabled) {
 						color_index = color_indices[int(vs_vertex_id)];
 					}
-					out_fragcolor = texture(groundtile, tex_coords[int(vs_vertex_id) % 3]).r * vec4(primitive_color[color_index], 1.0);
+					vec2 tc = tex_enabled ? vs_uv : default_tex_coords[int(vs_vertex_id) % 3];
+					vec4 base = texture(groundtile, tc).r * vec4(primitive_color[color_index], 1.0);
+					if (tex_enabled) {
+						base *= texture(terrain_tex, vs_uv);
+					}
+					out_fragcolor = base;
 					if (fog_enabled) {
 						float d = vs_depth * fog_density;
 						float fog_factor = exp(-d * d);
@@ -612,10 +635,21 @@ namespace sys {
 		gl_program_uniform_set(world.canvas.meshes.program, "fog_color",
 			world.settings.rendering.fog_color);
 
+		// texture sampler on unit 0
+		gl_program_uniform_set(world.canvas.meshes.program, "terrain_tex", 0);
+		gl_program_uniform_set(world.canvas.meshes.program, "tex_enabled", false);
+
 		// regular
 		for (const auto& mesh : world.canvas.meshes.list_regular) {
 			gl_program_uniform_set(world.canvas.meshes.program, "projection_view_model", mesh.projection_view_model);
 			gl_program_uniform_set(world.canvas.meshes.program, "model_normal", mesh.model_normal);
+
+			gl_program_uniform_set(world.canvas.meshes.program, "tex_enabled", mesh.tex_enabled);
+			if (mesh.tex_enabled) {
+				glActiveTexture(GL_TEXTURE0);
+				glBindTexture(GL_TEXTURE_2D, mesh.texture_id);
+			}
+
 			glBindVertexArray(mesh.vao);
 			glDrawArrays(world.settings.rendering.primitives_type, 0, mesh.buf_len);
 		}
@@ -1018,6 +1052,13 @@ namespace sys {
 				gl_program_uniform_set(self.gnd_pics.program, "gradient_enabled", primitives.gradient_enabled);
 				if (primitives.gradient_enabled) {
 					gl_program_uniform_set(self.gnd_pics.program, "primitive_color[1]", primitives.gradient_color2);
+				}
+
+				gl_program_uniform_set(self.gnd_pics.program, "tex_enabled", primitives.tex_enabled);
+				if (primitives.tex_enabled) {
+					glActiveTexture(GL_TEXTURE0);
+					glBindTexture(GL_TEXTURE_2D, primitives.texture_id);
+					gl_program_uniform_set(self.gnd_pics.program, "terrain_tex", 0);
 				}
 
 				glBindVertexArray(primitives.vao);

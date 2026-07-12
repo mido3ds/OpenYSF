@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem> // std::filesystem
+#include <limits>
 #include <mu/utils.h>
 
 #include <glad/glad.h>
@@ -623,7 +624,7 @@ inline Mesh _mesh_from_srf_str(Parser& parser, mu::StrView name) {
 }
 
 inline static void
-inline _str_unquote(mu::Str& s) {
+_str_unquote(mu::Str& s) {
 	if (s.size() < 2) {
 		return;
 	}
@@ -974,8 +975,8 @@ inline bool datmap_get_floats(const DATMap& self, const mu::Str& key, mu::Vec<fl
 	return true;
 }
 
-inline template<typename T>
-inline bool datmap_get_ints(const DATMap& self, const mu::Str& key, mu::Vec<T*>&& ptrs) {
+template<typename T>
+bool datmap_get_ints(const DATMap& self, const mu::Str& key, mu::Vec<T*>&& ptrs) {
 	static_assert(std::is_integral_v<T>);
 	auto it = self.map.find(key);
 	if (it == self.map.end()) {
@@ -1129,6 +1130,7 @@ inline void terr_mesh_load_to_gpu(TerrMesh& self) {
 		glm::vec3 vertex;
 		glm::vec4 color;
 		glm::vec3 normal;
+		glm::vec2 uv;
 	};
 	mu::Vec<Stride> buffer(mu::memory::tmp());
 
@@ -1201,7 +1203,18 @@ inline void terr_mesh_load_to_gpu(TerrMesh& self) {
 		stride.vertex.z *= self.scale.y;
 	}
 
-	// compute face normals from the scaled geometry
+	// compute face normals and XZ-projected UVs from the scaled geometry
+	float min_x = std::numeric_limits<float>::max(), max_x = std::numeric_limits<float>::lowest();
+	float min_z = std::numeric_limits<float>::max(), max_z = std::numeric_limits<float>::lowest();
+	for (const auto& s : buffer) {
+		min_x = std::min(min_x, s.vertex.x);
+		max_x = std::max(max_x, s.vertex.x);
+		min_z = std::min(min_z, s.vertex.z);
+		max_z = std::max(max_z, s.vertex.z);
+	}
+	float range_x = max_x - min_x;
+	float range_z = max_z - min_z;
+
 	for (size_t i = 0; i < buffer.size(); i += 3) {
 		glm::vec3 v0 = buffer[i+0].vertex;
 		glm::vec3 v1 = buffer[i+1].vertex;
@@ -1210,9 +1223,17 @@ inline void terr_mesh_load_to_gpu(TerrMesh& self) {
 		buffer[i+0].normal = normal;
 		buffer[i+1].normal = normal;
 		buffer[i+2].normal = normal;
+
+		for (int j = 0; j < 3; j++) {
+			auto& s = buffer[i+j];
+			s.uv = glm::vec2(
+				range_x > 0 ? (s.vertex.x - min_x) / range_x : 0.0f,
+				range_z > 0 ? (s.vertex.z - min_z) / range_z : 0.0f
+			);
+		}
 	}
 
-	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4, glm::vec3>(buffer);
+	self.gl_buf = gl_buf_new<glm::vec3, glm::vec4, glm::vec3, glm::vec2>(buffer);
 }
 
 inline void terr_mesh_unload_from_gpu(TerrMesh& self) {
@@ -1237,11 +1258,25 @@ struct Primitive2D {
 	// (X,Z), y=0
 	mu::Vec<glm::vec2> vertices;
 
+	mu::Str tex_name;
+	mu::Vec<glm::vec2> tex_coords; // one per vertex, same order as vertices
+
 	GLBuf gl_buf;
 };
 
 inline void primitive2d_load_to_gpu(Primitive2D& self) {
-	self.gl_buf = gl_buf_new<glm::vec2>(self.vertices);
+	struct Stride {
+		glm::vec2 position;
+		glm::vec2 uv;
+	};
+	mu::Vec<Stride> buffer(mu::memory::tmp());
+	for (size_t i = 0; i < self.vertices.size(); i++) {
+		buffer.push_back(Stride {
+			.position = self.vertices[i],
+			.uv = i < self.tex_coords.size() ? self.tex_coords[i] : glm::vec2(0, 0),
+		});
+	}
+	self.gl_buf = gl_buf_new<glm::vec2, glm::vec2>(buffer);
 }
 
 inline void primitive2d_unload_from_gpu(Primitive2D& self) {
@@ -1367,6 +1402,13 @@ struct Field {
 	mu::Vec<FieldGroundPath> ground_paths;
 	mu::Map<mu::Str, uint32_t> textures;
 
+	struct PendingTexture {
+		mu::Str name;
+		mu::Vec<uint8_t> png_data;
+		GLenum filter_min, filter_mag;
+	};
+	mu::Vec<PendingTexture> pending_textures;
+
 	bool should_be_transformed = true;
 	glm::mat4 transformation;
 
@@ -1431,25 +1473,14 @@ inline Field _field_from_fld_str(Parser& parser) {
 				parser_accept(parser, "\n");
 			}
 
-			auto png_data = base64_decode(b64_str, mu::memory::tmp());
+			auto png_data = base64_decode(b64_str);
 			if (!png_data.empty()) {
-				auto* rw = SDL_RWFromMem(png_data.data(), (int)png_data.size());
-				auto* surface = IMG_Load_RW(rw, 1);
-				if (surface) {
-					GLuint tex_id = 0;
-					glGenTextures(1, &tex_id);
-					glBindTexture(GL_TEXTURE_2D, tex_id);
-					GLenum fmt = GL_RGBA;
-					if (surface->format->BytesPerPixel == 3) fmt = GL_RGB;
-					glTexImage2D(GL_TEXTURE_2D, 0, fmt, surface->w, surface->h, 0, fmt, GL_UNSIGNED_BYTE, surface->pixels);
-					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_min);
-					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_mag);
-					glBindTexture(GL_TEXTURE_2D, 0);
-					SDL_FreeSurface(surface);
-					field.textures[tex_name] = tex_id;
-				} else {
-					mu::log_warning("{}: failed to decode texture '{}': {}", parser.curr_line+1, tex_name, IMG_GetError());
-				}
+				field.pending_textures.push_back(Field::PendingTexture {
+					.name = std::move(tex_name),
+					.png_data = std::move(png_data),
+					.filter_min = filter_min,
+					.filter_mag = filter_mag,
+				});
 			} else {
 				mu::log_warning("{}: empty base64 data for texture '{}'", parser.curr_line+1, tex_name);
 			}
@@ -1728,31 +1759,34 @@ inline Field _field_from_fld_str(Parser& parser) {
 				}
 
 				mu::Vec<glm::vec2> tmp_verts;
+				mu::Vec<glm::vec2> tmp_tex_coords;
 				while (parser_accept(parser, "ENDO\n") == false) {
-					if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
+					if (parser_accept(parser, "TXL \"")) {
+						primitive.tex_name = parser_token_str_with(parser, [](char c){ return c != '"'; });
+						parser_expect(parser, "\"\n");
+
+						while (parser_accept(parser, "TXC ")) {
+							glm::vec2 uv {};
+							uv.x = parser_token_float(parser);
+							parser_expect(parser, ' ');
+							uv.y = parser_token_float(parser);
+							parser_expect(parser, '\n');
+
+							tmp_tex_coords.push_back(uv);
+						}
+					} else if (parser_accept(parser, "SPEC TRUE\n") || parser_accept(parser, "SPEC FALSE\n")) {
 						// TODO
 						mu::log_warning("{}: found SPEC, doesn't understand it, skip for now", parser.curr_line+1);
-						continue;
+					} else {
+						glm::vec2 vertex {};
+						parser_expect(parser, "VER ");
+						vertex.x = parser_token_float(parser);
+						parser_expect(parser, ' ');
+						vertex.y = parser_token_float(parser);
+						parser_expect(parser, '\n');
+
+						tmp_verts.push_back(vertex);
 					}
-
-					if (parser_accept(parser, "TXL")) {
-						// TODO
-						mu::log_warning("{}: found TXL, doesn't understand it, skip for now", parser.curr_line+1);
-						parser_skip_after(parser, '\n');
-						while (parser_accept(parser, "TXC")) {
-							parser_skip_after(parser, '\n');
-						}
-						continue;
-					}
-
-					glm::vec2 vertex {};
-					parser_expect(parser, "VER ");
-					vertex.x = parser_token_float(parser);
-					parser_expect(parser, ' ');
-					vertex.y = parser_token_float(parser);
-					parser_expect(parser, '\n');
-
-					tmp_verts.push_back(vertex);
 				}
 
 				if (tmp_verts.size() == 0) {
@@ -1762,6 +1796,9 @@ inline Field _field_from_fld_str(Parser& parser) {
 				} else if (primitive.kind == Primitive2D::Kind::LINES && tmp_verts.size() % 2 != 0) {
 					mu::log_error("{}: kind is line but num of vertices ({}) isn't divisible by 2, ignoring last vertex", parser.curr_line+1, tmp_verts.size());
 					tmp_verts.pop_back();
+					if (tmp_tex_coords.size() > tmp_verts.size()) {
+						tmp_tex_coords.pop_back();
+					}
 				} else if (primitive.kind == Primitive2D::Kind::LINE_SEGMENTS && tmp_verts.size() == 1) {
 					parser_panic(parser, "{}: kind is line but has one point", parser.curr_line+1);
 				} else if (primitive.kind == Primitive2D::Kind::QUADRILATERAL && tmp_verts.size() % 4 != 0) {
@@ -1770,18 +1807,32 @@ inline Field _field_from_fld_str(Parser& parser) {
 					parser_panic(parser, "{}: kind is quad_strip but num of vertices ({}) isn't in (4,6,8,10,...)", parser.curr_line+1, tmp_verts.size());
 				}
 
-				// build final vertices
+				// fill default tex_coords if none provided
+				if (tmp_tex_coords.empty()) {
+					tmp_tex_coords.resize(tmp_verts.size(), glm::vec2(0, 0));
+				}
+
+				// build final vertices (and tex_coords)
+				auto push_vert = [&](size_t i) {
+					primitive.vertices.push_back(tmp_verts[i]);
+					if (i < tmp_tex_coords.size()) {
+						primitive.tex_coords.push_back(tmp_tex_coords[i]);
+					} else {
+						primitive.tex_coords.push_back(glm::vec2(0, 0));
+					}
+				};
+
 				switch (primitive.kind) {
 				case Primitive2D::Kind::QUADRILATERAL:
 				{
 					for (int i = 0; i < (int)tmp_verts.size() - 3; i += 4) {
-						primitive.vertices.push_back(tmp_verts[i]);
-						primitive.vertices.push_back(tmp_verts[i+3]);
-						primitive.vertices.push_back(tmp_verts[i+2]);
+						push_vert(i);
+						push_vert(i+3);
+						push_vert(i+2);
 
-						primitive.vertices.push_back(tmp_verts[i]);
-						primitive.vertices.push_back(tmp_verts[i+2]);
-						primitive.vertices.push_back(tmp_verts[i+1]);
+						push_vert(i);
+						push_vert(i+2);
+						push_vert(i+1);
 					}
 					break;
 				}
@@ -1789,13 +1840,13 @@ inline Field _field_from_fld_str(Parser& parser) {
 				case Primitive2D::Kind::QUAD_STRIPS:
 				{
 					for (int i = 0; i < (int)tmp_verts.size() - 2; i += 2) {
-						primitive.vertices.push_back(tmp_verts[i]);
-						primitive.vertices.push_back(tmp_verts[i+1]);
-						primitive.vertices.push_back(tmp_verts[i+3]);
+						push_vert(i);
+						push_vert(i+1);
+						push_vert(i+3);
 
-						primitive.vertices.push_back(tmp_verts[i]);
-						primitive.vertices.push_back(tmp_verts[i+2]);
-						primitive.vertices.push_back(tmp_verts[i+3]);
+						push_vert(i);
+						push_vert(i+2);
+						push_vert(i+3);
 					}
 					break;
 				}
@@ -1803,12 +1854,14 @@ inline Field _field_from_fld_str(Parser& parser) {
 				{
 					auto indices = polygons2d_to_triangles(tmp_verts, mu::memory::tmp());
 					for (auto& index : indices) {
-						primitive.vertices.push_back(tmp_verts[index]);
+						push_vert(index);
 					}
 					break;
 				}
 				default:
-					primitive.vertices = std::move(tmp_verts);
+					for (size_t i = 0; i < tmp_verts.size(); i++) {
+						push_vert(i);
+					}
 					break;
 				}
 
@@ -2170,7 +2223,34 @@ inline Field field_from_fld_file(mu::StrView fld_file_abs_path) {
 	return field;
 }
 
+inline void pending_texture_load_to_gpu(Field& self, Field::PendingTexture& ptex) {
+	auto rw = SDL_RWFromMem(ptex.png_data.data(), (int)ptex.png_data.size());
+	if (auto surface = IMG_Load_RW(rw, 1)) {
+		mu_defer(SDL_FreeSurface(surface));
+
+		GLuint tex_id {};
+		GLenum fmt = surface->format->BytesPerPixel == 3 ? GL_RGB : GL_RGBA;
+
+		glGenTextures(1, &tex_id);
+		glBindTexture(GL_TEXTURE_2D, tex_id);
+			glTexImage2D(GL_TEXTURE_2D, 0, fmt, surface->w, surface->h, 0, fmt, GL_UNSIGNED_BYTE, surface->pixels);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, ptex.filter_min);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, ptex.filter_mag);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		self.textures[ptex.name] = tex_id;
+		mu::log_debug("loaded texture {}", ptex.name);
+	} else {
+		mu::log_warning("failed to decode texture '{}': {}", ptex.name, IMG_GetError());
+	}
+}
+
 inline void field_load_to_gpu(Field& self) {
+	for (auto& ptex : self.pending_textures) {
+		pending_texture_load_to_gpu(self, ptex);
+	}
+	self.pending_textures.clear();
+
 	for (auto& terr_mesh : self.terr_meshes) {
 		terr_mesh_load_to_gpu(terr_mesh);
 	}
@@ -2198,7 +2278,7 @@ inline void field_unload_from_gpu(Field& self) {
 		mesh_unload_from_gpu(mesh);
 	}
 
-	for (auto& [name, tex_id] : self.textures) {
+	for (auto& [_, tex_id] : self.textures) {
 		glDeleteTextures(1, &tex_id);
 	}
 	self.textures.clear();
