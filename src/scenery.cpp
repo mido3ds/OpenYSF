@@ -129,6 +129,21 @@ namespace sys {
 					return true;
 				});
 			}
+
+			// collect tower viewpoints from VIEW_POINT regions
+			world.camera.tower_viewpoints.clear();
+			for (const Field* fld : all_fields) {
+				if (fld->visible == false) {
+					continue;
+				}
+				for (const auto& region : fld->regions) {
+					if (region.id == FieldID::TOWER) {
+						auto pos = glm::vec3(fld->transformation * region.transformation * glm::vec4{0, 0, 0, 1});
+						pos.y = -pos.y; // flip Y: file coords have +Y up, renderer has -Y up
+						world.camera.tower_viewpoints.push_back(pos);
+					}
+				}
+			}
 		}
 	}
 

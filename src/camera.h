@@ -28,6 +28,7 @@ struct Camera {
 	CameraMode mode = CameraMode::Orbit;
 	int camera_index = -1;         // EXCAMERA index or tower viewpoint index
 	float zoom_multiplier = 5;
+	mu::Vec<glm::vec3> tower_viewpoints;
 
 	float movement_speed    = 1000.0f;
 	float mouse_sensitivity = 1.4;

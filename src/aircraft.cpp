@@ -652,7 +652,7 @@ namespace sys {
 				});
 			}
 
-			if (world.camera.aircraft == &aircraft && world.settings.hud.enabled) {
+			if (world.camera.aircraft == &aircraft && world.settings.hud.enabled && world.camera.mode != CameraMode::Tower) {
 				float airspeed_kt = glm::length(aircraft.velocity) * 1.94384f;
 				float altitude_ft = (- aircraft.translation.y + 1.0f) * 3.28084f;
 

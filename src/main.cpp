@@ -1188,9 +1188,12 @@ namespace sys {
 			case SDLK_F10:
 				self.camera_cycle = true;
 				break;
-			case SDLK_F11:
-				self.cockpit_toggle = true;
-				break;
+		case SDLK_F11:
+			self.cockpit_toggle = true;
+			break;
+		case SDLK_F12:
+			self.tower_cycle = true;
+			break;
 			case 'f':
 					world.settings.fullscreen = !world.settings.fullscreen;
 					signal_fire(world.signals.wnd_configs_changed);

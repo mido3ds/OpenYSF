@@ -74,6 +74,19 @@ namespace sys {
 		world.camera.up = ang.up;
 	}
 
+	void _camera_update_tower_mode(World& world) {
+		DEF_SYSTEM
+
+		auto& self = world.camera;
+		auto& ac = *self.aircraft;
+		auto& pos = self.tower_viewpoints[self.camera_index];
+
+		self.position = pos;
+		self.front = glm::normalize(ac.translation - pos);
+		self.target_pos = ac.translation;
+		self.up = self.world_up;
+	}
+
 	void _camera_update_flying_mode(World& world) {
 		DEF_SYSTEM
 
@@ -147,12 +160,28 @@ namespace sys {
 			}
 		}
 
+		if (world.events.tower_cycle && world.camera.aircraft && !world.camera.tower_viewpoints.empty()) {
+			auto& cam = world.camera;
+			if (cam.mode == CameraMode::Tower) {
+				cam.camera_index++;
+				if (cam.camera_index >= (int)cam.tower_viewpoints.size()) {
+					cam.camera_index = -1;
+					cam.mode = CameraMode::Orbit;
+				}
+			} else {
+				cam.camera_index = 0;
+				cam.mode = CameraMode::Tower;
+			}
+		}
+
 		if (world.camera.aircraft) {
 			auto& cam = world.camera;
 			if (cam.mode == CameraMode::Cockpit) {
 				_camera_update_cockpit_mode(world);
 			} else if (cam.mode == CameraMode::EXCAMERA) {
 				_camera_update_excamera_mode(world);
+			} else if (cam.mode == CameraMode::Tower) {
+				_camera_update_tower_mode(world);
 			} else {
 				_camera_update_model_tracking_mode(world);
 			}
